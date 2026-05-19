@@ -1,0 +1,99 @@
+<div class="admin-container">
+  <div class="admin-header">
+    <h1>📦 จัดการสินค้า (Admin)</h1>
+  </div>
+
+  <!-- ฟอร์มเพิ่ม / แก้ไขสินค้า -->
+  <div class="form-card">
+    <h2>{{ editMode ? '✏️ แก้ไขสินค้า' : '➕ เพิ่มสินค้าใหม่' }}</h2>
+    <div class="form-grid">
+
+      <div class="form-group col-2">
+        <label>ชื่อสินค้า</label>
+        <input type="text" [(ngModel)]="formProduct.name" placeholder="เช่น Intel Core i9-14900K">
+      </div>
+
+      <div class="form-group">
+        <label>ราคา (บาท)</label>
+        <input type="number" [(ngModel)]="formProduct.price" placeholder="0">
+      </div>
+
+      <div class="form-group">
+        <label>หมวดหมู่</label>
+        <select [(ngModel)]="formProduct.category">
+          <option value="c01">CPU</option>
+          <option value="c02">Mainboard</option>
+          <option value="c03">GPU / VGA</option>
+          <option value="c04">RAM</option>
+          <option value="c05">M.2 / SSD</option>
+          <option value="c06">PSU</option>
+          <option value="c07">Case</option>
+          <option value="c08">Liquid Cooler</option>
+          <option value="c09">Air Cooler</option>
+        </select>
+      </div>
+
+      <div class="form-group col-2">
+        <label>คำอธิบายสินค้า</label>
+        <textarea [(ngModel)]="formProduct.description" placeholder="รายละเอียดสินค้า..." rows="3"></textarea>
+      </div>
+
+      <div class="form-group col-2">
+        <label>URL รูปภาพ</label>
+        <input type="text" [(ngModel)]="formProduct.image" placeholder="https://... หรือ assets/...">
+      </div>
+
+    </div>
+
+    <div class="form-actions">
+      <button (click)="submitForm()" class="btn-save">
+        {{ editMode ? '💾 บันทึกการแก้ไข' : '➕ เพิ่มสินค้า' }}
+      </button>
+      <button *ngIf="editMode" (click)="cancelEdit()" class="btn-cancel">
+        ✖ ยกเลิก
+      </button>
+    </div>
+  </div>
+
+  <!-- ตารางสินค้า -->
+  <div class="table-card">
+    <div class="table-header-row">
+      <h2>รายการสินค้าทั้งหมด ({{ products.length }} รายการ)</h2>
+    </div>
+
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>รูป</th>
+            <th>ชื่อสินค้า</th>
+            <th>หมวดหมู่</th>
+            <th>ราคา</th>
+            <th>Stock</th>
+            <th class="text-center">จัดการ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let p of products">
+            <td>
+              <img [src]="p.img_url || 'assets/default.png'" class="product-thumb" [alt]="p.p_name">
+            </td>
+            <td class="product-name-cell">{{ p.p_name }}</td>
+            <td><span class="badge">{{ getCategoryName(p.cid) }}</span></td>
+            <td class="price-cell">{{ p.p_price | number }} ฿</td>
+            <td>{{ p.p_stock }}</td>
+            <td class="action-cell">
+              <button (click)="editProduct(p)" class="btn-edit">✏️ แก้ไข</button>
+              <button (click)="deleteProduct(p.product_id)" class="btn-delete">🗑️ ลบ</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div *ngIf="products.length === 0" class="empty-state">
+      ยังไม่มีสินค้าในระบบ
+    </div>
+  </div>
+
+</div>

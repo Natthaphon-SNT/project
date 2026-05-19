@@ -1,0 +1,54 @@
+<div class="cart-wrapper fade-in">
+  <div class="cart-box">
+
+    <div class="cart-header">
+      <h2>💻 สเปคคอมพิวเตอร์ของคุณ</h2>
+    </div>
+
+    <div *ngIf="cartItems.length > 0; else emptyCart" class="cart-content">
+      <div class="cart-items-list">
+
+        <div *ngFor="let item of cartItems" class="cart-item">
+          <div class="item-img-container">
+            <img [src]="item.img_url || 'assets/default.png'" alt="hw">
+          </div>
+
+          <div class="item-info">
+            <div class="item-name" [title]="item.p_name">
+              {{ item.p_name }}
+            </div>
+            <div class="item-price">{{ item.p_price | number }} ฿</div>
+          </div>
+
+          <div class="item-qty">
+            x{{ item.quantity }}
+          </div>
+
+          <button (click)="removeItem(item.product_id)" class="btn-delete" title="ลบชิ้นนี้">
+            ✖
+          </button>
+        </div>
+
+      </div>
+
+      <div class="cart-summary">
+        <div class="total-row">
+          <span>ราคารวมประเมิน:</span>
+          <span class="total-amount">{{ totalAmount | number }} ฿</span>
+        </div>
+        <button routerLink="/checkout" class="btn-checkout">
+          ดูสรุปสเปคและบันทึก
+        </button>
+      </div>
+    </div>
+
+    <ng-template #emptyCart>
+      <div class="empty-state">
+        <div class="icon">💻</div>
+        <p>คุณยังไม่ได้เลือกฮาร์ดแวร์ใดๆ</p>
+        <button routerLink="/products" class="btn-back">กลับไปจัดสเปค</button>
+      </div>
+    </ng-template>
+
+  </div>
+</div>

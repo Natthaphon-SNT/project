@@ -1,0 +1,115 @@
+<div class="container">
+  <button class="btn-history-top" routerLink="/history">
+    🕒 ประวัติการจัดสเปก
+  </button>
+
+  <h1 class="main-title">AI จัดสเปกคอมฯ</h1>
+
+  <div class="search-container">
+    <div class="search-box">
+      <input type="text" [(ngModel)]="userInput" name="userInput" placeholder="เช่น งบ 30000 เล่นเกม Valorant"
+        (keyup.enter)="submitRequirement()">
+      <div class="button-group">
+        <button class="btn-primary" (click)="submitRequirement()" [disabled]="isLoading">
+          {{ isLoading ? 'กำลังประมวลผล...' : '🚀 จัดสเปกเลย' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="result" class="result-wrapper fade-in">
+
+    <div class="ai-analysis-card">
+      <h2 class="section-title">ผลการวิเคราะห์</h2>
+      <div class="summary-meta">
+        <p><strong>💰 งบประมาณ:</strong> {{ result.budget | number }} บาท</p>
+        <p><strong>🎮 การใช้งาน:</strong> {{ result.usage }}</p>
+      </div>
+
+      <div class="ai-reasoning-content">
+        <h3>💡 คำแนะนำจาก AI:</h3>
+
+        <ul *ngIf="isList(result.advice)">
+          <li *ngFor="let tip of $any(result.advice)">{{ tip }}</li>
+        </ul>
+
+        <p *ngIf="!isList(result.advice)">{{ result.advice }}</p>
+      </div>
+    </div>
+
+    <div class="comparison-table-container">
+      <table class="comparison-table">
+
+
+
+      </table>
+    </div>
+
+    <div class="comparison-table-container">
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>ชิ้นส่วน</th>
+            <th>รุ่น / โมเดล</th>
+            <th colspan="3" class="price-header">เปรียบเทียบราคา (บาท)</th>
+          </tr>
+          <tr class="store-names">
+            <th></th>
+            <th></th>
+            <th>JIB</th>
+            <th>Advice</th>
+            <th>iHaveCPU</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let part of result.parts">
+            <td><span class="part-badge">{{ part.category }}</span></td>
+            <td class="part-name-cell">{{ part.name }}</td>
+
+            <td [class.highlight]="part.shop_prices && part.shop_prices.jib <= part.price && part.shop_prices.jib > 0">
+              <span *ngIf="part.shop_prices && part.shop_prices.jib > 0" class="store-link"
+                (click)="openStoreSearch('jib', part.name)" title="คลิกเพื่อค้นหาในเว็บ JIB">
+                {{ part.shop_prices.jib | number }} 🛒
+              </span>
+              <span *ngIf="!part.shop_prices || part.shop_prices.jib <= 0">-</span>
+            </td>
+
+            <td
+              [class.highlight]="part.shop_prices && part.shop_prices.advice <= part.price && part.shop_prices.advice > 0">
+              <span *ngIf="part.shop_prices && part.shop_prices.advice > 0" class="store-link"
+                (click)="openStoreSearch('advice', part.name)" title="คลิกเพื่อค้นหาในเว็บ Advice">
+                {{ part.shop_prices.advice | number }} 🛒
+              </span>
+              <span *ngIf="!part.shop_prices || part.shop_prices.advice <= 0">-</span>
+            </td>
+
+            <td
+              [class.highlight]="part.shop_prices && part.shop_prices.ihavecpu <= part.price && part.shop_prices.ihavecpu > 0">
+              <span *ngIf="part.shop_prices && part.shop_prices.ihavecpu > 0" class="store-link"
+                (click)="openStoreSearch('ihavecpu', part.name)" title="คลิกเพื่อค้นหาในเว็บ iHaveCPU">
+                {{ part.shop_prices.ihavecpu | number }} 🛒
+              </span>
+              <span *ngIf="!part.shop_prices || part.shop_prices.ihavecpu <= 0">-</span>
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="2" class="total-label">ราคารวมสุทธิ (ประมาณ)</td>
+            <td class="total-val">{{ calculateTotal('jib') | number }} ฿</td>
+            <td class="total-val">{{ calculateTotal('advice') | number }} ฿</td>
+            <td class="total-val">{{ calculateTotal('ihavecpu') | number }} ฿</td>
+          </tr>
+        </tfoot>
+
+      </table>
+      <div class="price-disclaimer">
+        <p>
+          ⚠️ <strong>หมายเหตุ:</strong> ราคาที่แสดงเป็นเพียง <span>"ราคาประเมินเบื้องต้น"</span> จากฐานข้อมูลฮาร์ดแวร์
+          ราคาจริงอาจมีการเปลี่ยนแปลงขึ้นอยู่กับโปรโมชั่น สินค้าหมด หรือการปรับราคาของแต่ละร้านค้า
+          <br>👉 <em>กรุณาคลิกที่ตัวเลขราคาในตาราง (🛒) เพื่อตรวจสอบราคาล่าสุดบนหน้าเว็บไซต์ของร้านโดยตรง</em>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

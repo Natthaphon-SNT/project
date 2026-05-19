@@ -1,0 +1,48 @@
+<div class="navbar-top">
+  <div class="nav-container top-links">
+    <ng-container *ngIf="!(auth.currentUserSubject | async)">
+      <a routerLink="/login"><i class="fas fa-sign-in-alt"></i> เข้าสู่ระบบ</a>
+      <span class="divider">|</span>
+      <a routerLink="/register"><i class="fas fa-user-plus"></i> สมัครสมาชิก</a>
+    </ng-container>
+    <ng-container *ngIf="auth.currentUserSubject | async as user">
+      <span>ยินดีต้อนรับ <strong>{{ user.name }}</strong></span>
+      <span class="divider">|</span>
+      <!-- ✅ แสดงลิงก์ Admin เฉพาะ role = admin -->
+      <ng-container *ngIf="user.role === 'admin'">
+        <a routerLink="/admin/products" class="admin-link">⚙️ จัดการสินค้า</a>
+        <span class="divider">|</span>
+        <a routerLink="/admin/orders" class="admin-link">📋 จัดการออเดอร์</a>
+        <span class="divider">|</span>
+      </ng-container>
+      <button (click)="logout()" class="btn-logout"><i class="fas fa-sign-out-alt"></i> ออกจากระบบ</button>
+    </ng-container>
+  </div>
+</div>
+
+<nav class="navbar-main">
+  <div class="nav-container">
+    <div class="nav-left">
+      <a routerLink="/" class="nav-logo">LT <span>PC BUILD</span></a>
+      <div class="nav-links">
+        <a routerLink="/products" class="nav-item">ทั้งหมด</a>
+        <div class="nav-divider"></div>
+        <a routerLink="/category/cpu" class="nav-item">CPU</a>
+        <a routerLink="/category/gpu" class="nav-item">Graphic Card</a>
+        <a routerLink="/category/mb" class="nav-item">Mainboard</a>
+        <a routerLink="/category/ram" class="nav-item">RAM</a>
+        <a routerLink="/category/ssd" class="nav-item">M.2 / SSD</a>
+        <a routerLink="/category/psu" class="nav-item">PSU</a>
+        <a routerLink="/category/case" class="nav-item">Case</a>
+        <a routerLink="/category/liquid cooler" class="nav-item">Liquid Cooler</a>
+        <a routerLink="/category/air cooler" class="nav-item">Air Cooler</a>
+        <div class="nav-divider"></div>
+        <a routerLink="/ai-recommend" class="nav-item ai-btn">🤖 AI จัดสเปก</a>
+      </div>
+    </div>
+    <div class="nav-right">
+      <a routerLink="/cart" class="nav-icon" title="สเปคของคุณ">💻</a>
+      <a routerLink="/profile" class="nav-icon" title="โปรไฟล์ของฉัน">👤</a>
+    </div>
+  </div>
+</nav>

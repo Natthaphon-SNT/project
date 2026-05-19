@@ -1,0 +1,387 @@
+<div class="ai-container">
+
+  <!-- ========== HEADER ========== -->
+  <div class="ai-header">
+    <div class="ai-logo">LT PC BUILD · AI SPEC ADVISOR</div>
+    <h1 class="ai-title">
+      แนะนำสเปคคอม<br>
+      <span class="text-red">ด้วย AI</span>
+    </h1>
+    <p class="ai-subtitle">วิเคราะห์ความต้องการ · แนะนำสเปค · เช็คความเข้ากัน · เปรียบเทียบ</p>
+  </div>
+
+  <!-- ========== TOP TABS (ฟอร์ม / ประวัติ / แอดมิน) ========== -->
+  <div class="top-tabs">
+    <button class="top-tab" [class.active]="activeTab === 'form'" (click)="setTab('form')">
+      🤖 AI Advisor
+    </button>
+    <button class="top-tab" [class.active]="activeTab === 'history'" (click)="setTab('history')">
+      📋 ประวัติของฉัน
+      <span class="badge" *ngIf="myHistory.length">{{ myHistory.length }}</span>
+    </button>
+    <button class="top-tab admin-tab" *ngIf="isAdmin" [class.active]="activeTab === 'admin'" (click)="setTab('admin')">
+      🛡️ Admin
+      <span class="badge red" *ngIf="allHistory.length">{{ allHistory.length }}</span>
+    </button>
+  </div>
+
+  <!-- ===================== TAB: AI FORM ===================== -->
+  <div *ngIf="activeTab === 'form'">
+
+    <!-- ─── MODE TABS ─── -->
+    <div class="mode-tabs" *ngIf="step === 1">
+      <button class="tab-btn" [class.active]="mode === 'recommend'" (click)="setMode('recommend')">
+        🤖 แนะนำสเปค
+      </button>
+      <button class="tab-btn" [class.active]="mode === 'compare'" (click)="setMode('compare')">
+        ⚖️ เปรียบเทียบสเปค
+      </button>
+      <button class="tab-btn" [class.active]="mode === 'compat'" (click)="setMode('compat')">
+        🔗 เช็คความเข้ากัน
+      </button>
+    </div>
+
+    <!-- ─── VIEWING FROM HISTORY BANNER ─── -->
+    <div class="history-banner" *ngIf="viewingDetail">
+      <span>📋 กำลังดูประวัติ: <strong>{{ viewingDetail.title }}</strong></span>
+      <button class="btn-sm" (click)="reset()">✕ ปิด</button>
+    </div>
+
+    <!-- ─── FORMS ─── -->
+
+    <!-- FORM: แนะนำสเปค -->
+    <div class="ai-card glow-card" *ngIf="step === 1 && mode === 'recommend'">
+      <div class="form-section">
+        <label class="form-label">การใช้งานหลัก</label>
+        <div class="usecase-grid">
+          <button *ngFor="let uc of useCases" class="usecase-btn"
+            [class.selected]="selectedUseCase === uc.id" (click)="selectedUseCase = uc.id">
+            <span class="uc-icon">{{ uc.icon }}</span>
+            <span class="uc-label">{{ uc.label }}</span>
+            <span class="uc-desc">{{ uc.desc }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <label class="form-label">งบประมาณ</label>
+        <div class="budget-grid">
+          <button *ngFor="let b of budgets" class="budget-btn"
+            [class.selected]="selectedBudget === b.id" (click)="selectedBudget = b.id">
+            {{ b.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <label class="form-label">ความต้องการเพิ่มเติม (ไม่บังคับ)</label>
+        <textarea class="ai-textarea" rows="3" [(ngModel)]="extraDetail"
+          placeholder="เช่น ต้องการ RGB, ไม่อยากใช้ Intel, ต้องรองรับ 4K, ต้องการ WiFi onboard...">
+        </textarea>
+      </div>
+
+      <button class="btn-ai-glow" [disabled]="!selectedUseCase || !selectedBudget" (click)="handleRecommend()">
+        🤖 ให้ AI แนะนำสเปค
+      </button>
+    </div>
+
+    <!-- FORM: เปรียบเทียบ -->
+    <div class="ai-card glow-card" *ngIf="step === 1 && mode === 'compare'">
+      <p class="form-hint">ใส่สเปคสองชุดที่ต้องการเปรียบเทียบ เช่น CPU + GPU หรือสเปคทั้งชุด</p>
+      <div class="form-section">
+        <label class="form-label">⚙️ สเปคชุดที่ 1</label>
+        <textarea class="ai-textarea" rows="4" [(ngModel)]="spec1"
+          placeholder="เช่น Intel Core i5-14400F + RTX 4060 + 16GB DDR5 + B760 งบ 25,000 บาท">
+        </textarea>
+      </div>
+      <div class="form-section">
+        <label class="form-label">⚙️ สเปคชุดที่ 2</label>
+        <textarea class="ai-textarea" rows="4" [(ngModel)]="spec2"
+          placeholder="เช่น AMD Ryzen 5 7600 + RX 7600 + 16GB DDR5 + B650 งบ 25,000 บาท">
+        </textarea>
+      </div>
+      <button class="btn-ai-glow" [disabled]="!spec1 || !spec2" (click)="handleCompare()">
+        ⚖️ เปรียบเทียบสเปค
+      </button>
+    </div>
+
+    <!-- FORM: เช็คความเข้ากัน -->
+    <div class="ai-card glow-card" *ngIf="step === 1 && mode === 'compat'">
+      <p class="form-hint">ใส่รายชื่อชิ้นส่วนทั้งหมดที่ต้องการตรวจสอบ (แต่ละชิ้นบรรทัดละชิ้น)</p>
+      <div class="form-section">
+        <label class="form-label">🔩 รายการชิ้นส่วน</label>
+        <textarea class="ai-textarea" rows="9" [(ngModel)]="compatText"
+          placeholder="CPU: Intel Core i9-13900K&#10;Mainboard: ASUS ROG STRIX Z790-F&#10;RAM: 32GB DDR5 5600MHz&#10;GPU: RTX 4090&#10;PSU: 850W 80+ Gold&#10;Case: Lian Li PC-O11 Dynamic&#10;Cooler: Noctua NH-D15">
+        </textarea>
+      </div>
+      <button class="btn-ai-glow" [disabled]="!compatText.trim()" (click)="handleCompat()">
+        🔗 ตรวจสอบความเข้ากันได้
+      </button>
+    </div>
+
+    <!-- ─── LOADING ─── -->
+    <div class="ai-card loading-card" *ngIf="step === 2">
+      <div class="loading-icon">⚙️</div>
+      <div class="loading-text">{{ loadingText }}</div>
+      <div class="loading-sub">Powered by Google Gemini AI</div>
+    </div>
+
+    <!-- ─── RESULTS ─── -->
+
+    <!-- RESULT: แนะนำสเปค -->
+    <div class="result-wrapper" *ngIf="step === 3 && resultType === 'recommend' && recommendData">
+      <div class="ai-card glow-card-red animate-slide-up">
+        <div class="summary-header">
+          <div>
+            <div class="tier-badge">{{ recommendData.tier }}</div>
+            <p class="summary-text">{{ recommendData.summary }}</p>
+          </div>
+          <div class="total-budget">
+            <div class="budget-price">{{ recommendData.totalBudget }}</div>
+            <div class="budget-label">งบประมาณรวม</div>
+          </div>
+        </div>
+        <div class="perf-grid">
+          <div class="perf-card">
+            <span class="perf-icon">🎮</span>
+            <div class="perf-name">Gaming</div>
+            <div class="perf-val">{{ recommendData.performance?.gaming }}</div>
+          </div>
+          <div class="perf-card">
+            <span class="perf-icon">💼</span>
+            <div class="perf-name">Productivity</div>
+            <div class="perf-val">{{ recommendData.performance?.productivity }}</div>
+          </div>
+          <div class="perf-card">
+            <span class="perf-icon">⬆️</span>
+            <div class="perf-name">Upgrade Path</div>
+            <div class="perf-val">{{ recommendData.performance?.upgrade }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="parts-list">
+        <div *ngFor="let part of recommendData.parts; let i = index"
+          class="part-card" [class.visible]="visibleCards[i]">
+          <div class="part-header">
+            <div>
+              <span class="part-type">{{ part.type }}</span>
+              <div class="part-name">{{ part.name }}</div>
+            </div>
+            <div class="part-price-wrap">
+              <div class="part-price">{{ part.price }}</div>
+              <div class="part-price-label">ราคาโดยประมาณ</div>
+            </div>
+          </div>
+          <div class="part-reason" *ngIf="part.reason">{{ part.reason }}</div>
+          <div class="shop-links">
+            <a *ngFor="let shop of shops" [href]="shop.getUrl(part.name)"
+              target="_blank" rel="noopener noreferrer" class="shop-link">
+              {{ shop.label }} →
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="pros-cons-grid">
+        <div class="ai-card">
+          <div class="pros-title">✅ ข้อดี</div>
+          <div *ngFor="let p of recommendData.pros" class="pros-item">• {{ p }}</div>
+        </div>
+        <div class="ai-card">
+          <div class="cons-title">⚠️ ข้อควรรู้</div>
+          <div *ngFor="let c of recommendData.cons" class="cons-item">• {{ c }}</div>
+        </div>
+      </div>
+
+      <button class="btn-ai-glow" (click)="reset()">🔄 แนะนำใหม่</button>
+    </div>
+
+    <!-- RESULT: เปรียบเทียบ -->
+    <div class="result-wrapper" *ngIf="step === 3 && resultType === 'compare' && compareData">
+      <div class="ai-card glow-card-red animate-slide-up">
+        <div class="vs-header">
+          <div class="vs-side">
+            <div class="vs-label">ชุดที่ 1</div>
+            <div class="vs-name">{{ compareData.spec1Name }}</div>
+          </div>
+          <div class="vs-icon">⚔️</div>
+          <div class="vs-side">
+            <div class="vs-label">ชุดที่ 2</div>
+            <div class="vs-name">{{ compareData.spec2Name }}</div>
+          </div>
+        </div>
+        <div class="winner-box">
+          <div class="winner-title">
+            🏆 {{ compareData.winner === 'tie' ? 'เสมอกัน' : 'สเปคชุดที่ ' + compareData.winner + ' ดีกว่า' }}
+          </div>
+          <div class="winner-verdict">{{ compareData.verdict }}</div>
+        </div>
+        <div *ngFor="let cat of compareData.categories" class="compare-row">
+          <div class="compare-cell" [class.winner]="cat.winner === '1'">{{ cat.spec1 }}</div>
+          <div class="compare-cat">{{ cat.name }}</div>
+          <div class="compare-cell" [class.winner]="cat.winner === '2'">{{ cat.spec2 }}</div>
+        </div>
+        <div class="recommendation-box">
+          <div class="rec-title">💡 คำแนะนำ</div>
+          <div class="rec-text">{{ compareData.recommendation }}</div>
+        </div>
+      </div>
+      <button class="btn-ai-glow" (click)="reset()">🔄 เปรียบเทียบใหม่</button>
+    </div>
+
+    <!-- RESULT: เช็คความเข้ากัน -->
+    <div class="result-wrapper" *ngIf="step === 3 && resultType === 'compat' && compatData">
+      <div class="ai-card animate-slide-up">
+        <div class="compat-header">
+          <div class="compat-icon">
+            {{ compatData.overall === 'ok' ? '✅' : compatData.overall === 'warning' ? '⚠️' : '❌' }}
+          </div>
+          <div>
+            <div class="compat-title">
+              {{ compatData.overall === 'ok' ? 'ชิ้นส่วนเข้ากันได้ทั้งหมด' : compatData.overall === 'warning' ? 'มีบางจุดที่ควรระวัง' : 'พบปัญหาความเข้ากันได้' }}
+            </div>
+            <div class="compat-summary">{{ compatData.summary }}</div>
+          </div>
+        </div>
+        <div class="checks-list">
+          <div *ngFor="let check of compatData.checks" class="check-badge"
+            [class.check-ok]="check.ok" [class.check-fail]="!check.ok">
+            <span>{{ check.ok ? '✅' : '⚠️' }}</span>
+            <span>{{ check.item }}: {{ check.detail }}</span>
+          </div>
+        </div>
+        <div class="suggestions-box" *ngIf="compatData.suggestions?.length">
+          <div class="sug-title">💡 คำแนะนำเพิ่มเติม</div>
+          <div *ngFor="let s of compatData.suggestions" class="sug-item">• {{ s }}</div>
+        </div>
+      </div>
+      <button class="btn-ai-glow" (click)="reset()">🔄 ตรวจสอบใหม่</button>
+    </div>
+
+    <!-- ERROR -->
+    <div class="ai-card error-card" *ngIf="step === 3 && resultType === 'error'">
+      <div class="error-icon">❌</div>
+      <div class="error-title">เกิดข้อผิดพลาด</div>
+      <div class="error-sub">กรุณาตรวจสอบ Gemini API Key หรือลองใหม่อีกครั้ง</div>
+      <button class="btn-ai-glow" (click)="reset()">ลองใหม่</button>
+    </div>
+
+  </div>
+  <!-- /TAB: AI FORM -->
+
+  <!-- ===================== TAB: MY HISTORY ===================== -->
+  <div *ngIf="activeTab === 'history'">
+    <div class="history-container">
+
+      <div class="history-header">
+        <h2 class="history-title">📋 ประวัติการจัดสเปคของฉัน</h2>
+        <div class="history-filter-row">
+          <button class="filter-btn" [class.active]="historyFilter === 'all'"    (click)="historyFilter = 'all'">ทั้งหมด</button>
+          <button class="filter-btn" [class.active]="historyFilter === 'ai'"     (click)="historyFilter = 'ai'">🤖 AI จัดให้</button>
+          <button class="filter-btn" [class.active]="historyFilter === 'manual'" (click)="historyFilter = 'manual'">✍️ จัดเอง</button>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state" *ngIf="filteredMyHistory.length === 0">
+        <div class="empty-icon">📭</div>
+        <div class="empty-text">ยังไม่มีประวัติการจัดสเปค</div>
+        <div class="empty-sub">ลองใช้ AI แนะนำสเปคก่อนเลยครับ</div>
+        <button class="btn-ai-glow" style="max-width:200px;margin-top:16px" (click)="setTab('form')">
+          🤖 เริ่มเลย
+        </button>
+      </div>
+
+      <!-- History Cards -->
+      <div class="history-grid" *ngIf="filteredMyHistory.length > 0">
+        <div *ngFor="let h of filteredMyHistory" class="history-card">
+          <div class="hc-top">
+            <div class="hc-badges">
+              <span class="hc-mode-badge">{{ getModeLabel(h.mode) }}</span>
+              <span class="hc-type-badge" [class.ai]="h.type === 'ai'">
+                {{ h.type === 'ai' ? '🤖 AI' : '✍️ Manual' }}
+              </span>
+            </div>
+            <button class="hc-delete" (click)="deleteHistory(h.id)" title="ลบ">🗑️</button>
+          </div>
+          <div class="hc-title">{{ h.title }}</div>
+          <div class="hc-input">{{ h.inputSummary }}</div>
+          <div class="hc-date">🕐 {{ formatDate(h.createdAt) }}</div>
+          <button class="hc-view-btn" (click)="viewDetail(h)">👁️ ดูผลลัพธ์</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <!-- /TAB: MY HISTORY -->
+
+  <!-- ===================== TAB: ADMIN ===================== -->
+  <div *ngIf="activeTab === 'admin' && isAdmin">
+    <div class="admin-container">
+
+      <div class="admin-header">
+        <h2 class="admin-title">🛡️ Admin — ประวัติสเปคทั้งหมด</h2>
+        <div class="admin-stats">
+          <div class="stat-pill">รวม <strong>{{ allHistory.length }}</strong> รายการ</div>
+          <div class="stat-pill">AI <strong>{{ allHistory | adminFilter:'ai' }}</strong></div>
+          <div class="stat-pill">Manual <strong>{{ allHistory | adminFilter:'manual' }}</strong></div>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div class="admin-search-wrap">
+        <input class="admin-search" [(ngModel)]="adminSearch"
+          placeholder="🔍 ค้นหาตาม username, ชื่อสเปค, uid...">
+      </div>
+
+      <!-- Empty -->
+      <div class="empty-state" *ngIf="filteredAdminHistory.length === 0">
+        <div class="empty-icon">📭</div>
+        <div class="empty-text">ไม่พบประวัติ</div>
+      </div>
+
+      <!-- Admin Table -->
+      <div class="admin-table-wrap" *ngIf="filteredAdminHistory.length > 0">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>วันที่</th>
+              <th>ผู้ใช้</th>
+              <th>UID</th>
+              <th>ประเภท</th>
+              <th>ชื่อสเปค</th>
+              <th>รายละเอียด</th>
+              <th>ลบ</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let h of filteredAdminHistory">
+              <td class="td-date">{{ formatDate(h.createdAt) }}</td>
+              <td class="td-user">
+                <span class="user-pill">{{ h.username }}</span>
+              </td>
+              <td class="td-uid">{{ h.uid }}</td>
+              <td>
+                <span class="hc-mode-badge small">{{ getModeLabel(h.mode) }}</span><br>
+                <span class="hc-type-badge small" [class.ai]="h.type === 'ai'">
+                  {{ h.type === 'ai' ? '🤖 AI' : '✍️ Manual' }}
+                </span>
+              </td>
+              <td class="td-title">{{ h.title }}</td>
+              <td>
+                <button class="btn-sm blue" (click)="viewDetail(h); setTab('form')">👁️ ดู</button>
+              </td>
+              <td>
+                <button class="btn-sm red" (click)="deleteHistory(h.id)">🗑️</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+  <!-- /TAB: ADMIN -->
+
+</div>

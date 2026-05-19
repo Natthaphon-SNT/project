@@ -1,0 +1,51 @@
+<div class="container mx-auto px-4 py-8 max-w-5xl">
+  <div class="flex flex-col md:flex-row gap-8">
+    
+    <div class="md:w-1/3">
+      <div class="bg-white rounded-xl shadow-md p-6 text-center border-t-4 border-blue-500">
+        <div class="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 text-4xl mx-auto mb-4 font-bold">
+          {{ currentUser?.name?.charAt(0) | uppercase }}
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800">{{ currentUser?.name }}</h2>
+        <p class="text-gray-500 mb-2">ระดับสมาชิก: <span class="uppercase font-bold text-blue-600">{{ currentUser?.role }}</span></p>
+        <button (click)="logout()" class="mt-4 w-full bg-red-500 text-white py-2 rounded-lg hover:bg-red-600 transition">
+          ออกจากระบบ
+        </button>
+      </div>
+    </div>
+
+    <div class="md:w-2/3">
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">📦 ประวัติการสั่งซื้อของฉัน</h2>
+        
+        <div *ngIf="isLoading" class="text-center py-4 text-gray-500">กำลังโหลด...</div>
+        
+        <div *ngIf="!isLoading && myOrders.length === 0" class="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+          คุณยังไม่มีประวัติการสั่งซื้อสินค้า
+        </div>
+
+        <div *ngIf="!isLoading && myOrders.length > 0" class="space-y-4">
+          <div *ngFor="let order of myOrders" class="border rounded-lg p-4 flex flex-col sm:flex-row justify-between items-center hover:shadow-md transition">
+            <div>
+              <p class="font-bold text-lg text-gray-800">ออเดอร์ #{{ order.id }}</p>
+              <p class="text-sm text-gray-500">{{ order.order_date }}</p>
+              <p class="font-bold text-red-500 mt-2">ยอดรวม: {{ order.total_price | number }} ฿</p>
+            </div>
+            
+            <div class="mt-4 sm:mt-0 text-right">
+              <span [ngClass]="{
+                'bg-yellow-100 text-yellow-800': order.status === 'pending',
+                'bg-blue-100 text-blue-800': order.status === 'shipping',
+                'bg-green-100 text-green-800': order.status === 'completed',
+                'bg-red-100 text-red-800': order.status === 'cancelled'
+              }" class="px-4 py-2 rounded-full text-sm font-bold">
+                สถานะ: {{ order.status | uppercase }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+</div>

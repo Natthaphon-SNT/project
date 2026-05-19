@@ -1,0 +1,36 @@
+<div class="login-page">
+  <div class="login-card fade-in">
+    
+    <div class="login-header">
+      <h2>เข้าสู่ระบบ</h2>
+      <p>LT PC BUILD</p>
+    </div>
+    
+    <div *ngIf="errorMessage" class="error-box">
+      {{ errorMessage }}
+    </div>
+
+    <form (ngSubmit)="onLogin()">
+      <div class="input-group">
+        <input type="email" [(ngModel)]="credentials.email" name="email" required placeholder="อีเมลของคุณ">
+      </div>
+      <div class="input-group">
+        <input type="password" [(ngModel)]="credentials.password" name="password" required placeholder="รหัสผ่าน">
+      </div>
+
+      <button type="submit" [disabled]="isLoading" class="btn-submit">
+        {{ isLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ' }}
+      </button>
+    </form>
+    
+    <div class="login-footer">
+      <span>ยังไม่มีบัญชีใช่หรือไม่?</span>
+      <a routerLink="/register">สมัครสมาชิก</a>
+    </div>
+    
+    <div class="back-home">
+      <a routerLink="/">&larr; กลับไปหน้าแรก</a>
+    </div>
+
+  </div>
+</div>

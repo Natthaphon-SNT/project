@@ -1,0 +1,55 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">📋 จัดการคำสั่งซื้อ (Admin)</h1>
+    <button (click)="loadOrders()" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">🔄 รีเฟรช</button>
+  </div>
+
+  <div *ngIf="isLoading" class="text-center py-10 text-gray-500">กำลังโหลดรายการคำสั่งซื้อ...</div>
+
+  <div *ngIf="!isLoading" class="bg-white rounded-lg shadow-md overflow-hidden overflow-x-auto">
+    <table class="min-w-full text-left border-collapse">
+      <thead class="bg-gray-800 text-white">
+        <tr>
+          <th class="py-3 px-4 uppercase font-semibold text-sm">รหัสสั่งซื้อ</th>
+          <th class="py-3 px-4 uppercase font-semibold text-sm">ชื่อลูกค้า</th>
+          <th class="py-3 px-4 uppercase font-semibold text-sm">เบอร์โทร</th>
+          <th class="py-3 px-4 uppercase font-semibold text-sm">ยอดรวม (บาท)</th>
+          <th class="py-3 px-4 uppercase font-semibold text-sm">วันที่สั่งซื้อ</th>
+          <th class="py-3 px-4 uppercase font-semibold text-sm text-center">สถานะ / อัปเดต</th>
+        </tr>
+      </thead>
+      <tbody class="text-gray-700">
+        <tr *ngFor="let order of orders" class="border-b hover:bg-gray-50">
+          <td class="py-3 px-4 font-bold">#{{ order.id }}</td>
+          <td class="py-3 px-4">{{ order.customer_name }}</td>
+          <td class="py-3 px-4">{{ order.phone }}</td>
+          <td class="py-3 px-4 text-red-500 font-bold">{{ order.total_price | number }}</td>
+          <td class="py-3 px-4 text-sm">{{ order.order_date }}</td>
+          
+          <div class="py-3 px-4 text-center flex items-center justify-center gap-2">
+            <span [ngClass]="{
+              'bg-yellow-100 text-yellow-800': order.status === 'pending',
+              'bg-blue-100 text-blue-800': order.status === 'shipping',
+              'bg-green-100 text-green-800': order.status === 'completed',
+              'bg-red-100 text-red-800': order.status === 'cancelled'
+            }" class="px-3 py-1 rounded-full text-xs font-bold w-24 text-center">
+              {{ order.status | uppercase }}
+            </span>
+
+            <select #statusSelect (change)="updateStatus(order.id, statusSelect.value)" class="border rounded p-1 text-sm outline-none focus:border-blue-500">
+              <option value="" disabled selected>เปลี่ยน</option>
+              <option value="pending">Pending</option>
+              <option value="shipping">Shipping</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </tr>
+      </tbody>
+    </table>
+    
+    <div *ngIf="orders.length === 0" class="text-center py-10 text-gray-500">
+      ยังไม่มีรายการสั่งซื้อในระบบ
+    </div>
+  </div>
+</div>

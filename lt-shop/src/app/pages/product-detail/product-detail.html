@@ -1,0 +1,53 @@
+<div class="detail-wrapper fade-in">
+
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>กำลังโหลดข้อมูลสินค้า...</p>
+  </div>
+
+  <div *ngIf="!isLoading && !product" class="not-found">
+    <div class="icon">😕</div>
+    <h2>ไม่พบสินค้านี้</h2>
+    <button routerLink="/products" class="btn-back">← กลับไปเลือกสินค้า</button>
+  </div>
+
+  <div *ngIf="product" class="detail-card">
+
+    <!-- รูปสินค้า -->
+    <div class="img-section">
+      <img [src]="product.img_url || 'assets/default.png'" [alt]="product.p_name">
+    </div>
+
+    <!-- ข้อมูลสินค้า -->
+    <div class="info-section">
+
+      <span class="badge-category">{{ product.category || 'Hardware' }}</span>
+
+      <h1 class="product-title">{{ product.p_name }}</h1>
+
+      <p class="product-price">{{ product.p_price | number }} ฿</p>
+
+      <div class="stock-row">
+        <span class="stock-label">สินค้าคงเหลือ:</span>
+        <span class="stock-value" [class.out]="product.p_stock === 0">
+          {{ product.p_stock > 0 ? product.p_stock + ' ชิ้น' : 'สินค้าหมด' }}
+        </span>
+      </div>
+
+      <div class="description-box">
+        <h3>รายละเอียดสินค้า</h3>
+        <p class="desc-text">{{ product.p_description }}</p>
+      </div>
+
+      <div class="action-buttons">
+        <button (click)="addToCart()" class="btn-add-cart">
+          🛒 เพิ่มลงสเปค
+        </button>
+        <button routerLink="/cart" class="btn-view-cart">
+          💻 ดูสเปคของคุณ
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>

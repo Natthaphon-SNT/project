@@ -1,0 +1,66 @@
+<div class="container mx-auto p-8 max-w-5xl fade-in mt-10">
+  <h2 class="text-4xl font-extrabold mb-8 border-b-2 border-red-600 pb-4 text-white text-center">
+    📝 สรุปรายละเอียดสเปคของคุณ
+  </h2>
+  
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl p-6">
+      <h3 class="text-2xl font-bold text-gray-300 mb-6">ชิ้นส่วนฮาร์ดแวร์ที่เลือก</h3>
+      <div class="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+        <div *ngFor="let item of orderData.cart_items" class="flex justify-between items-center bg-black p-4 rounded-xl border border-gray-800">
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 bg-white rounded p-1 flex items-center justify-center">
+              <img [src]="item.img_url" class="max-w-full max-h-full">
+            </div>
+            <div>
+              <p class="text-white font-semibold text-sm sm:text-base line-clamp-1">{{ item.p_name }}</p>
+              <p class="text-gray-500 text-sm">จำนวน: {{ item.quantity }}</p>
+            </div>
+          </div>
+          <div class="text-red-500 font-bold whitespace-nowrap ml-4">
+            {{ (item.p_price * item.quantity) | number }} ฿
+          </div>
+        </div>
+      </div>
+      
+      <div class="mt-6 pt-6 border-t border-gray-800 bg-black p-4 rounded-xl">
+        <p class="text-xl text-gray-400 flex justify-between items-center">
+          ราคารวมประเมิน: 
+          <span class="font-bold text-3xl text-red-600 glow-text">{{ orderData.total_price | number }} ฿</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl p-6 flex flex-col justify-between">
+      <div>
+        <h3 class="text-2xl font-bold text-gray-300 mb-6">💾 บันทึกสเปคนี้</h3>
+        <div class="space-y-5">
+          <div>
+            <label class="block text-gray-400 mb-2">ชื่อสเปคคอมพิวเตอร์ของคุณ</label>
+            <input type="text" [(ngModel)]="buildName" placeholder="เช่น สเปคตัดต่อวีดีโอ งบ 40k"
+              class="w-full p-4 bg-black border-2 border-gray-700 rounded-xl text-white focus:border-red-600 focus:outline-none transition">
+          </div>
+          
+          <div>
+            <label class="block text-gray-400 mb-2">จุดประสงค์การใช้งาน / หมายเหตุ</label>
+            <textarea [(ngModel)]="buildNotes" placeholder="เล่นเกม ปรับสุด 1080p..."
+              class="w-full p-4 bg-black border-2 border-gray-700 rounded-xl text-white h-32 focus:border-red-600 focus:outline-none transition"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-8 space-y-4">
+        <button (click)="saveBuild()"
+          class="w-full bg-red-600 text-white font-bold py-4 rounded-xl text-xl hover:bg-red-700 transition shadow-[0_0_15px_rgba(220,38,38,0.4)] flex justify-center items-center gap-2">
+          <i class="fas fa-save"></i> บันทึกสเปคเข้าโปรไฟล์
+        </button>
+        <button (click)="exportText()"
+          class="w-full border-2 border-red-600 text-red-500 font-bold py-4 rounded-xl text-xl hover:bg-red-600 hover:text-white transition flex justify-center items-center gap-2">
+          <i class="fas fa-copy"></i> คัดลอกสเปคเป็นข้อความ
+        </button>
+      </div>
+    </div>
+    
+  </div>
+</div>

@@ -1,0 +1,157 @@
+.navbar-top {
+  background-color: #18181b;
+  border-bottom: 1px solid #27272a;
+  padding: 8px 24px;
+  font-size: 14px;
+
+  .nav-container {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .top-links {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 16px;
+    color: #a1a1aa;
+
+    a, .btn-logout {
+      color: #a1a1aa;
+      text-decoration: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      transition: color 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      &:hover { color: #ffffff; }
+    }
+
+    .btn-logout:hover { color: #ef4444; }
+    .divider { color: #3f3f46; }
+    strong { color: #ffffff; margin-left: 4px; }
+  }
+}
+
+.navbar-main {
+  background-color: #000000;
+  border-bottom: 2px solid #dc2626;
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.15);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 12px 24px;
+
+  .nav-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  /* ===== ฝั่งซ้าย: Logo + Links ===== */
+  .nav-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+
+  .nav-logo {
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 2px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: transform 0.3s;
+    flex-shrink: 0;
+
+    &:hover { transform: scale(1.05); }
+    span {
+      color: #dc2626;
+      text-shadow: 0 0 8px rgba(220, 38, 38, 0.8);
+    }
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    .nav-item {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: bold;
+      border: 1px solid #27272a;
+      color: #d4d4d8;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: all 0.3s;
+
+      &:hover {
+        border-color: #dc2626;
+        color: #ef4444;
+        background-color: #18181b;
+      }
+    }
+
+    .nav-divider {
+      width: 1px;
+      height: 20px;
+      background-color: #3f3f46;
+      margin: 0 4px;
+    }
+
+    .ai-btn {
+      background: linear-gradient(to right, #b91c1c, #dc2626);
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 0 12px rgba(220, 38, 38, 0.3);
+
+      &:hover {
+        background: linear-gradient(to right, #dc2626, #ef4444);
+        transform: translateY(-2px);
+        box-shadow: 0 0 20px rgba(220, 38, 38, 0.6);
+      }
+    }
+  }
+
+  /* ===== ฝั่งขวา: Cart + Profile ===== */
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .nav-icon {
+    font-size: 22px;
+    color: #a1a1aa;
+    text-decoration: none;
+    transition: all 0.3s;
+    padding: 4px;
+
+    &:hover {
+      color: #ffffff;
+      transform: scale(1.15);
+    }
+  }
+}
+
+/* Admin links ใน navbar-top */
+.admin-link {
+  color: #fbbf24 !important;
+  font-weight: bold;
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.2s;
+  &:hover { color: #f59e0b !important; }
+}

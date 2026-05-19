@@ -1,0 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;700&display=swap');
+
+:root {
+  --primary-color: #ff0000;    /* สีแดงหลัก */
+  --bg-dark: #111111;         /* สีพื้นหลังเข้ม */
+  --card-bg: #ffffff;         /* สีพื้นหลังการ์ด */
+  --text-dark: #333333;
+}
+
+body {
+  font-family: 'Kanit', sans-serif;
+  background: linear-gradient(135deg, #333 0%, #111 100%); /* พื้นหลังไล่เฉดตาม login เดิม */
+  margin: 0;
+  padding: 0;
+  color: #fff;
+}
+
+/* Navbar Style */
+.main-nav {
+  background: rgba(0, 0, 0, 0.9);
+  padding: 15px 0;
+  border-bottom: 3px solid var(--primary-color);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+}
+
+/* Product Card Style */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 25px;
+  padding: 40px 20px;
+}
+
+.p-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--text-dark);
+  transition: transform 0.3s;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+
+  &:hover {
+    transform: translateY(-10px);
+  }
+
+  .img-wrapper {
+    height: 200px;
+    background: #f9f9f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    img { max-height: 100%; max-width: 100%; object-fit: contain; }
+  }
+
+  .p-info { padding: 20px; text-align: center; }
+  .p-title { font-size: 1.1rem; height: 3rem; overflow: hidden; margin-bottom: 10px; }
+  .p-price { font-size: 1.5rem; color: var(--primary-color); font-weight: bold; }
+}
+
+.btn-cart {
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 10px;
+  font-weight: bold;
+  &:hover { background: #cc0000; }
+}
+
+/* เอฟเฟกต์สำหรับปุ่มและกล่องต่างๆ */
+.glow-text {
+  text-shadow: 0 0 10px rgba(255, 26, 26, 0.8);
+}
+
+.glow-border {
+  box-shadow: 0 0 15px rgba(255, 26, 26, 0.2);
+  transition: all 0.3s ease;
+  &:hover {
+    box-shadow: 0 0 25px rgba(255, 26, 26, 0.6);
+    border-color: var(--neon-red);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.6s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

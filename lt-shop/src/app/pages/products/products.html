@@ -1,0 +1,93 @@
+<div class="shop-container">
+  <div class="header-section fade-in">
+    <h1 class="main-title">
+      {{ category ? (category | uppercase) : 'HARDWARE' }}
+      <span class="highlight-text">COMPONENTS</span>
+    </h1>
+    <div class="title-underline"></div>
+  </div>
+
+  <!-- Search Bar -->
+  <div class="search-wrapper fade-in">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" [(ngModel)]="searchQuery" (keyup.enter)="onSearch()"
+        placeholder="ค้นหาสินค้า เช่น RTX 4070, Ryzen 5..." class="search-input"/>
+      <button (click)="onSearch()" class="search-btn">ค้นหา</button>
+    </div>
+  </div>
+
+  <div *ngIf="isLoading" class="loader-container">
+    <div class="cyber-spinner"></div>
+    <p>กำลังโหลดข้อมูล...</p>
+  </div>
+
+  <div *ngIf="!isLoading" class="product-grid fade-in">
+    <div *ngFor="let p of products" class="product-card">
+
+      <div class="product-img-box" [routerLink]="['/product', p.product_id]">
+        <img [src]="p.img_url || 'assets/default.png'" [alt]="p.p_name">
+        <div class="img-overlay"><span>🔍 ดูรายละเอียด</span></div>
+      </div>
+
+      <div class="product-info">
+        <h3 class="product-name" [title]="p.p_name">{{ p.p_name }}</h3>
+        <div class="product-price">{{ p.p_price | number }} ฿</div>
+
+        <!-- ปุ่มลูกค้าทั่วไป -->
+        <div class="product-actions" *ngIf="!isAdmin">
+          <button [routerLink]="['/product', p.product_id]" class="btn-detail">รายละเอียด</button>
+          <button (click)="addToCart(p)" class="btn-add">➕ ลงสเปค</button>
+        </div>
+
+        <!-- ปุ่ม Admin -->
+        <div class="product-actions admin-actions" *ngIf="isAdmin">
+          <button [routerLink]="['/product', p.product_id]" class="btn-detail">👁️ ดู</button>
+          <button (click)="editProduct(p)" class="btn-edit">✏️ แก้ไข</button>
+          <button (click)="deleteProduct(p.product_id)" class="btn-delete">🗑️ ลบ</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div *ngIf="!isLoading && products.length === 0" class="empty-state fade-in">
+    <div class="empty-icon">🔎</div>
+    <p>ไม่พบสินค้าที่ค้นหา</p>
+    <button (click)="searchQuery = ''; onSearch()" class="btn-clear">ล้างการค้นหา</button>
+  </div>
+
+  <!-- Modal แก้ไขสินค้า -->
+  <div class="modal-overlay" *ngIf="showEditModal" (click)="closeModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <h2>✏️ แก้ไขสินค้า</h2>
+      <div class="modal-form">
+        <label>ชื่อสินค้า</label>
+        <input type="text" [(ngModel)]="editForm.name">
+        <label>ราคา (บาท)</label>
+        <input type="number" [(ngModel)]="editForm.price">
+        <label>หมวดหมู่</label>
+        <select [(ngModel)]="editForm.category">
+          <option value="c01">CPU</option>
+          <option value="c02">Mainboard</option>
+          <option value="c03">GPU / VGA</option>
+          <option value="c04">RAM</option>
+          <option value="c05">M.2 / SSD</option>
+          <option value="c06">PSU</option>
+          <option value="c07">Case</option>
+          <option value="c08">Liquid Cooler</option>
+          <option value="c09">Air Cooler</option>
+        </select>
+        <label>คำอธิบาย</label>
+        <textarea [(ngModel)]="editForm.description" rows="4"></textarea>
+        <label>URL รูปภาพ</label>
+        <input type="text" [(ngModel)]="editForm.image">
+      </div>
+      <div class="modal-actions">
+        <button (click)="saveEdit()" class="btn-save">💾 บันทึก</button>
+        <button (click)="closeModal()" class="btn-cancel">✖ ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+
+</div>

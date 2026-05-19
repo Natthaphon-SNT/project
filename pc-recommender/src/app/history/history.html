@@ -1,0 +1,54 @@
+<div class="container fade-in">
+  <div class="page-header">
+    <h1><i class="fas fa-history"></i> ประวัติการจัดสเปกทั้งหมด</h1>
+    <button routerLink="/" class="back-btn">กลับหน้าหลัก</button>
+  </div>
+
+  <div *ngIf="isLoading" class="state-message">กำลังโหลดข้อมูล...</div>
+  <div *ngIf="!isLoading && historyList.length === 0" class="state-message">ยังไม่มีประวัติการจัดสเปก</div>
+
+  <div class="history-list" *ngIf="!isLoading && historyList.length > 0">
+    <div class="history-card" *ngFor="let item of historyList">
+      <div class="card-header-row">
+        <div class="query-info">
+          <h3>โจทย์: "{{ item.user_input }}"</h3>
+          
+          <p><strong>งบประมาณ:</strong> {{ item.budget === 0 ? 'ไม่จำกัด' : (item.budget | number) }} บาท</p>
+          <p><strong>การใช้งาน:</strong> {{ item.usage_type }}</p>
+          
+          <div class="advice-box">
+             <strong>คำแนะนำจาก AI:</strong>
+             <ul style="padding-left: 20px; margin-top: 8px; color: #555;">
+               <li *ngFor="let advice of item.ai_advice">{{ advice }}</li>
+             </ul>
+          </div>
+          
+          <span class="timestamp">{{ item.created_at | date:'medium' }}</span>
+        </div>
+
+        <div class="action-info">
+          <div class="total-price">{{ item.total_price | number }} ฿</div>
+          <button (click)="deleteItem(item.id)" class="btn-delete">ลบ</button>
+        </div>
+      </div>
+
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>ชิ้นส่วน</th>
+            <th>รุ่น / รายละเอียด</th>
+            <th>ราคาประเมิน</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let part of item.parts">
+            <td>{{ part.category }}</td>
+            <td>{{ part.name }}</td>
+            <td>{{ part.price | number }} ฿</td>
+          </tr>
+        </tbody>
+      </table>
+      
+    </div>
+  </div>
+</div>

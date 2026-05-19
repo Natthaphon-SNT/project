@@ -1,0 +1,228 @@
+.detail-wrapper {
+  min-height: calc(100vh - 80px);
+  background: radial-gradient(circle at top, #1a0000 0%, #0a0a0a 70%);
+  padding: 40px 20px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* ===== Loading ===== */
+.loading-state {
+  text-align: center;
+  padding: 100px 20px;
+  color: #fff;
+
+  .spinner {
+    width: 52px; height: 52px;
+    border: 5px solid #333;
+    border-top-color: #dc143c;
+    border-radius: 50%;
+    margin: 0 auto 20px;
+    animation: spin 0.9s linear infinite;
+  }
+  p { color: #888; font-size: 1rem; }
+}
+
+/* ===== Not Found ===== */
+.not-found {
+  text-align: center;
+  padding: 80px 20px;
+  color: #888;
+
+  .icon { font-size: 60px; margin-bottom: 16px; }
+  h2 { color: #fff; margin-bottom: 24px; }
+
+  .btn-back {
+    padding: 12px 28px;
+    background: transparent;
+    border: 2px solid #dc143c;
+    color: #dc143c;
+    border-radius: 30px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+    &:hover { background: #dc143c; color: #fff; }
+  }
+}
+
+/* ===== Detail Card ===== */
+.detail-card {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  max-width: 1100px;
+  width: 100%;
+  background: #111;
+  border-radius: 24px;
+  border: 1px solid #222;
+  box-shadow: 0 0 40px rgba(220, 20, 60, 0.1);
+  overflow: hidden;
+}
+
+/* ===== รูปสินค้า ===== */
+.img-section {
+  width: 45%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  flex-shrink: 0;
+
+  img {
+    max-width: 100%;
+    max-height: 420px;
+    object-fit: contain;
+    transition: transform 0.4s;
+    &:hover { transform: scale(1.05); }
+  }
+}
+
+/* ===== ข้อมูลสินค้า ===== */
+.info-section {
+  flex: 1;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.badge-category {
+  display: inline-block;
+  background: #3b0000;
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 4px 14px;
+  border-radius: 20px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.product-title {
+  color: #ffffff;
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.product-price {
+  color: #dc143c;
+  font-size: 2.8rem;
+  font-weight: 900;
+  margin: 0;
+  text-shadow: 0 0 20px rgba(220, 20, 60, 0.5);
+}
+
+.stock-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+
+  .stock-label { color: #888; }
+  .stock-value { color: #4ade80; font-weight: bold; }
+  .stock-value.out { color: #ef4444; }
+}
+
+.description-box {
+  background: #000;
+  border: 1px solid #222;
+  border-radius: 12px;
+  padding: 20px;
+  flex: 1;
+
+  h3 {
+    color: #d1d5db;
+    font-size: 1rem;
+    font-weight: bold;
+    margin: 0 0 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #222;
+  }
+
+  .desc-text {
+    color: #9ca3af;
+    font-size: 14px;
+    line-height: 1.8;
+    white-space: pre-line;
+    margin: 0;
+  }
+}
+
+/* ===== ปุ่ม ===== */
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+
+  button {
+    flex: 1;
+    padding: 16px;
+    font-size: 1rem;
+    font-weight: bold;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-family: 'Kanit', 'Segoe UI', sans-serif;
+  }
+
+  .btn-add-cart {
+    background: linear-gradient(135deg, #b91c1c, #dc143c);
+    color: #fff;
+    border: none;
+    box-shadow: 0 0 20px rgba(220, 20, 60, 0.3);
+
+    &:hover {
+      background: linear-gradient(135deg, #dc143c, #ff1a1a);
+      transform: translateY(-2px);
+      box-shadow: 0 0 30px rgba(220, 20, 60, 0.6);
+    }
+  }
+
+  .btn-view-cart {
+    background: transparent;
+    color: #ef4444;
+    border: 2px solid #dc143c;
+
+    &:hover {
+      background: #dc143c;
+      color: #fff;
+      transform: translateY(-2px);
+    }
+  }
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .detail-card {
+    flex-direction: column;
+  }
+
+  .img-section {
+    width: 100%;
+    padding: 24px;
+    max-height: 280px;
+  }
+
+  .info-section { padding: 24px; }
+
+  .product-title { font-size: 1.3rem; }
+  .product-price { font-size: 2rem; }
+
+  .action-buttons {
+    flex-direction: column;
+  }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.fade-in { animation: fadeIn 0.5s ease-out; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
