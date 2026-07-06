@@ -30,7 +30,7 @@ export class LoginComponent {
     this.auth.login(this.credentials).subscribe({
       next: (res) => {
         if(res.status === 'success') {
-          this.auth.saveUser(res.user);
+          this.auth.saveUser(res.user, res.token); // ✅ เก็บ JWT token ด้วย
           this.router.navigate(['/']); // ล็อกอินเสร็จเด้งไปหน้าแรก
         } else {
           this.errorMessage = res.message;

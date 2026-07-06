@@ -26,7 +26,9 @@
     <div *ngFor="let p of products" class="product-card">
 
       <div class="product-img-box" [routerLink]="['/product', p.product_id]">
-        <img [src]="p.img_url || 'assets/default.png'" [alt]="p.p_name">
+        <img [src]="getProductImage(p)" [alt]="p.p_name"
+             (error)="onImgError($event, p)"
+             loading="lazy">
         <div class="img-overlay"><span>🔍 ดูรายละเอียด</span></div>
       </div>
 

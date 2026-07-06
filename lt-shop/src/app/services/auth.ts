@@ -5,13 +5,12 @@ import { Router } from '@angular/router';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private baseUrl = 'http://localhost/pc_part/api';
+  // ✅ FastAPI backend - ไม่ต้องใช้ XAMPP อีกต่อไป!
+  private baseUrl = 'http://localhost:3000';
 
-  // ใช้เก็บข้อมูลผู้ใช้ที่กำลังล็อกอิน
   public currentUserSubject = new BehaviorSubject<any>(null);
 
   constructor(private http: HttpClient, private router: Router) {
-    // โหลดข้อมูลเก่าจาก LocalStorage ถ้าเคยล็อกอินไว้
     const savedUser = localStorage.getItem('lt_user');
     if (savedUser) {
       this.currentUserSubject.next(JSON.parse(savedUser));
@@ -19,28 +18,46 @@ export class AuthService {
   }
 
   login(credentials: any): Observable<any> {
-    return this.http.post(`${this.baseUrl}/login.php`, credentials);
+    return this.http.post(`${this.baseUrl}/api/login`, credentials);
   }
 
   register(userData: any): Observable<any> {
-    return this.http.post(`${this.baseUrl}/register.php`, userData);
+    return this.http.post(`${this.baseUrl}/api/register`, userData);
   }
 
-  // เซฟข้อมูลเมื่อล็อกอินผ่าน
-  saveUser(userData: any) {
+  getProfile(): Observable<any> {
+    const token = localStorage.getItem('lt_token') || '';
+    return this.http.get(`${this.baseUrl}/api/profile`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  }
+
+  updateProfile(data: any): Observable<any> {
+    const token = localStorage.getItem('lt_token') || '';
+    return this.http.put(`${this.baseUrl}/api/profile`, data, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  }
+
+  // เซฟข้อมูลเมื่อล็อกอินผ่าน (เก็บ JWT token ด้วย)
+  saveUser(userData: any, token?: string) {
     localStorage.setItem('lt_user', JSON.stringify(userData));
+    if (token) localStorage.setItem('lt_token', token);
     this.currentUserSubject.next(userData);
   }
 
-  // ออกจากระบบ
   logout() {
     localStorage.removeItem('lt_user');
+    localStorage.removeItem('lt_token');
     this.currentUserSubject.next(null);
     this.router.navigate(['/login']);
   }
 
-  // เช็คว่าล็อกอินอยู่ไหม
   isLoggedIn(): boolean {
     return !!this.currentUserSubject.value;
+  }
+
+  getToken(): string {
+    return localStorage.getItem('lt_token') || '';
   }
 }

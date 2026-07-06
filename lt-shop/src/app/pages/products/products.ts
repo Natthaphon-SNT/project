@@ -17,6 +17,20 @@ interface Product {
   cid?: string;
 }
 
+// Placeholder icon per category
+const CATEGORY_ICONS: Record<string, string> = {
+  'CPU':           'https://cdn-icons-png.flaticon.com/512/2991/2991100.png',
+  'Mainboard':     'https://cdn-icons-png.flaticon.com/512/2091/2091665.png',
+  'GPU':           'https://cdn-icons-png.flaticon.com/512/4429/4429085.png',
+  'RAM':           'https://cdn-icons-png.flaticon.com/512/984/984196.png',
+  'M.2':           'https://cdn-icons-png.flaticon.com/512/2740/2740832.png',
+  'PSU':           'https://cdn-icons-png.flaticon.com/512/1048/1048328.png',
+  'Case':          'https://cdn-icons-png.flaticon.com/512/3034/3034157.png',
+  'Liquid Cooler': 'https://cdn-icons-png.flaticon.com/512/814/814970.png',
+  'Air Cooler':    'https://cdn-icons-png.flaticon.com/512/814/814975.png',
+};
+const DEFAULT_ICON = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+
 @Component({
   selector: 'app-products',
   standalone: true,
@@ -49,6 +63,20 @@ export class ProductsComponent implements OnInit, OnDestroy {
     private http: HttpClient,
     private cdr: ChangeDetectorRef
   ) {}
+
+  // คืนค่า URL รูป: ถ้ามีใช้เลย, ถ้าไม่มีใช้ icon ตาม category
+  getProductImage(p: Product): string {
+    if (p.img_url && p.img_url.startsWith('http')) return p.img_url;
+    return CATEGORY_ICONS[p.category] || DEFAULT_ICON;
+  }
+
+  onImgError(event: Event, p: Product) {
+    const img = event.target as HTMLImageElement;
+    img.src = CATEGORY_ICONS[p.category] || DEFAULT_ICON;
+    img.style.padding = '20px';
+    img.style.objectFit = 'contain';
+    img.style.background = '#1a1a2e';
+  }
 
   ngOnInit() {
     // ✅ เช็คสิทธิ์ admin

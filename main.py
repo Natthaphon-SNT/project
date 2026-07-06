@@ -488,19 +488,31 @@ async def websocket_endpoint(websocket: WebSocket):
             action = message.get("action", "")
             
             if action == "subscribe":
-                # Client สมัครสมาชิกเพื่อรับการอัปเดตราคา
+                # Client สมัครสมาชิกเพื่อรับการอัปเดตราคาแบบ Real-time
                 product_id = message.get("product_id", "")
                 print(f"📌 Client subscribed to: {product_id}")
-                
-                # ดึงราคาจาก PHP หรือ CSV
-                price = await fetch_price_from_php(product_id)
+
+                # ดึงราคาจากร้านค้าแบบสดๆ
+                store_prices = await fetch_live_store_prices(product_id)
+                best_price = min([v for v in store_prices.values() if v > 0], default=0)
+
+                if best_price == 0:
+                    fallback_price = await fetch_price_from_php(product_id)
+                    try:
+                        fallback_price_int = int(fallback_price)
+                    except Exception:
+                        fallback_price_int = 0
+                    store_prices['fallback'] = fallback_price_int
+                    best_price = fallback_price_int
+
                 price_data = {
                     "id": product_id,
-                    "price": price,
+                    "prices": store_prices,
+                    "best_price": best_price,
                     "timestamp": datetime.now().isoformat()
                 }
                 await websocket.send_json(price_data)
-                print(f"💰 Sent price for {product_id}: {price_data}")
+                print(f"💰 Sent real-time price for {product_id}: {price_data}")
             
             elif action == "ping":
                 # Heartbeat เพื่อตรวจสอบการเชื่อมต่อ
@@ -520,19 +532,64 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
 
-if __name__ == "__main__":
-    import uvicorn
-    print("🚀 Starting Server on http://127.0.0.1:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
 # ===== Live scraping endpoint (Advice / JIB / iHaveCPU)
-async def _scrape_with_selectors(page, url: str, selectors: list[str], min_limit: int = 100, max_limit: int = 10_000_000) -> int:
+def _infer_min_price_from_query(name: str) -> int:
+    query = name.lower()
+    if re.search(r'\b(rtx|gtx|rx|radeon|vega|intel arc|arc)\b', query):
+        return 5000
+    if re.search(r'\b(ryzen|core|threadripper|xeon|i[3579]|i[2468]00|i[2468]0|i5|i7|i9)\b', query):
+        return 1200
+    if re.search(r'\b(ssd|nvme|hdd|m2|m\.2|ram|memory|psu|cooler|fan|case|mainboard|motherboard)\b', query):
+        return 300
+    return 100
+
+
+async def _scrape_with_selectors(page, url: str, selectors: list[str], search_query: str | None = None, min_limit: int = 100, max_limit: int = 10_000_000) -> int:
     """Navigate to URL and try multiple CSS selectors to extract numeric prices.
     Returns the minimum valid price found or 0."""
     try:
-        await page.goto(url, timeout=30000, wait_until='domcontentloaded')
-        await page.wait_for_timeout(1000)
+        await page.goto(url, timeout=30000, wait_until='networkidle')
+        await page.wait_for_timeout(2500)
+
+        def extract_numbers(text: str) -> list[int]:
+            values = [int(num.replace(',', '')) for num in re.findall(r'([1-9]\d{0,2}(?:,\d{3})+|\d{3,})', text)]
+            return [v for v in values if min_limit <= v <= max_limit]
+
+        bad_keywords = ['n/a', 'out of stock', 'สินค้าหมด', 'สินค้าหมดชั่วคราว', 'ไม่พร้อมส่ง']
+
+        if search_query:
+            query_terms = [t for t in re.findall(r"\w+", search_query.lower()) if len(t) > 1]
+            if query_terms:
+                container_selectors = [
+                    '.product-box', '.product-item', '.box-product', '.card-product',
+                    '.search-product', '.product-list li', '.item', '.product', '.card',
+                    '.product-row', '.product-card', '.div-product', '.grid-item'
+                ]
+
+                for sel in container_selectors:
+                    try:
+                        containers = await page.query_selector_all(sel)
+                    except Exception:
+                        containers = []
+
+                    for container in containers:
+                        try:
+                            text = (await container.inner_text() or "").lower()
+                        except Exception:
+                            continue
+
+                        if not text:
+                            continue
+                        if any(bad in text for bad in bad_keywords):
+                            continue
+
+                        matches = sum(1 for term in query_terms if term in text)
+                        if matches < min(2, len(query_terms)):
+                            continue
+
+                        values = extract_numbers(text)
+                        if values:
+                            return min(values)
 
         # Try each selector and gather numeric values
         for sel in selectors:
@@ -541,38 +598,38 @@ async def _scrape_with_selectors(page, url: str, selectors: list[str], min_limit
             except Exception:
                 prices = []
 
-            # flatten and extract numbers
-            import re
             extracted = []
             for t in prices:
-                if not t: continue
-                # find patterns like 1,234 or 1234
-                for m in re.findall(r'([1-9]\d{0,2}(?:,\d{3})+|\d{3,})', t):
-                    v = int(m.replace(',', ''))
-                    if min_limit <= v <= max_limit:
-                        extracted.append(v)
+                if not t:
+                    continue
+                if any(bad in t.lower() for bad in bad_keywords):
+                    continue
+                extracted.extend(extract_numbers(t))
 
             if extracted:
                 return min(extracted)
 
-        # fallback: scan entire page text
         text = await page.inner_text('body')
-        import re as _re
-        matches = _re.findall(r'([1-9]\d{0,2}(?:,\d{3})+)', text)
-        prices = [int(m.replace(',', '')) for m in matches]
-        prices = [p for p in prices if min_limit <= p <= max_limit]
-        return min(prices) if prices else 0
+        if any(bad in text.lower() for bad in bad_keywords):
+            lines = [line for line in text.splitlines() if not any(bad in line.lower() for bad in bad_keywords)]
+            text = '\n'.join(lines)
+
+        matches = extract_numbers(text)
+        return min(matches) if matches else 0
     except Exception:
         return 0
 
 
-@app.get('/api/live_prices')
-async def api_live_prices(name: str):
-    """Return live scraped prices from three stores for given product name."""
+async def fetch_live_store_prices(name: str) -> dict:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            ignore_https_errors=True,
+        )
         page = await context.new_page()
+        await page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
 
         q = urllib.parse.quote_plus(name)
         results = {
@@ -580,35 +637,35 @@ async def api_live_prices(name: str):
             'jib': 0,
             'ihavecpu': 0
         }
+        min_price = _infer_min_price_from_query(name)
 
         try:
-            # Advice selectors (try multiple patterns)
             advice_url = f'https://www.advice.co.th/search?keyword={q}'
             advice_selectors = [
                 '.product-card .price, .product-card .price-sale, .product-card .product-price',
-                '.box-product .price, .box-product .product-price',
-                '.product-item .price, .product-item .product-price',
-                '.price, .pricing, .product-price'
+                '.card-product__price, .price-detail, .product-price',
+                '.price span, .price',
+                'div[class*="price"], span[class*="price"]'
             ]
-            results['advice'] = await _scrape_with_selectors(page, advice_url, advice_selectors)
+            results['advice'] = await _scrape_with_selectors(page, advice_url, advice_selectors, search_query=name, min_limit=min_price)
 
-            # JIB selectors
             jib_url = f'https://www.jib.co.th/web/product/product_search/0?str_search={q}'
             jib_selectors = [
-                '.product-box .price, .product-box .price-sale, .product-box .product-price',
+                '.product-box .price, .product-box .product-price, .product-box .price-sale',
                 '.product-item .price, .product-item .product-price',
-                '.price, .pricing'
+                '.price, .pricing, .item-price',
+                'div[class*="price"], span[class*="price"]'
             ]
-            results['jib'] = await _scrape_with_selectors(page, jib_url, jib_selectors)
+            results['jib'] = await _scrape_with_selectors(page, jib_url, jib_selectors, search_query=name, min_limit=min_price)
 
-            # iHaveCPU selectors
             ihavecpu_url = f'https://www.ihavecpu.com/product/search/{q}'
             ihavecpu_selectors = [
                 '.product-list .price, .product-list .product-price',
-                '.product-card .price, .product-card .product-price',
-                '.price'
+                '.card__price, .price-text, .product-price',
+                '.price, .pricing',
+                'div[class*="price"], span[class*="price"]'
             ]
-            results['ihavecpu'] = await _scrape_with_selectors(page, ihavecpu_url, ihavecpu_selectors)
+            results['ihavecpu'] = await _scrape_with_selectors(page, ihavecpu_url, ihavecpu_selectors, search_query=name, min_limit=min_price)
 
         finally:
             try:
@@ -616,5 +673,19 @@ async def api_live_prices(name: str):
             except:
                 pass
 
-    # Prefer non-zero prices; return all three
-    return { 'status': 'success', 'query': name, 'data': results }
+    return results
+
+
+@app.get('/api/live_prices')
+async def api_live_prices(name: str):
+    """Return live scraped prices from three stores for given product name."""
+    data = await fetch_live_store_prices(name)
+    return {'status': 'success', 'query': name, 'data': data}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("🚀 Starting Server on http://127.0.0.1:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
