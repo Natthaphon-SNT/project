@@ -1,0 +1,12 @@
+﻿import sqlite3, io, sys
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+conn = sqlite3.connect('shop.db')
+cur = conn.cursor()
+rows = cur.execute("SELECT p_name, category, price_jib, img_url FROM products WHERE price_jib > 0 AND img_url != '' LIMIT 5").fetchall()
+print('JIB with images:')
+for r in rows: print(f'  [{r[1]}] {r[0][:45]} | {r[2]}bht | {r[3][:65]}')
+rows2 = cur.execute("SELECT p_name, price_ihavecpu, img_url FROM products WHERE price_ihavecpu > 0 AND img_url != '' LIMIT 5").fetchall()
+print()
+print('IHC with images:')
+for r in rows2: print(f'  {r[0][:45]} | {r[1]}bht | {r[2][:65]}')
+conn.close()

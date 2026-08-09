@@ -1,0 +1,121 @@
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { CommonModule, Location } from '@angular/common';
+import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ApiService } from '../../services/api';
+import { CartService } from '../../services/cart';
+
+@Component({
+  selector: 'app-product-detail',
+  standalone: true,
+  imports: [CommonModule, RouterModule],
+  templateUrl: './product-detail.html',
+  styleUrls: ['./product-detail.scss']
+})
+export class ProductDetail implements OnInit {
+  product: any = null;
+  isLoading = true;
+  activeDescTab: 'advice' | 'jib' | 'ihavecpu' = 'advice';
+
+  constructor(
+    private route: ActivatedRoute,
+    private api: ApiService,
+    private cart: CartService,
+    private location: Location,
+    private cdr: ChangeDetectorRef
+  ) {}
+
+  ngOnInit() {
+    const id = this.route.snapshot.paramMap.get('id');
+    if (id) {
+      this.api.getProductDetail(id).subscribe({
+        next: (res) => {
+          if (res.status === 'success') {
+            this.product = res.data;
+            // Set default tab to the first available description
+            if (this.product.desc_advice)       this.activeDescTab = 'advice';
+            else if (this.product.desc_jib)     this.activeDescTab = 'jib';
+            else if (this.product.desc_ihavecpu) this.activeDescTab = 'ihavecpu';
+          }
+          this.isLoading = false;
+          this.cdr.detectChanges();
+        },
+        error: () => {
+          this.isLoading = false;
+          this.cdr.detectChanges();
+        }
+      });
+    }
+  }
+
+  getMinPrice(): number {
+    if (!this.product) return 0;
+    const prices = [
+      this.product.price_advice,
+      this.product.price_jib,
+      this.product.price_ihavecpu,
+      this.product.p_price
+    ].filter(x => x && x > 0);
+    return prices.length ? Math.min(...prices) : (this.product.p_price || 0);
+  }
+
+  hasAnyPrice(): boolean {
+    return !!(
+      this.product?.price_advice ||
+      this.product?.price_jib ||
+      this.product?.price_ihavecpu
+    );
+  }
+
+  hasDescription(): boolean {
+    return !!(
+      this.product?.desc_advice ||
+      this.product?.desc_jib ||
+      this.product?.desc_ihavecpu ||
+      this.product?.p_description
+    );
+  }
+
+  /**
+   * คืน URL ตรงของสินค้าในแต่ละร้าน
+   * ถ้ามี URL ที่ดึงมาจาก scraper → ใช้เลย
+   * ถ้าไม่มี → สร้าง search URL fallback
+   */
+  getStoreUrl(store: 'advice' | 'jib' | 'ihavecpu'): string {
+    if (!this.product) return '#';
+    const name = encodeURIComponent(this.product.p_name || '');
+    switch (store) {
+      case 'advice':
+        return this.product.url_advice ||
+               `https://www.advice.co.th/search?keyword=${name}`;
+      case 'jib':
+        return this.product.url_jib ||
+               `https://www.jib.co.th/web/product/search_product/0?q=${name}`;
+      case 'ihavecpu':
+        return this.product.url_ihavecpu ||
+               `https://www.ihavecpu.com/search?keyword=${name}`;
+    }
+  }
+
+  getProductImage(): string {
+    if (this.product?.img_url && this.product.img_url.startsWith('http')) {
+      return this.product.img_url;
+    }
+    return 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+  }
+
+  onImgError(event: Event) {
+    (event.target as HTMLImageElement).src =
+      'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+  }
+
+  addToCart() {
+    if (this.product) {
+      const result = this.cart.addToCart(this.product);
+      alert(result.message);
+    }
+  }
+
+  goBack() {
+    this.location.back();
+  }
+}

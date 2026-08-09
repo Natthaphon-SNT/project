@@ -1,0 +1,178 @@
+<div class="history-page fade-in">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <h1>📜 ประวัติการจัดสเปค</h1>
+      <p class="header-sub">ผลลัพธ์จาก AI Recommend ของคุณ</p>
+    </div>
+    <button routerLink="/ai-recommend" class="btn-new">🤖 จัดสเปคใหม่</button>
+  </div>
+
+  <!-- Filter Tabs -->
+  <div class="filter-tabs">
+    <button [class.active]="filterMode === 'all'"       (click)="filterMode = 'all'">ทั้งหมด ({{ historyList.length }})</button>
+    <button [class.active]="filterMode === 'recommend'" (click)="filterMode = 'recommend'">🤖 แนะนำสเปค</button>
+    <button [class.active]="filterMode === 'compare'"   (click)="filterMode = 'compare'">⚖️ เปรียบเทียบ</button>
+    <button [class.active]="filterMode === 'compat'"    (click)="filterMode = 'compat'">🔗 เช็คความเข้ากัน</button>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>กำลังโหลดประวัติ...</p>
+  </div>
+
+  <!-- Empty -->
+  <div *ngIf="!isLoading && filteredHistory.length === 0" class="empty-state">
+    <div class="empty-icon">📭</div>
+    <h3>ยังไม่มีประวัติการจัดสเปค</h3>
+    <p>ลอง AI Recommend เพื่อบันทึกประวัติ</p>
+    <button routerLink="/ai-recommend" class="btn-new">🤖 เริ่มใช้ AI Recommend</button>
+  </div>
+
+  <!-- History List -->
+  <div *ngIf="!isLoading && filteredHistory.length > 0" class="history-list">
+    <div *ngFor="let item of filteredHistory" class="history-card">
+
+      <!-- Card Header -->
+      <div class="card-header" (click)="toggleExpand(item.id)">
+        <div class="card-left">
+          <span class="mode-badge" [ngClass]="getModeClass(item.mode)">
+            {{ getModeLabel(item.mode) }}
+          </span>
+          <div class="card-title">{{ item.title }}</div>
+          <div class="card-meta">{{ item.inputSummary }}</div>
+        </div>
+        <div class="card-right">
+          <span *ngIf="item.mode === 'recommend' && getTotalBudget(item)" class="card-budget">
+            {{ getTotalBudget(item) }}
+          </span>
+          <span *ngIf="item.mode === 'compat'" class="compat-badge"
+            [class.ok]="getCompatOverall(item) === 'ok'"
+            [class.warning]="getCompatOverall(item) === 'warning'"
+            [class.error]="getCompatOverall(item) === 'error'">
+            {{ getCompatOverall(item) === 'ok' ? '✅ เข้ากันได้' : getCompatOverall(item) === 'warning' ? '⚠️ มีคำเตือน' : '❌ ไม่เข้ากัน' }}
+          </span>
+          <div class="card-date">{{ formatDate(item.createdAt) }}</div>
+          <div class="card-actions">
+            <button class="btn-delete" (click)="$event.stopPropagation(); deleteItem(item.id)">🗑️</button>
+            <span class="expand-icon">{{ expandedId === item.id ? '▲' : '▼' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card Detail (expandable) -->
+      <div class="card-detail" *ngIf="expandedId === item.id">
+
+        <!-- Summary -->
+        <div class="summary-box" *ngIf="getSummary(item)">
+          <p>{{ getSummary(item) }}</p>
+        </div>
+
+        <!-- RECOMMEND: Parts Table -->
+        <ng-container *ngIf="item.mode === 'recommend' && getParts(item).length > 0">
+          <table class="parts-table">
+            <thead>
+              <tr>
+                <th>ชิ้นส่วน</th>
+                <th>รุ่น / รายละเอียด</th>
+                <th>ราคาประเมิน</th>
+                <th>เหตุผล</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let part of getParts(item)">
+                <td><span class="part-type">{{ part.type }}</span></td>
+                <td class="part-name">{{ part.name }}</td>
+                <td class="part-price">{{ part.price }}</td>
+                <td class="part-reason">{{ part.reason }}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Performance -->
+          <div class="perf-grid" *ngIf="item.result_data?.performance">
+            <div class="perf-item">
+              <div class="perf-label">🎮 Gaming</div>
+              <div class="perf-value">{{ item.result_data.performance.gaming }}</div>
+            </div>
+            <div class="perf-item">
+              <div class="perf-label">💼 Productivity</div>
+              <div class="perf-value">{{ item.result_data.performance.productivity }}</div>
+            </div>
+            <div class="perf-item">
+              <div class="perf-label">🔧 Upgrade</div>
+              <div class="perf-value">{{ item.result_data.performance.upgrade }}</div>
+            </div>
+          </div>
+        </ng-container>
+
+        <!-- COMPARE: Categories Table -->
+        <ng-container *ngIf="item.mode === 'compare' && getCategories(item).length > 0">
+          <div class="compare-names">
+            <div class="compare-name spec1">📌 {{ item.result_data?.spec1Name }}</div>
+            <div class="compare-name spec2">📌 {{ item.result_data?.spec2Name }}</div>
+          </div>
+          <table class="parts-table">
+            <thead>
+              <tr>
+                <th>หัวข้อ</th>
+                <th>{{ item.result_data?.spec1Name }}</th>
+                <th>{{ item.result_data?.spec2Name }}</th>
+                <th>ผู้ชนะ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let cat of getCategories(item)">
+                <td>{{ cat.name }}</td>
+                <td>{{ cat.spec1 }}</td>
+                <td>{{ cat.spec2 }}</td>
+                <td>
+                  <span *ngIf="cat.winner === '1'" class="winner-badge">🏆 {{ item.result_data?.spec1Name }}</span>
+                  <span *ngIf="cat.winner === '2'" class="winner-badge">🏆 {{ item.result_data?.spec2Name }}</span>
+                  <span *ngIf="cat.winner === 'tie'" class="winner-badge tie">🤝 เสมอ</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="recommend-note" *ngIf="item.result_data?.recommendation">
+            💡 {{ item.result_data.recommendation }}
+          </p>
+        </ng-container>
+
+        <!-- COMPAT: Checks Table -->
+        <ng-container *ngIf="item.mode === 'compat' && getChecks(item).length > 0">
+          <table class="parts-table">
+            <thead>
+              <tr>
+                <th>หัวข้อ</th>
+                <th>สถานะ</th>
+                <th>รายละเอียด</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let check of getChecks(item)">
+                <td>{{ check.item }}</td>
+                <td>
+                  <span class="check-badge" [class.check-ok]="check.ok" [class.check-fail]="!check.ok">
+                    {{ check.ok ? '✅ OK' : '❌ ไม่ผ่าน' }}
+                  </span>
+                </td>
+                <td class="part-reason">{{ check.detail }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div *ngIf="item.result_data?.suggestions?.length > 0" class="suggest-box">
+            <strong>💡 คำแนะนำ:</strong>
+            <ul>
+              <li *ngFor="let s of item.result_data.suggestions">{{ s }}</li>
+            </ul>
+          </div>
+        </ng-container>
+
+      </div>
+    </div>
+  </div>
+
+</div>

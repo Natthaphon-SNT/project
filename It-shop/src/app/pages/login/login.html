@@ -1,0 +1,76 @@
+<div class="login-page">
+  <div class="login-card fade-in">
+
+    <!-- Logo / Header -->
+    <div class="login-header">
+      <div class="logo-icon">💻</div>
+      <h2>เข้าสู่ระบบ</h2>
+      <p>IT-RECOMMEND</p>
+    </div>
+
+    <!-- Error Message -->
+    <div *ngIf="errorMessage" class="error-box" role="alert">
+      <span class="error-icon">⚠️</span>
+      {{ errorMessage }}
+    </div>
+
+    <!-- Form -->
+    <form (ngSubmit)="onLogin()" #loginForm="ngForm" novalidate>
+
+      <!-- Email / Username -->
+      <div class="input-group">
+        <label for="login-email">อีเมลหรือชื่อผู้ใช้</label>
+        <div class="input-wrapper">
+          <span class="input-icon">👤</span>
+          <input
+            id="login-email"
+            type="text"
+            [(ngModel)]="credentials.email"
+            name="email"
+            placeholder="กรอกอีเมลหรือชื่อผู้ใช้"
+            autocomplete="username"
+            [class.input-error]="errorMessage && !credentials.email"
+          />
+        </div>
+      </div>
+
+      <!-- Password -->
+      <div class="input-group">
+        <label for="login-password">รหัสผ่าน</label>
+        <div class="input-wrapper">
+          <span class="input-icon">🔒</span>
+          <input
+            id="login-password"
+            [type]="showPassword ? 'text' : 'password'"
+            [(ngModel)]="credentials.password"
+            name="password"
+            placeholder="กรอกรหัสผ่าน"
+            autocomplete="current-password"
+            [class.input-error]="errorMessage && !credentials.password"
+          />
+          <button type="button" class="toggle-pw" (click)="togglePassword()" tabindex="-1">
+            {{ showPassword ? '🙈' : '👁️' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <button type="submit" [disabled]="isLoading" class="btn-submit">
+        <span *ngIf="!isLoading">เข้าสู่ระบบ</span>
+        <span *ngIf="isLoading" class="loading-dot">
+          <span></span><span></span><span></span>
+        </span>
+      </button>
+    </form>
+
+    <!-- Footer -->
+    <div class="login-footer">
+      <span>ยังไม่มีบัญชี?</span>
+      <a routerLink="/register">สมัครสมาชิกที่นี่</a>
+    </div>
+    <div class="back-home">
+      <a routerLink="/">← กลับหน้าแรก</a>
+    </div>
+
+  </div>
+</div>

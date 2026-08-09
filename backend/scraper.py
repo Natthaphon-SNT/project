@@ -1,485 +1,652 @@
 """
-Web Scraper - ดึงสินค้า+ราคา+รูป จาก 3 ร้านค้า:
-  1. iHaveCPU  (ihavecpu.com)
-  2. Advice    (advice.co.th)
-  3. JIB       (jib.co.th)
+Web Scraper v4 - Advice / JIB / iHaveCPU
+Scrapes: name, price, image, description, direct URL per store
 
-รัน: python scraper.py
-หรือ เรียกผ่าน API: POST /api/scrape  (body: {"store": "ihavecpu|advice|jib|all", "pages": 3})
+Usage: python scraper.py [advice|jib|ihavecpu|all] [pages]
 """
-import asyncio, re, sqlite3, json
+import asyncio, re, sqlite3, sys
 from datetime import datetime
-from pathlib import Path
-from playwright.async_api import async_playwright, Page
+from playwright.async_api import async_playwright
 
 DB_PATH = "shop.db"
-
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-      "AppleWebKit/537.36 (KHTML, like Gecko) "
-      "Chrome/124.0.0.0 Safari/537.36")
+      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+ANTI_BOT = ("Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+            "window.chrome={runtime:{}};")
 
-# ─────────────────────────────────────────────────
+# ────────────────────────────────────────────────
+# Advice categories
+# ────────────────────────────────────────────────
+ADVICE_CATS = [
+    ("CPU",           "https://www.advice.co.th/product/cpu"),
+    ("Mainboard",     "https://www.advice.co.th/product/mainboard"),
+    ("GPU",           "https://www.advice.co.th/product/graphic-card"),
+    ("RAM",           "https://www.advice.co.th/product/ram"),
+    ("SSD",           "https://www.advice.co.th/product/ssd-harddisk"),
+    ("PSU",           "https://www.advice.co.th/product/power-supply"),
+    ("Case",          "https://www.advice.co.th/product/case"),
+    ("Liquid Cooler", "https://www.advice.co.th/product/liquid-cooling"),
+    ("Air Cooler",    "https://www.advice.co.th/product/cpu-cooler"),
+    ("Monitor",       "https://www.advice.co.th/product/monitor"),
+    ("Mouse",         "https://www.advice.co.th/product/mouse"),
+    ("Keyboard",      "https://www.advice.co.th/product/keyboard"),
+    ("Headset",       "https://www.advice.co.th/product/headset"),
+    ("Gaming Chair",  "https://www.advice.co.th/product/gaming-chair"),
+    ("Gaming Desk",   "https://www.advice.co.th/product/gaming-desk"),
+]
+
+# ────────────────────────────────────────────────
+# JIB - DIY hardware pages
+# ────────────────────────────────────────────────
+JIB_DIY_BASE = "https://www.jib.co.th/web/product/product_list/3/2988"
+JIB_PREFIX_MAP = {
+    "CPU":            "CPU",
+    "MAINBOARD":      "Mainboard",
+    "VGA":            "GPU",
+    "GRAPHIC CARD":   "GPU",
+    "RAM":            "RAM",
+    "SSD":            "SSD",
+    "HARDDISK":       "SSD",
+    "M.2":            "SSD",
+    "POWER SUPPLY":   "PSU",
+    "CASE":           "Case",
+    "LIQUID COOLER":  "Liquid Cooler",
+    "CPU COOLER":     "Air Cooler",
+    "COOLER":         "Air Cooler",
+    "LCD PANEL":      "Monitor",
+    "MONITOR":        "Monitor",
+    "KEYBOARD":       "Keyboard",
+    "MOUSE":          "Mouse",
+    "HEADSET":        "Headset",
+    "MICROPHONE":     "Microphone",
+}
+
+JIB_SKIP_PREFIXES = {
+    "MOUSE PAD", "SPEAKER", "WEBCAM", "HUB", "CABLE", "UPS",
+    "JOYSTICK", "PRINTER", "EXTERNAL", "NAS", "ROUTER",
+    "NETWORK", "ACCESS POINT", "SWITCH",
+}
+
+# ────────────────────────────────────────────────
+# iHaveCPU categories
+# ────────────────────────────────────────────────
+IHC_CATS = [
+    ("CPU",           "https://www.ihavecpu.com/category/cpu"),
+    ("Mainboard",     "https://www.ihavecpu.com/category/mainboard"),
+    ("GPU",           "https://www.ihavecpu.com/category/graphic-card"),
+    ("RAM",           "https://www.ihavecpu.com/category/ram"),
+    ("SSD",           "https://www.ihavecpu.com/category/storage"),
+    ("PSU",           "https://www.ihavecpu.com/category/power-supply"),
+    ("Case",          "https://www.ihavecpu.com/category/case"),
+    ("Cooler",        "https://www.ihavecpu.com/category/heat-sink"),
+    ("Monitor",       "https://www.ihavecpu.com/category/monitor"),
+    ("Mouse",         "https://www.ihavecpu.com/category/mouse"),
+    ("Keyboard",      "https://www.ihavecpu.com/category/keyboard"),
+    ("Headset",       "https://www.ihavecpu.com/category/headphone"),
+    ("Gaming Chair",  "https://www.ihavecpu.com/category/chair"),
+    ("Gaming Desk",   "https://www.ihavecpu.com/category/desk"),
+]
+
+IHC_SKIP_KEYWORDS = [
+    "MOUSE PAD", "MOUSEPAD", "WEBCAM", "GAMEPAD", "JOYSTICK", "SPEAKER",
+    "EXTERNAL HDD", "EXTERNAL SSD", "PROJECTOR", "PRINTER", "SCANNER",
+    "UPS", "STABILIZER", "NETWORK", "ROUTER", "SWITCH", "ACCESS POINT", "NAS",
+    "BY ORDER", "PRE ORDER", "CABLE", "HUB",
+]
+
+CID_MAP = {
+    "cpu": "c01", "mainboard": "c02", "gpu": "c03", "vga": "c03",
+    "ram": "c04", "ssd": "c05", "psu": "c06", "case": "c07",
+    "liquid": "c08", "air cooler": "c09", "cooler": "c09",
+    "mouse": "c10", "keyboard": "c11", "headset": "c12",
+    "microphone": "c13", "monitor": "c14",
+    "gaming chair": "c15", "chair": "c15",
+    "gaming desk": "c16", "desk": "c16",
+}
+
+# ────────────────────────────────────────────────
 # Helpers
-# ─────────────────────────────────────────────────
+# ────────────────────────────────────────────────
+def log(msg):
+    """Print safe for all Windows consoles (no unicode arrows)"""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('ascii', 'replace').decode('ascii'))
+
 def parse_price(text: str) -> int:
-    """แปลงข้อความราคาเป็น int (รองรับ ฿3,190.00 / 3,190 / 3190)"""
-    text = text.strip().replace("฿", "").replace("THB", "").replace("บาท", "").strip()
-    # จับตัวเลขแรกที่พบ รวม comma
-    m = re.search(r"(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?", text)
-    if not m:
-        return 0
-    num = int(m.group(0).replace(",", ""))
-    # กรองราคาสมเหตุสมผล: 200 ถึง 200,000 บาท
-    if 200 <= num <= 200000:
-        return num
-    return 0
+    if not text: return 0
+    text = text.strip().replace(",","").replace("\u0e3f","").replace("THB","").replace("baht","").strip()
+    m = re.search(r"\d+(?:\.\d+)?", text)
+    if not m: return 0
+    try: n = int(float(m.group(0)))
+    except: return 0
+    return n if 200 <= n <= 500_000 else 0
+
+def get_cid(category: str) -> str:
+    c = category.lower()
+    for k, v in CID_MAP.items():
+        if k in c: return v
+    return "c01"
+
+def make_pid(name: str, store: str) -> str:
+    import hashlib
+    slug = re.sub(r"[^a-z0-9]","", name.lower())[:12]
+    h = hashlib.md5(f"{name}_{store}".encode()).hexdigest()[:8]
+    return f"{slug}_{store[:3]}_{h}"
+
+def ensure_columns(conn: sqlite3.Connection):
+    """Add new columns if not exist"""
+    cur = conn.cursor()
+    new_cols = [
+        ("url_advice",    "TEXT DEFAULT ''"),
+        ("url_jib",       "TEXT DEFAULT ''"),
+        ("url_ihavecpu",  "TEXT DEFAULT ''"),
+        ("desc_advice",   "TEXT DEFAULT ''"),
+        ("desc_jib",      "TEXT DEFAULT ''"),
+        ("desc_ihavecpu", "TEXT DEFAULT ''"),
+    ]
+    cur.execute("PRAGMA table_info(products)")
+    existing = {row[1] for row in cur.fetchall()}
+    for col, defn in new_cols:
+        if col not in existing:
+            cur.execute(f"ALTER TABLE products ADD COLUMN {col} {defn}")
+            log(f"[DB] Added column: {col}")
+    conn.commit()
+
+def clean_ihc_name(name: str) -> str:
+    name = re.sub(r'^\[.*?\]\s*', '', name).strip()
+    m = re.match(r'^([A-Z0-9/\-\. ]+?)\s*\([^\)]+\)\s*(.*)', name)
+    if m: return (m.group(1).strip() + " " + m.group(2).strip()).strip()
+    return name
+
+def is_ihc_pc_component(name: str) -> bool:
+    name_up = name.upper()
+    for skip in IHC_SKIP_KEYWORDS:
+        if skip in name_up:
+            return False
+    return True
+
+def detect_jib_category(name: str):
+    name_up = name.upper()
+    for skip in JIB_SKIP_PREFIXES:
+        if name_up.startswith(skip): return None
+    for prefix, cat in JIB_PREFIX_MAP.items():
+        if name_up.startswith(prefix): return cat
+    return None
+
+CLEANED_CACHE = {}
+
+def clean_name(n: str) -> str:
+    # Normalize to uppercase and replace common separators with spaces
+    n = n.upper().replace('-', ' ').replace('/', ' ').replace('+', ' ')
+    # Remove socket names specifically
+    n = re.sub(r'\b(AM4|AM5|LGA1700|LGA1200|LGA1151|LGA1851|1700|1851|1200|1151)\b', '', n)
+    # Remove speeds e.g. 3.5GHZ, 3.5 GHZ, 4.2 GHZ
+    n = re.sub(r'\b\d+(?:\.\d+)?\s*GHZ\b', '', n)
+    # Remove cores/threads e.g. 6C/12T, 6C 12T, 8C
+    n = re.sub(r'\b\d+\s*C\s*/?\s*\d+\s*T\b|\b\d+\s*CORES?\b', '', n)
+    # Remove warranty info or parentheticals
+    n = re.sub(r'\(.*?\)|\[.*?\]', '', n)
+    n = re.sub(r'\b(WARRANTY|3Y|5Y|YEARS?|BOX|SANS?|WITH|COOLING|FANS?)\b', '', n)
+    # Remove generic shop words
+    n = re.sub(r'\b(CPU|VGA|GPU|RAM|SSD|M\.2|PSU|CASE|LIQUID|COOLER|MONITOR|MOUSE|KEYBOARD|HEADSET|MAINBOARD|MOTHERBOARD)\b', '', n)
+    # Split tokens, keep alphanumeric tokens that have at least one digit or are longer than 2 characters
+    tokens = []
+    for token in re.findall(r'\b[A-Z0-9]+\b', n):
+        if len(token) > 2 or any(c.isdigit() for c in token):
+            tokens.append(token)
+    return ' '.join(sorted(tokens))
+
+def get_cleaned_cache(cur: sqlite3.Cursor):
+    global CLEANED_CACHE
+    if not CLEANED_CACHE:
+        cur.execute("SELECT product_id, p_name FROM products")
+        for pid, p_name in cur.fetchall():
+            cleaned = clean_name(p_name)
+            if cleaned:
+                CLEANED_CACHE[cleaned] = pid
+    return CLEANED_CACHE
 
 def upsert_product(cur: sqlite3.Cursor, p: dict):
-    """เพิ่ม/อัปเดตสินค้าใน DB"""
-    # กำหนด cid จาก category
-    CID_MAP = {
-        "cpu": "c01", "mainboard": "c02", "vga": "c03", "gpu": "c03",
-        "ram": "c04", "ssd": "c05", "m.2": "c05", "nvme": "c05",
-        "psu": "c06", "case": "c07", "liquid": "c08", "cooler": "c09",
-    }
-    cat_lower = p.get("category", "").lower()
-    cid = next((v for k, v in CID_MAP.items() if k in cat_lower), "c01")
+    """
+    Upsert product with URL and description per store.
+    Match by exact name, and fallback to cleaned name match.
+    """
+    store = p.get("store","")
+    price = p.get("price", 0)
+    name  = p.get("name","").strip()
+    img   = p.get("img_url","").strip()
+    cat   = p.get("category","")
+    cid   = get_cid(cat)
+    url   = p.get("url","").strip()
+    desc  = p.get("description","").strip()
 
-    cur.execute("""
-        INSERT INTO products
-            (product_id, p_name, p_description, p_price,
-             price_advice, price_jib, price_ihavecpu,
-             p_stock, cid, category, img_url, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(product_id) DO UPDATE SET
-            p_name        = excluded.p_name,
-            p_price       = CASE WHEN excluded.p_price > 0 THEN excluded.p_price ELSE p_price END,
-            price_advice  = CASE WHEN excluded.price_advice > 0 THEN excluded.price_advice ELSE price_advice END,
-            price_jib     = CASE WHEN excluded.price_jib > 0 THEN excluded.price_jib ELSE price_jib END,
-            price_ihavecpu= CASE WHEN excluded.price_ihavecpu > 0 THEN excluded.price_ihavecpu ELSE price_ihavecpu END,
-            img_url       = CASE WHEN excluded.img_url != '' THEN excluded.img_url ELSE img_url END,
-            category      = excluded.category,
-            cid           = excluded.cid
-    """, (
-        p["product_id"], p["p_name"], p.get("p_description", ""),
-        p.get("p_price", 0),
-        p.get("price_advice", 0), p.get("price_jib", 0), p.get("price_ihavecpu", 0),
-        999, cid, p.get("category", ""),
-        p.get("img_url", ""),
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ))
+    if not name or not price: return
 
-# ─────────────────────────────────────────────────
-# iHaveCPU Scraper  (ihavecpu.com/category/diy-*)
-# ─────────────────────────────────────────────────
-IHC_CATEGORIES = [
-    ("CPU",          "https://www.ihavecpu.com/category/cpu"),
-    ("Mainboard",    "https://www.ihavecpu.com/category/mainboard"),
-    ("GPU",          "https://www.ihavecpu.com/category/vga"),
-    ("RAM",          "https://www.ihavecpu.com/category/ram"),
-    ("M.2",          "https://www.ihavecpu.com/category/ssd-m2"),
-    ("PSU",          "https://www.ihavecpu.com/category/psu"),
-    ("Case",         "https://www.ihavecpu.com/category/case"),
-    ("Liquid Cooler","https://www.ihavecpu.com/category/liquid-cooler"),
-    ("Air Cooler",   "https://www.ihavecpu.com/category/air-cooler"),
-]
+    price_col = {"advice":"price_advice","jib":"price_jib","ihavecpu":"price_ihavecpu"}.get(store,"price_advice")
+    url_col   = {"advice":"url_advice",  "jib":"url_jib",  "ihavecpu":"url_ihavecpu"}.get(store,"url_advice")
+    desc_col  = {"advice":"desc_advice", "jib":"desc_jib", "ihavecpu":"desc_ihavecpu"}.get(store,"desc_advice")
 
-async def scrape_ihavecpu(page: Page, url: str, category: str, max_pages: int = 3) -> list[dict]:
-    products = []
+    # Match exact name
+    existing = cur.execute(
+        "SELECT product_id FROM products WHERE p_name = ?", (name,)
+    ).fetchone()
 
-    # Warm-up: เข้าหน้าแรกก่อน เพื่อตั้ง session/cookie
-    try:
-        await page.goto("https://www.ihavecpu.com/", timeout=30000, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-    except Exception:
-        pass
+    pid = None
+    if existing:
+        pid = existing[0]
+    else:
+        # Fallback to cleaned name match
+        cleaned_input = clean_name(name)
+        if cleaned_input:
+            cache = get_cleaned_cache(cur)
+            if cleaned_input in cache:
+                pid = cache[cleaned_input]
 
-    for pg in range(1, max_pages + 1):
-        paged = f"{url}?page={pg}" if pg > 1 else url
-        try:
-            # domcontentloaded เร็วกว่า networkidle (iHaveCPU มี lazy loading ทำให้ networkidle timeout)
-            await page.goto(paged, timeout=30000, wait_until="domcontentloaded")
-            # รอ React render สินค้า
-            try:
-                await page.wait_for_selector("a[href*='/product/'] h3", timeout=12000)
-            except Exception:
-                await page.wait_for_timeout(5000)
+    if pid:
+        # Update existing product
+        cur.execute(f"""
+            UPDATE products SET
+                {price_col} = ?,
+                {url_col}   = CASE WHEN ? != '' THEN ? ELSE {url_col} END,
+                {desc_col}  = CASE WHEN ? != '' THEN ? ELSE {desc_col} END,
+                p_price     = CASE WHEN p_price=0 THEN ? ELSE p_price END,
+                img_url     = CASE WHEN ? != '' AND (img_url IS NULL OR img_url = '') THEN ? ELSE img_url END
+            WHERE product_id = ?
+        """, (
+            price,
+            url, url,
+            desc, desc,
+            price,
+            img, img,
+            pid
+        ))
+    else:
+        # Create new product
+        pid = make_pid(name, store)
+        cur.execute("""
+            INSERT OR IGNORE INTO products
+            (product_id,p_name,p_description,p_price,
+             price_advice,price_jib,price_ihavecpu,
+             url_advice,url_jib,url_ihavecpu,
+             desc_advice,desc_jib,desc_ihavecpu,
+             p_stock,cid,category,img_url,specs,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            pid, name, desc, price,
+            price if store=="advice"   else 0,
+            price if store=="jib"      else 0,
+            price if store=="ihavecpu" else 0,
+            url   if store=="advice"   else "",
+            url   if store=="jib"      else "",
+            url   if store=="ihavecpu" else "",
+            desc  if store=="advice"   else "",
+            desc  if store=="jib"      else "",
+            desc  if store=="ihavecpu" else "",
+            99, cid, cat, img, "",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        # Add to cache for subsequent matching
+        cleaned_input = clean_name(name)
+        if cleaned_input:
+            CLEANED_CACHE[cleaned_input] = pid
 
-            title = await page.title()
-            if "cloudflare" in title.lower() or "moment" in title.lower():
-                print(f"  [iHaveCPU] Cloudflare block on page {pg}")
-                break
+    cur.connection.commit()
 
-            # Selector จาก browser inspection: a[href*='/product/']
-            cards = await page.query_selector_all("a[href*='/product/']")
-            if not cards:
-                print(f"  [iHaveCPU] {category} page {pg}: no cards found")
-                break
-
-            page_count = 0
-            seen = set()
-            for card in cards:
-                try:
-                    # ชื่อ: h3 ภายใน card
-                    name_el = await card.query_selector("h3")
-                    if not name_el:
-                        continue
-                    name = (await name_el.inner_text()).strip()
-                    if not name or len(name) < 5 or name in seen:
-                        continue
-                    seen.add(name)
-
-                    # ราคา: span ที่มีตัวเลข
-                    spans = await card.query_selector_all("span")
-                    price = 0
-                    for sp in spans:
-                        txt = (await sp.inner_text()).strip()
-                        p = parse_price(txt)
-                        if 100 <= p <= 500000:
-                            price = p
-                            break
-
-                    # รูปภาพ
-                    img_el = await card.query_selector("img")
-                    img_src = ""
-                    if img_el:
-                        img_src = (await img_el.get_attribute("src") or
-                                   await img_el.get_attribute("data-src") or "")
-                        if img_src.startswith("//"):
-                            img_src = "https:" + img_src
-                        # แปลง _150.jpg → _800.jpg ให้ได้รูปใหญ่ขึ้น
-                        img_src = img_src.replace("_150.jpg", "_800.jpg").replace("_300.jpg", "_800.jpg")
-
-                    href = await card.get_attribute("href") or ""
-                    if href and not href.startswith("http"):
-                        href = "https://www.ihavecpu.com" + href
-
-                    pid = re.sub(r"[^a-z0-9]", "", name.lower())[:12] + f"_ihc{abs(hash(name)) % 9999:04d}"
-
-                    products.append({
-                        "product_id":     pid,
-                        "p_name":         name,
-                        "p_price":        price,
-                        "price_ihavecpu": price,
-                        "img_url":        img_src,
-                        "category":       category,
-                        "p_description":  "",
-                        "source_url":     href,
-                    })
-                    page_count += 1
-                except Exception:
-                    continue
-
-            print(f"  [iHaveCPU] {category} page {pg}: {page_count} products")
-            if page_count == 0:
-                break
-
-        except Exception as e:
-            print(f"  [iHaveCPU] Error page {pg}: {e}")
-            break
-
-    return products
-
-
-# ─────────────────────────────────────────────────
-# Advice Scraper  (advice.co.th/product/computer-hardware)
-# ─────────────────────────────────────────────────
-ADVICE_CATEGORIES = [
-    ("CPU",          "https://www.advice.co.th/product/cpu"),
-    ("Mainboard",    "https://www.advice.co.th/product/mainboard"),
-    ("GPU",          "https://www.advice.co.th/product/graphic-card"),
-    ("RAM",          "https://www.advice.co.th/product/ram"),
-    ("M.2",          "https://www.advice.co.th/product/ssd-harddisk"),
-    ("PSU",          "https://www.advice.co.th/product/power-supply"),
-    ("Case",         "https://www.advice.co.th/product/case"),
-    ("Liquid Cooler","https://www.advice.co.th/product/liquid-cooling"),
-    ("Air Cooler",   "https://www.advice.co.th/product/cpu-cooler"),
-]
-
-async def scrape_advice(page: Page, url: str, category: str, max_pages: int = 3) -> list[dict]:
-    products = []
-    for pg in range(1, max_pages + 1):
-        # Advice ใช้ ?page= parameter
-        paged = f"{url}?page={pg}" if pg > 1 else url
-        try:
-            await page.goto(paged, timeout=45000, wait_until="networkidle")
-            await page.wait_for_timeout(3000)
-
-            title = await page.title()
-            if "cloudflare" in title.lower() or "moment" in title.lower():
-                print(f"  [Advice] Cloudflare block")
-                break
-
-            # Selector จาก browser inspection: div.list-product
-            cards = await page.query_selector_all("div.list-product")
-            if not cards:
-                print(f"  [Advice] {category} page {pg}: no cards found")
-                break
-
-            page_count = 0
-            seen = set()
-            for card in cards:
-                try:
-                    # ชื่อ: a.fn-name
-                    name_el = await card.query_selector("a.fn-name")
-                    name = ""
-                    if name_el:
-                        name = ((await name_el.get_attribute("title")) or
-                                (await name_el.inner_text())).strip()
-                    if not name or len(name) < 3 or name in seen:
-                        continue
-                    seen.add(name)
-
-                    # ราคา: .item-price-sale
-                    price_el = await card.query_selector(".item-price-sale, .price-sale")
-                    price_txt = (await price_el.inner_text()).strip() if price_el else "0"
-                    price = parse_price(price_txt)
-
-                    # รูป: img.img-product
-                    img_el = await card.query_selector("img.img-product, img")
-                    img_src = ""
-                    if img_el:
-                        img_src = (await img_el.get_attribute("src") or
-                                   await img_el.get_attribute("data-src") or "")
-                        if img_src.startswith("//"):
-                            img_src = "https:" + img_src
-                        if img_src and not img_src.startswith("http"):
-                            img_src = "https://www.advice.co.th" + img_src
-
-                    link_el = await card.query_selector("a.fn-name, a[href]")
-                    href = await link_el.get_attribute("href") if link_el else ""
-
-                    pid = re.sub(r"[^a-z0-9]", "", name.lower())[:12] + f"_adv{abs(hash(name)) % 9999:04d}"
-
-                    if name and price > 0:
-                        products.append({
-                            "product_id":   pid,
-                            "p_name":       name,
-                            "p_price":      price,
-                            "price_advice": price,
-                            "img_url":      img_src,
-                            "category":     category,
-                            "p_description": "",
-                            "source_url":   href,
-                        })
-                        page_count += 1
-                except Exception:
-                    continue
-
-            print(f"  [Advice] {category} page {pg}: {page_count} products")
-            if page_count == 0:
-                break
-
-        except Exception as e:
-            print(f"  [Advice] Error page {pg}: {e}")
-            break
-
-    return products
-
-
-# ─────────────────────────────────────────────────
-# JIB Scraper  (jib.co.th)
-# ─────────────────────────────────────────────────
-JIB_CATEGORIES = [
-    ("CPU",          "https://www.jib.co.th/web/product/product_list/1/42"),
-    ("Mainboard",    "https://www.jib.co.th/web/product/product_list/1/43"),
-    ("GPU",          "https://www.jib.co.th/web/product/product_list/1/44"),
-    ("RAM",          "https://www.jib.co.th/web/product/product_list/1/45"),
-    ("M.2",          "https://www.jib.co.th/web/product/product_list/1/46"),
-    ("PSU",          "https://www.jib.co.th/web/product/product_list/1/50"),
-    ("Case",         "https://www.jib.co.th/web/product/product_list/1/51"),
-    ("Liquid Cooler","https://www.jib.co.th/web/product/product_list/1/48"),
-    ("Air Cooler",   "https://www.jib.co.th/web/product/product_list/1/47"),
-]
-
-async def scrape_jib(page: Page, url: str, category: str, max_pages: int = 3) -> list[dict]:
-    products = []
-    for pg in range(1, max_pages + 1):
-        # JIB เพิ่ม page ท้าย URL: /1/42/2  (page 2)
-        paged = url.rstrip("/") + f"/{pg}" if pg > 1 else url
-        try:
-            await page.goto(paged, timeout=45000, wait_until="networkidle")
-            await page.wait_for_timeout(3000)
-
-            title = await page.title()
-            if "cloudflare" in title.lower() or "moment" in title.lower():
-                print(f"  [JIB] Cloudflare block")
-                break
-
-            # Selector จาก browser inspection: div.divboxpro
-            cards = await page.query_selector_all("div.divboxpro")
-            if not cards:
-                # fallback: li.product-item
-                cards = await page.query_selector_all("li.product-item, .product-box")
-            if not cards:
-                print(f"  [JIB] {category} page {pg}: no cards found")
-                break
-
-            page_count = 0
-            seen = set()
-            for card in cards:
-                try:
-                    # ชื่อ: span.promo_name
-                    name_el = await card.query_selector("span.promo_name, p.name, .name")
-                    name = (await name_el.inner_text()).strip() if name_el else ""
-                    if not name or len(name) < 3 or name in seen:
-                        continue
-                    seen.add(name)
-
-                    # ราคา: p.price_total
-                    price_el = await card.query_selector("p.price_total, .price_total, [class*='price']")
-                    price_txt = (await price_el.inner_text()).strip() if price_el else "0"
-                    price = parse_price(price_txt)
-
-                    # รูป: img.imgpspecial
-                    img_el = await card.query_selector("img.imgpspecial, img")
-                    img_src = ""
-                    if img_el:
-                        img_src = (await img_el.get_attribute("src") or
-                                   await img_el.get_attribute("data-src") or "")
-                        if img_src.startswith("//"):
-                            img_src = "https:" + img_src
-                        if img_src and not img_src.startswith("http"):
-                            img_src = "https://www.jib.co.th" + img_src
-
-                    link_el = await card.query_selector("a[href*='/readProduct/'], a[href]")
-                    href = await link_el.get_attribute("href") if link_el else ""
-                    if href and not href.startswith("http"):
-                        href = "https://www.jib.co.th" + href
-
-                    pid = re.sub(r"[^a-z0-9]", "", name.lower())[:12] + f"_jib{abs(hash(name)) % 9999:04d}"
-
-                    if name and price > 0:
-                        products.append({
-                            "product_id":  pid,
-                            "p_name":      name,
-                            "p_price":     price,
-                            "price_jib":   price,
-                            "img_url":     img_src,
-                            "category":    category,
-                            "p_description": "",
-                            "source_url":  href,
-                        })
-                        page_count += 1
-                except Exception:
-                    continue
-
-            print(f"  [JIB] {category} page {pg}: {page_count} products")
-            if page_count == 0:
-                break
-
-        except Exception as e:
-            print(f"  [JIB] Error page {pg}: {e}")
-            break
-
-    return products
-
-
-# ─────────────────────────────────────────────────
-# Main Runner
-# ─────────────────────────────────────────────────
-async def run_scraper(stores: list[str] = ["ihavecpu", "advice", "jib"],
-                      max_pages: int = 3) -> dict:
-    summary = {"ihavecpu": 0, "advice": 0, "jib": 0, "total": 0, "errors": []}
+# ────────────────────────────────────────────────
+# Scraper: Advice
+# ────────────────────────────────────────────────
+async def scrape_advice(pages: int = 2) -> int:
+    import random
+    total = 0
+    conn = sqlite3.connect(DB_PATH)
+    ensure_columns(conn)
+    cur = conn.cursor()
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox", "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--window-size=1280,800",
-            ]
+            args=["--no-sandbox","--disable-blink-features=AutomationControlled",
+                  "--disable-web-security","--disable-features=VizDisplayCompositor"]
         )
 
-        async def new_page():
+        for cat_idx, (cat_name, base_url) in enumerate(ADVICE_CATS):
             ctx = await browser.new_context(
-                viewport={"width": 1280, "height": 800},
                 user_agent=UA,
-                ignore_https_errors=True,
+                viewport={"width": random.randint(1200,1400), "height": random.randint(768,900)},
+                locale="th-TH",
             )
-            await ctx.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-            return await ctx.new_page()
+            await ctx.add_init_script(ANTI_BOT)
+            page = await ctx.new_page()
 
-        conn = sqlite3.connect(DB_PATH)
-        cur  = conn.cursor()
-
-        # ── iHaveCPU ─────────────────────────────
-        if "ihavecpu" in stores:
-            print("\n[iHaveCPU] เริ่ม scrape...")
-            for category, url in IHC_CATEGORIES:
-                page = await new_page()   # fresh page ทุก category
+            if cat_idx == 0:
                 try:
-                    items = await scrape_ihavecpu(page, url, category, max_pages)
-                    for p in items:
-                        upsert_product(cur, p)
-                    conn.commit()
-                    summary["ihavecpu"] += len(items)
-                    print(f"  [iHaveCPU] {category}: +{len(items)} สินค้า")
-                except Exception as e:
-                    summary["errors"].append(f"iHaveCPU/{category}: {e}")
-                finally:
-                    await page.close()
+                    await page.goto("https://www.advice.co.th/", timeout=25000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(3000)
+                except: pass
 
-        # ── Advice ───────────────────────────────
-        if "advice" in stores:
-            print("\n[Advice] เริ่ม scrape...")
-            for category, url in ADVICE_CATEGORIES:
-                page = await new_page()
+            cat_count = 0
+            for pn in range(1, pages+1):
+                url = base_url if pn==1 else f"{base_url}?page={pn}"
+                log(f"  [Advice] {cat_name} p{pn}")
                 try:
-                    items = await scrape_advice(page, url, category, max_pages)
-                    for p in items:
-                        upsert_product(cur, p)
-                    conn.commit()
-                    summary["advice"] += len(items)
-                    print(f"  [Advice] {category}: +{len(items)} สินค้า")
+                    await page.goto(url, timeout=40000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(5000)
+                    for scroll_y in [300, 600, 900, 1200]:
+                        await page.evaluate(f"window.scrollTo(0,{scroll_y})")
+                        await page.wait_for_timeout(600)
+                    await page.wait_for_timeout(2000)
                 except Exception as e:
-                    summary["errors"].append(f"Advice/{category}: {e}")
-                finally:
-                    await page.close()
+                    log(f"    err: {e}"); break
 
-        # ── JIB ──────────────────────────────────
-        if "jib" in stores:
-            print("\n[JIB] เริ่ม scrape...")
-            for category, url in JIB_CATEGORIES:
-                page = await new_page()
-                try:
-                    items = await scrape_jib(page, url, category, max_pages)
-                    for p in items:
-                        upsert_product(cur, p)
-                    conn.commit()
-                    summary["jib"] += len(items)
-                    print(f"  [JIB] {category}: +{len(items)} สินค้า")
-                except Exception as e:
-                    summary["errors"].append(f"JIB/{category}: {e}")
-                finally:
-                    await page.close()
+                cards = await page.query_selector_all("div.list-product")
+                if not cards:
+                    log("    no cards"); break
+
+                count = 0
+                for card in cards:
+                    try:
+                        ne = await card.query_selector("a.fn-name")
+                        if not ne: continue
+                        name = (await ne.inner_text()).strip()
+                        if not name: continue
+
+                        # URL
+                        href = await ne.get_attribute("href") or ""
+                        if href and not href.startswith("http"):
+                            href = "https://www.advice.co.th" + href
+
+                        # Price
+                        price = 0
+                        for ps in ["span.item-price-sale","span.price-sale",".fn-price-sale",
+                                   "div.price-box span","strong.price","[class*=price-sale]"]:
+                            pe = await card.query_selector(ps)
+                            if pe:
+                                price = parse_price(await pe.inner_text())
+                                if price: break
+                        if not price:
+                            dp = await card.query_selector("[data-price]")
+                            if dp: price = parse_price(await dp.get_attribute("data-price") or "")
+                        if not price:
+                            for sp in await card.query_selector_all("span,strong"):
+                                t = (await sp.inner_text()).strip()
+                                p = parse_price(t)
+                                if p: price = p; break
+
+                        # Image
+                        img = ""
+                        for img_sel in ["div.item-img img","img[src*='advice']","img"]:
+                            ie = await card.query_selector(img_sel)
+                            if ie:
+                                img = await ie.get_attribute("src") or ""
+                                if img and img.startswith("http"): break
+
+                        # Description
+                        desc = ""
+                        for desc_sel in ["div.item-des","div.product-desc","p.desc",
+                                         "div.item-specification","div.spec-list","p.product-name"]:
+                            de = await card.query_selector(desc_sel)
+                            if de:
+                                desc = (await de.inner_text()).strip()
+                                if desc: break
+
+                        upsert_product(cur, {
+                            "name": name, "price": price, "img_url": img,
+                            "category": cat_name, "store": "advice",
+                            "url": href, "description": desc
+                        })
+                        count += 1
+                    except: pass
+
+                cat_count += count
+                log(f"    -> {count} items saved")
+                if count == 0: break
+
+            total += cat_count
+            log(f"  [Advice] {cat_name}: +{cat_count}")
+            await ctx.close()
+            await asyncio.sleep(random.uniform(3, 6))
 
         await browser.close()
-        conn.close()
+    conn.close()
+    return total
 
-    summary["total"] = summary["ihavecpu"] + summary["advice"] + summary["jib"]
-    return summary
+# ────────────────────────────────────────────────
+# Scraper: JIB
+# ────────────────────────────────────────────────
+async def scrape_jib(pages: int = 5) -> int:
+    total = 0
+    conn = sqlite3.connect(DB_PATH)
+    ensure_columns(conn)
+    cur = conn.cursor()
 
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox","--disable-blink-features=AutomationControlled"]
+        )
+        ctx = await browser.new_context(user_agent=UA, viewport={"width":1280,"height":800})
+        await ctx.add_init_script(ANTI_BOT)
+        page = await ctx.new_page()
 
-# ─────────────────────────────────────────────────
-# CLI entry
-# ─────────────────────────────────────────────────
+        for pn in range(1, pages+1):
+            url = JIB_DIY_BASE if pn==1 else f"{JIB_DIY_BASE}/{pn}"
+            log(f"  [JIB] DIY page {pn} → {url}")
+            try:
+                await page.goto(url, timeout=40000, wait_until="domcontentloaded")
+                await page.wait_for_timeout(5000)
+            except Exception as e:
+                log(f"    err: {e}"); break
+
+            cards = await page.query_selector_all("div.divboxpro")
+            if not cards:
+                log("    no cards"); break
+
+            count = 0
+            for card in cards:
+                try:
+                    ne = await card.query_selector("span.promo_name")
+                    if not ne: continue
+                    name = (await ne.inner_text()).strip()
+                    if not name: continue
+
+                    cat = detect_jib_category(name)
+                    if cat is None: continue
+
+                    pe = await card.query_selector("p.price_total")
+                    price = parse_price(await pe.inner_text() if pe else "")
+                    if not price: continue
+
+                    # URL - try multiple selectors for JIB product link
+                    prod_url = ""
+                    for link_sel in ["a.divboxpro-click","a[href*='/web/product/product_detail']",
+                                     "a[onclick*='product']","a[href*='product']","a[href]"]:
+                        link_el = await card.query_selector(link_sel)
+                        if link_el:
+                            href = await link_el.get_attribute("href") or ""
+                            if href and href not in ['#','javascript:void(0)']:
+                                prod_url = ("https://www.jib.co.th" + href
+                                            if not href.startswith("http") else href)
+                                break
+                    # If no direct link, try parent
+                    if not prod_url:
+                        parent = await card.evaluate_handle("el => el.closest('a')")
+                        if parent:
+                            try:
+                                href = await parent.get_attribute("href") or ""
+                                if href and href not in ['#']:
+                                    prod_url = ("https://www.jib.co.th" + href
+                                                if not href.startswith("http") else href)
+                            except: pass
+
+                    # Image
+                    img = ""
+                    ie = await card.query_selector("img")
+                    if ie:
+                        img = await ie.get_attribute("src") or ""
+                        if img and not img.startswith("http"):
+                            img = "https://www.jib.co.th" + img
+
+                    # Description
+                    desc = ""
+                    for desc_sel in ["div.product-spec","div.divboxpro-spec","p.spec","div.spec-box"]:
+                        de = await card.query_selector(desc_sel)
+                        if de:
+                            desc = (await de.inner_text()).strip()
+                            if desc: break
+
+                    upsert_product(cur, {
+                        "name": name, "price": price, "img_url": img,
+                        "category": cat, "store": "jib",
+                        "url": prod_url, "description": desc
+                    })
+                    count += 1
+                except: pass
+
+            total += count
+            log(f"    -> {count} PC items saved")
+            if count == 0 and pn > 1: break
+
+        await browser.close()
+    conn.close()
+    return total
+
+# ────────────────────────────────────────────────
+# Scraper: iHaveCPU
+# ────────────────────────────────────────────────
+async def scrape_ihavecpu(pages: int = 2) -> int:
+    total = 0
+    conn = sqlite3.connect(DB_PATH)
+    ensure_columns(conn)
+    cur = conn.cursor()
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox","--disable-blink-features=AutomationControlled"]
+        )
+        ctx = await browser.new_context(user_agent=UA, viewport={"width":1280,"height":800})
+        await ctx.add_init_script(ANTI_BOT)
+        page = await ctx.new_page()
+
+        try:
+            await page.goto("https://www.ihavecpu.com/", timeout=20000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(2000)
+        except: pass
+
+        for cat_name, base_url in IHC_CATS:
+            cat_count = 0
+            seen = set()
+            for pn in range(1, pages+1):
+                url = base_url if pn==1 else f"{base_url}?page={pn}"
+                log(f"  [iHaveCPU] {cat_name} p{pn}")
+                try:
+                    await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(5000)
+                except Exception as e:
+                    log(f"    err: {e}"); break
+
+                links = await page.query_selector_all("a[href*='/product/']")
+                if not links:
+                    log("    no products"); break
+
+                count = 0
+                for le in links:
+                    try:
+                        h3 = await le.query_selector("h3")
+                        if not h3: continue
+                        raw = (await h3.inner_text()).strip()
+                        if not raw or raw in seen: continue
+                        seen.add(raw)
+                        if not is_ihc_pc_component(raw): continue
+                        name = clean_ihc_name(raw)
+                        if not name: continue
+
+                        # Price
+                        price = 0
+                        for sp in await le.query_selector_all("span"):
+                            t = (await sp.inner_text()).strip()
+                            p = parse_price(t)
+                            if p: price = p; break
+                        if not price: continue
+
+                        # URL (direct product link from anchor href)
+                        prod_url = ""
+                        href = await le.get_attribute("href") or ""
+                        if href:
+                            prod_url = (href if href.startswith("http")
+                                        else "https://www.ihavecpu.com" + href)
+
+                        # Image
+                        img = ""
+                        ie = await le.query_selector("img")
+                        if ie:
+                            img = await ie.get_attribute("src") or await ie.get_attribute("data-src") or ""
+                            if img and not img.startswith("http"):
+                                img = "https://www.ihavecpu.com" + img
+
+                        # Description
+                        desc = ""
+                        for desc_sel in ["p.product-desc","div.desc","p.description",
+                                         "span.spec","div.product-short-desc"]:
+                            de = await le.query_selector(desc_sel)
+                            if de:
+                                desc = (await de.inner_text()).strip()
+                                if desc: break
+
+                        # Auto-categorize cooler type
+                        actual_cat = cat_name
+                        if cat_name == 'Cooler':
+                            lower = name.lower()
+                            if any(k in lower for k in ['liquid','water','240','360','120',
+                                                         'ryujin','kraken','valkyrie','galahad','frozen']):
+                                actual_cat = 'Liquid Cooler'
+                            else:
+                                actual_cat = 'Air Cooler'
+
+                        upsert_product(cur, {
+                            "name": name, "price": price, "img_url": img,
+                            "category": actual_cat, "store": "ihavecpu",
+                            "url": prod_url, "description": desc
+                        })
+                        count += 1
+                    except: pass
+
+                cat_count += count
+                log(f"    -> {count} items saved")
+                if count == 0: break
+
+            total += cat_count
+            log(f"  [iHaveCPU] {cat_name}: +{cat_count}")
+
+        await browser.close()
+    conn.close()
+    return total
+
+# ────────────────────────────────────────────────
+# Main
+# ────────────────────────────────────────────────
+async def run_scraper(stores: list, pages: int = 2) -> dict:
+    results = {}
+    if "advice"   in stores:
+        log("\n=== [Advice] ===")
+        results["advice"]   = await scrape_advice(pages)
+    if "jib"      in stores:
+        log("\n=== [JIB] ===")
+        results["jib"]      = await scrape_jib(pages)
+    if "ihavecpu" in stores:
+        log("\n=== [iHaveCPU] ===")
+        results["ihavecpu"] = await scrape_ihavecpu(pages)
+    return results
+
 if __name__ == "__main__":
-    import sys
-    stores = sys.argv[1:] if len(sys.argv) > 1 else ["ihavecpu", "advice", "jib"]
-    pages  = 3
-
-    print(f"Scraping: {stores}  |  max {pages} pages/category")
-    result = asyncio.run(run_scraper(stores, pages))
-    print(f"\n=== DONE ===")
-    print(f"  iHaveCPU : {result['ihavecpu']}")
-    print(f"  Advice   : {result['advice']}")
-    print(f"  JIB      : {result['jib']}")
-    print(f"  Total    : {result['total']}")
-    if result["errors"]:
-        print(f"  Errors   : {len(result['errors'])}")
-        for e in result["errors"][:5]:
-            print(f"    - {e}")
+    store_arg = sys.argv[1] if len(sys.argv)>1 else "all"
+    pages_arg = int(sys.argv[2]) if len(sys.argv)>2 else 2
+    stores = ["advice","jib","ihavecpu"] if store_arg=="all" else [store_arg]
+    log(f"=== IT-RECOMMEND Scraper v4 ===")
+    log(f"Stores: {stores} | Pages: {pages_arg}")
+    r = asyncio.run(run_scraper(stores, pages_arg))
+    log("\n=== DONE ===")
+    for k,v in r.items(): log(f"  {k:10}: {v} items")
+    log(f"  Total: {sum(r.values())}")

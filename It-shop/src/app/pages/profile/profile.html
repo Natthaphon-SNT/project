@@ -1,0 +1,179 @@
+<div class="profile-wrapper">
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>กำลังโหลดข้อมูล...</p>
+  </div>
+
+  <div *ngIf="!isLoading" class="profile-layout">
+
+    <!-- Sidebar: Card โปรไฟล์ -->
+    <div class="profile-sidebar">
+      <div class="profile-card">
+
+        <!-- รูปโปรไฟล์ -->
+        <div class="avatar-section">
+          <div class="avatar-wrapper">
+            <img *ngIf="getProfileImage()" [src]="getProfileImage()" [alt]="profileData?.u_name" class="avatar-img">
+            <div *ngIf="!getProfileImage()" class="avatar-placeholder">
+              {{ profileData?.u_name?.charAt(0)?.toUpperCase() }}
+            </div>
+            <!-- Upload overlay -->
+            <label class="avatar-upload-btn" [class.loading]="uploadingImage">
+              <span *ngIf="!uploadingImage">+</span>
+              <span *ngIf="uploadingImage">...</span>
+              <input type="file" accept="image/*" (change)="onImageUpload($event)" style="display:none">
+            </label>
+          </div>
+          <p class="upload-hint">คลิกที่ + เพื่ออัปโหลดรูปโปรไฟล์</p>
+        </div>
+
+        <!-- ข้อมูลผู้ใช้ -->
+        <h2 class="profile-name">{{ profileData?.u_name }}</h2>
+        <p class="profile-email">{{ profileData?.u_email }}</p>
+        <div class="role-badge" [class.admin-badge]="profileData?.u_role === 'admin'">
+          {{ profileData?.u_role === 'admin' ? 'Admin' : 'Member' }}
+        </div>
+        <p class="joined-date" *ngIf="profileData?.u_created_at">
+          สมาชิกตั้งแต่: {{ profileData?.u_created_at | slice:0:10 }}
+        </p>
+
+        <div class="sidebar-actions">
+          <button (click)="enableEdit()" class="btn-edit-profile" *ngIf="!isEditMode">
+            แก้ไขโปรไฟล์
+          </button>
+          <button (click)="showPasswordForm = !showPasswordForm" class="btn-change-pass">
+            เปลี่ยนรหัสผ่าน
+          </button>
+          <button (click)="logout()" class="btn-logout">
+            ออกจากระบบ
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="profile-main">
+
+      <!-- Alert Message -->
+      <div *ngIf="message" class="alert-msg" [class.success]="messageType === 'success'" [class.error]="messageType === 'error'">
+        {{ message }}
+      </div>
+
+      <!-- ข้อมูลส่วนตัว -->
+      <div class="profile-section" *ngIf="!isEditMode">
+        <h3 class="section-title">ข้อมูลส่วนตัว</h3>
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">ชื่อผู้ใช้</span>
+            <span class="info-value">{{ profileData?.u_name }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">อีเมล</span>
+            <span class="info-value">{{ profileData?.u_email }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">เบอร์โทร</span>
+            <span class="info-value">{{ profileData?.u_phone || '-' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">วันเกิด</span>
+            <span class="info-value">{{ profileData?.dob || '-' }}</span>
+          </div>
+          <div class="info-item full-width">
+            <span class="info-label">ที่อยู่</span>
+            <span class="info-value">{{ profileData?.u_address || '-' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">เข้าสู่ระบบล่าสุด</span>
+            <span class="info-value">{{ profileData?.u_last_login || '-' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit Form -->
+      <div class="profile-section" *ngIf="isEditMode">
+        <h3 class="section-title">แก้ไขโปรไฟล์</h3>
+        <div class="edit-form">
+          <div class="form-group">
+            <label>ชื่อผู้ใช้</label>
+            <input type="text" [(ngModel)]="editForm.u_name" placeholder="ชื่อผู้ใช้">
+          </div>
+          <div class="form-group">
+            <label>เบอร์โทรศัพท์</label>
+            <input type="tel" [(ngModel)]="editForm.u_phone" placeholder="เบอร์โทร">
+          </div>
+          <div class="form-group">
+            <label>ที่อยู่</label>
+            <textarea [(ngModel)]="editForm.u_address" rows="3" placeholder="ที่อยู่สำหรับจัดส่ง"></textarea>
+          </div>
+          <div class="form-actions">
+            <button (click)="saveProfile()" class="btn-save" [disabled]="isSaving">
+              {{ isSaving ? 'กำลังบันทึก...' : 'บันทึก' }}
+            </button>
+            <button (click)="cancelEdit()" class="btn-cancel">ยกเลิก</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- เปลี่ยนรหัสผ่าน -->
+      <div class="profile-section" *ngIf="showPasswordForm">
+        <h3 class="section-title">เปลี่ยนรหัสผ่าน</h3>
+        <div class="edit-form">
+          <div class="form-group">
+            <label>รหัสผ่านปัจจุบัน</label>
+            <input type="password" [(ngModel)]="passwordForm.current_password" placeholder="รหัสผ่านปัจจุบัน">
+          </div>
+          <div class="form-group">
+            <label>รหัสผ่านใหม่</label>
+            <input type="password" [(ngModel)]="passwordForm.new_password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)">
+          </div>
+          <div class="form-group">
+            <label>ยืนยันรหัสผ่านใหม่</label>
+            <input type="password" [(ngModel)]="passwordForm.confirm_password" placeholder="ยืนยันรหัสผ่านใหม่">
+          </div>
+          <div class="form-actions">
+            <button (click)="changePassword()" class="btn-save" [disabled]="isChangingPassword">
+              {{ isChangingPassword ? 'กำลังเปลี่ยน...' : 'เปลี่ยนรหัสผ่าน' }}
+            </button>
+            <button (click)="showPasswordForm = false; passwordForm = {current_password:'', new_password:'', confirm_password:''}" class="btn-cancel">
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ประวัติการสั่งซื้อ -->
+      <div class="profile-section">
+        <h3 class="section-title">ประวัติการสั่งซื้อ</h3>
+
+        <div *ngIf="myOrders.length === 0" class="empty-orders">
+          <p>ยังไม่มีประวัติการสั่งซื้อ</p>
+        </div>
+
+        <div *ngFor="let order of myOrders" class="order-card">
+          <div class="order-header">
+            <span class="order-id">ออเดอร์ #{{ order.order_id }}</span>
+            <span class="order-date">{{ order.order_date | slice:0:10 }}</span>
+            <span class="order-status" [class]="getStatusClass(order.status)">
+              {{ getStatusLabel(order.status) }}
+            </span>
+          </div>
+          <div class="order-items" *ngIf="order.items?.length">
+            <div *ngFor="let item of order.items" class="order-item-row">
+              <span class="item-name">{{ item.p_name }}</span>
+              <span class="item-qty">x{{ item.quantity }}</span>
+              <span class="item-price">{{ item.price | number }} ฿</span>
+            </div>
+          </div>
+          <div class="order-footer">
+            <span class="payment-method">{{ order.payment_method === 'cod' ? 'เก็บเงินปลายทาง' : order.payment_method }}</span>
+            <span class="order-total">รวม: <strong>{{ order.total_price | number }} ฿</strong></span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

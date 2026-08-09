@@ -1,0 +1,162 @@
+<div class="detail-wrapper fade-in">
+
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>กำลังโหลดข้อมูลสินค้า...</p>
+  </div>
+
+  <div *ngIf="!isLoading && !product" class="not-found">
+    <h2>ไม่พบสินค้านี้</h2>
+    <button routerLink="/products" class="btn-back">← กลับไปเลือกสินค้า</button>
+  </div>
+
+  <div *ngIf="product" class="detail-card">
+
+    <!-- รูปสินค้า -->
+    <div class="img-section">
+      <img [src]="getProductImage()"
+           [alt]="product.p_name"
+           (error)="onImgError($event)">
+      <div class="store-badges" *ngIf="hasAnyPrice()">
+        <span class="badge-store adv" *ngIf="product.price_advice">Advice</span>
+        <span class="badge-store jib" *ngIf="product.price_jib">JIB</span>
+        <span class="badge-store ihc" *ngIf="product.price_ihavecpu">iHaveCPU</span>
+      </div>
+    </div>
+
+    <!-- ข้อมูลสินค้า -->
+    <div class="info-section">
+
+      <span class="badge-category">{{ product.category || 'Hardware' }}</span>
+      <h1 class="product-title">{{ product.p_name }}</h1>
+
+      <!-- ราคาต่ำสุด -->
+      <div class="price-hero">
+        <span class="price-from">เริ่มต้นที่</span>
+        <span class="price-main">{{ getMinPrice() | number }} ฿</span>
+      </div>
+
+      <!-- ตารางเปรียบเทียบราคา + ลิงก์ตรง -->
+      <div class="price-compare-box" *ngIf="hasAnyPrice()">
+        <h3 class="compare-heading">เปรียบเทียบราคา & ตรวจสอบสินค้า</h3>
+
+        <div class="store-rows">
+
+          <!-- Advice -->
+          <div class="store-row" *ngIf="product.price_advice">
+            <div class="store-left">
+              <div class="store-logo advice-logo">
+                <span>Advice</span>
+              </div>
+              <div class="store-price-info">
+                <span class="store-price-label">ราคา Advice</span>
+                <span class="store-price-val">{{ product.price_advice | number }} ฿</span>
+              </div>
+            </div>
+            <a [href]="getStoreUrl('advice')" target="_blank" rel="noopener noreferrer"
+               class="btn-goto-store advice-btn">
+              ดูสินค้า Advice
+            </a>
+          </div>
+
+          <!-- JIB -->
+          <div class="store-row" *ngIf="product.price_jib">
+            <div class="store-left">
+              <div class="store-logo jib-logo">
+                <span>JIB</span>
+              </div>
+              <div class="store-price-info">
+                <span class="store-price-label">ราคา JIB</span>
+                <span class="store-price-val">{{ product.price_jib | number }} ฿</span>
+              </div>
+            </div>
+            <a [href]="getStoreUrl('jib')" target="_blank" rel="noopener noreferrer"
+               class="btn-goto-store jib-btn">
+              ดูสินค้า JIB
+            </a>
+          </div>
+
+          <!-- iHaveCPU -->
+          <div class="store-row" *ngIf="product.price_ihavecpu">
+            <div class="store-left">
+              <div class="store-logo ihc-logo">
+                <span>iHaveCPU</span>
+              </div>
+              <div class="store-price-info">
+                <span class="store-price-label">ราคา iHaveCPU</span>
+                <span class="store-price-val">{{ product.price_ihavecpu | number }} ฿</span>
+              </div>
+            </div>
+            <a [href]="getStoreUrl('ihavecpu')" target="_blank" rel="noopener noreferrer"
+               class="btn-goto-store ihc-btn">
+              ดูสินค้า iHaveCPU
+            </a>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- สินค้าคงเหลือ -->
+      <div class="stock-row">
+        <span class="stock-label">สต็อก:</span>
+        <span class="stock-value" [class.out]="product.p_stock === 0">
+          {{ product.p_stock > 0 ? product.p_stock + ' ชิ้น' : 'พร้อมสั่ง' }}
+        </span>
+      </div>
+
+      <!-- ปุ่มเพิ่มลงสเปค -->
+      <div class="action-buttons">
+        <button (click)="addToCart()" class="btn-add-cart">
+          เพิ่มลงสเปค
+        </button>
+        <button routerLink="/cart" class="btn-view-cart">
+          ดูสเปคของคุณ
+        </button>
+        <button (click)="goBack()" class="btn-back-list">
+          ← กลับ
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- รายละเอียดสินค้าแยกตามร้าน -->
+  <div *ngIf="product && hasDescription()" class="desc-section">
+    <h2 class="desc-section-title">รายละเอียดสินค้า</h2>
+
+    <!-- Tabs รายละเอียดแต่ละร้าน -->
+    <div class="desc-tabs">
+      <button *ngIf="product.desc_advice"
+              [class.active]="activeDescTab === 'advice'"
+              (click)="activeDescTab = 'advice'">
+        Advice
+      </button>
+      <button *ngIf="product.desc_jib"
+              [class.active]="activeDescTab === 'jib'"
+              (click)="activeDescTab = 'jib'">
+        JIB
+      </button>
+      <button *ngIf="product.desc_ihavecpu"
+              [class.active]="activeDescTab === 'ihavecpu'"
+              (click)="activeDescTab = 'ihavecpu'">
+        iHaveCPU
+      </button>
+      <button *ngIf="product.p_description && !product.desc_advice && !product.desc_jib && !product.desc_ihavecpu"
+              class="active">
+        ข้อมูลสินค้า
+      </button>
+    </div>
+
+    <div class="desc-content">
+      <pre *ngIf="activeDescTab === 'advice' && product.desc_advice"
+           class="desc-text">{{ product.desc_advice }}</pre>
+      <pre *ngIf="activeDescTab === 'jib' && product.desc_jib"
+           class="desc-text">{{ product.desc_jib }}</pre>
+      <pre *ngIf="activeDescTab === 'ihavecpu' && product.desc_ihavecpu"
+           class="desc-text">{{ product.desc_ihavecpu }}</pre>
+      <pre *ngIf="!product.desc_advice && !product.desc_jib && !product.desc_ihavecpu && product.p_description"
+           class="desc-text">{{ product.p_description }}</pre>
+    </div>
+  </div>
+
+</div>

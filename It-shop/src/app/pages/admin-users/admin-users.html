@@ -1,0 +1,223 @@
+<div class="admin-users-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">👥 จัดการผู้ใช้งาน</h1>
+      <p class="page-sub">ดูและจัดการบัญชีผู้ใช้ทั้งหมดในระบบ</p>
+    </div>
+    <div class="header-stats">
+      <div class="stat-box">
+        <span class="stat-num">{{ users.length }}</span>
+        <span class="stat-label">ทั้งหมด</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-num">{{ adminCount }}</span>
+        <span class="stat-label">Admin</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alert -->
+  <div *ngIf="message" class="alert-msg" [class.success]="messageType === 'success'" [class.error]="messageType === 'error'">
+    {{ message }}
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" [(ngModel)]="searchQuery" (input)="applyFilters()"
+             placeholder="ค้นหาชื่อ, อีเมล, UID...">
+    </div>
+    <select [(ngModel)]="roleFilter" (change)="applyFilters()" class="role-select">
+      <option value="">ทุก Role</option>
+      <option value="customer">Customer</option>
+      <option value="admin">Admin</option>
+      <option value="staff">Staff</option>
+    </select>
+  </div>
+
+  <!-- Layout -->
+  <div class="users-layout">
+
+    <!-- Users List -->
+    <div class="users-list">
+      <div *ngIf="isLoading" class="loading-state">
+        <div class="spinner"></div>
+        <p>กำลังโหลด...</p>
+      </div>
+
+      <div *ngIf="!isLoading && filteredUsers.length === 0" class="empty-state">
+        <p>ไม่พบผู้ใช้งาน</p>
+      </div>
+
+      <div *ngFor="let user of filteredUsers"
+           class="user-row"
+           [class.selected]="selectedUser?.uid === user.uid"
+           (click)="selectUser(user)">
+        <div class="user-avatar">{{ getAvatarLetter(user.u_name) }}</div>
+        <div class="user-info">
+          <div class="user-name">{{ user.u_name }}</div>
+          <div class="user-email">{{ user.u_email }}</div>
+          <div class="user-meta">
+            <span class="user-role" [class]="getRoleClass(user.u_role)">{{ user.u_role }}</span>
+            <span class="user-stats">📦 {{ user.order_count }} | 🤖 {{ user.spec_count }}</span>
+          </div>
+        </div>
+        <div class="user-actions" (click)="$event.stopPropagation()">
+          <button (click)="selectUser(user); openEditModal(user)" class="btn-edit" title="แก้ไข">✏️</button>
+          <button (click)="selectUser(user); openRoleModal(user)" class="btn-role" title="เปลี่ยน Role">👑</button>
+          <button (click)="deleteUser(user)" class="btn-delete" title="ลบ">🗑️</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Detail Panel -->
+    <div class="user-detail" *ngIf="selectedUser">
+      <div class="detail-header">
+        <div class="detail-avatar">{{ getAvatarLetter(selectedUser.u_name) }}</div>
+        <div class="detail-user-info">
+          <h2>{{ selectedUser.u_name }}</h2>
+          <p>{{ selectedUser.u_email }}</p>
+          <span class="user-role" [class]="getRoleClass(selectedUser.u_role)">{{ selectedUser.u_role }}</span>
+        </div>
+        <div class="detail-quick-actions">
+          <button (click)="openEditModal(selectedUser)" class="btn-action-sm">✏️ แก้ไข</button>
+          <button (click)="openRoleModal(selectedUser)" class="btn-action-sm role">👑 เปลี่ยน Role</button>
+          <button (click)="deleteUser(selectedUser)" class="btn-action-sm danger">🗑️ ลบ</button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="detail-tabs">
+        <button [class.active]="activeDetailTab === 'info'"   (click)="activeDetailTab = 'info'">📋 ข้อมูล</button>
+        <button [class.active]="activeDetailTab === 'specs'"  (click)="activeDetailTab = 'specs'">🤖 สเปค ({{ userSpecs.length }})</button>
+        <button [class.active]="activeDetailTab === 'orders'" (click)="activeDetailTab = 'orders'">📦 ออเดอร์ ({{ userOrders.length }})</button>
+      </div>
+
+      <!-- Tab: Info -->
+      <div class="detail-content" *ngIf="activeDetailTab === 'info'">
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">UID</span>
+            <span class="info-value uid-text">{{ selectedUser.uid }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">เบอร์โทร</span>
+            <span class="info-value">{{ selectedUser.u_phone || '-' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">วันเกิด</span>
+            <span class="info-value">{{ selectedUser.dob || '-' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">สมัครเมื่อ</span>
+            <span class="info-value">{{ selectedUser.u_created_at | slice:0:10 }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Login ล่าสุด</span>
+            <span class="info-value">{{ selectedUser.u_last_login || '-' }}</span>
+          </div>
+          <div class="info-item full-col">
+            <span class="info-label">ที่อยู่</span>
+            <span class="info-value">{{ selectedUser.u_address || '-' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Specs -->
+      <div class="detail-content" *ngIf="activeDetailTab === 'specs'">
+        <div *ngIf="userSpecs.length === 0" class="empty-detail">ไม่มีประวัติการจัดสเปค</div>
+        <div *ngFor="let spec of userSpecs" class="spec-item">
+          <div class="spec-header">
+            <span>{{ getModeIcon(spec.mode) }} {{ spec.title }}</span>
+            <span class="spec-date">{{ spec.createdAt | slice:0:10 }}</span>
+          </div>
+          <p class="spec-input">{{ spec.inputSummary }}</p>
+        </div>
+      </div>
+
+      <!-- Tab: Orders -->
+      <div class="detail-content" *ngIf="activeDetailTab === 'orders'">
+        <div *ngIf="userOrders.length === 0" class="empty-detail">ไม่มีประวัติการสั่งซื้อ</div>
+        <div *ngFor="let order of userOrders" class="order-item">
+          <div class="order-header-row">
+            <span class="order-id">#{{ order.order_id }}</span>
+            <span class="order-date">{{ order.order_date | slice:0:10 }}</span>
+            <span class="order-status-badge">{{ getOrderStatusLabel(order.status) }}</span>
+            <span class="order-price">{{ order.total_price | number }} ฿</span>
+          </div>
+          <div class="order-items-mini" *ngIf="order.items?.length">
+            <span *ngFor="let item of order.items; let last = last">
+              {{ item.p_name }} x{{ item.quantity }}{{ !last ? ', ' : '' }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Placeholder when no user selected -->
+    <div class="user-detail placeholder-panel" *ngIf="!selectedUser">
+      <div class="placeholder-content">
+        <span class="placeholder-icon">👈</span>
+        <p>เลือกผู้ใช้งานจากรายการเพื่อดูรายละเอียด</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" *ngIf="showEditModal" (click)="showEditModal = false">
+  <div class="modal-card" (click)="$event.stopPropagation()">
+    <h3 class="modal-title">✏️ แก้ไขข้อมูลผู้ใช้</h3>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>ชื่อผู้ใช้</label>
+        <input type="text" [(ngModel)]="editForm.u_name">
+      </div>
+      <div class="form-group">
+        <label>อีเมล</label>
+        <input type="email" [(ngModel)]="editForm.u_email">
+      </div>
+      <div class="form-group">
+        <label>เบอร์โทร</label>
+        <input type="tel" [(ngModel)]="editForm.u_phone">
+      </div>
+      <div class="form-group">
+        <label>ที่อยู่</label>
+        <textarea [(ngModel)]="editForm.u_address" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button (click)="saveEdit()" class="btn-save" [disabled]="isSaving">
+        {{ isSaving ? '⏳ บันทึก...' : '💾 บันทึก' }}
+      </button>
+      <button (click)="showEditModal = false" class="btn-cancel">✖ ยกเลิก</button>
+    </div>
+  </div>
+</div>
+
+<!-- Role Modal -->
+<div class="modal-overlay" *ngIf="showRoleModal" (click)="showRoleModal = false">
+  <div class="modal-card small" (click)="$event.stopPropagation()">
+    <h3 class="modal-title">👑 กำหนด Role</h3>
+    <p class="modal-sub">ผู้ใช้: <strong>{{ selectedUser?.u_name }}</strong></p>
+    <div class="role-options">
+      <label class="role-option" [class.selected]="roleForm.role === 'customer'">
+        <input type="radio" [(ngModel)]="roleForm.role" value="customer">
+        <span>👤 Customer</span>
+      </label>
+      <label class="role-option" [class.selected]="roleForm.role === 'staff'">
+        <input type="radio" [(ngModel)]="roleForm.role" value="staff">
+        <span>🔧 Staff</span>
+      </label>
+      <label class="role-option" [class.selected]="roleForm.role === 'admin'">
+        <input type="radio" [(ngModel)]="roleForm.role" value="admin">
+        <span>👑 Admin</span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button (click)="saveRole()" class="btn-save">✅ ยืนยัน</button>
+      <button (click)="showRoleModal = false" class="btn-cancel">ยกเลิก</button>
+    </div>
+  </div>
+</div>

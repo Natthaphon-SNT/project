@@ -1,0 +1,148 @@
+<div class="admin-orders-page fade-in">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div class="header-left">
+      <h1>📋 จัดการคำสั่งซื้อ</h1>
+      <p class="header-sub">รายการคำสั่งซื้อทั้งหมดในระบบ</p>
+    </div>
+    <button (click)="loadOrders()" class="btn-refresh">
+      🔄 รีเฟรช
+    </button>
+  </div>
+
+  <!-- Message -->
+  <div *ngIf="message" class="alert-msg" [class.alert-success]="messageType === 'success'" [class.alert-error]="messageType === 'error'">
+    {{ message }}
+  </div>
+
+  <!-- Stats Cards -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-icon">🛒</div>
+      <div class="stat-info">
+        <div class="stat-value">{{ orders.length }}</div>
+        <div class="stat-label">คำสั่งซื้อทั้งหมด</div>
+      </div>
+    </div>
+    <div class="stat-card stat-pending">
+      <div class="stat-icon">⏳</div>
+      <div class="stat-info">
+        <div class="stat-value">{{ pendingCount }}</div>
+        <div class="stat-label">รอดำเนินการ</div>
+      </div>
+    </div>
+    <div class="stat-card stat-revenue">
+      <div class="stat-icon">💰</div>
+      <div class="stat-info">
+        <div class="stat-value">{{ totalRevenue | number }}</div>
+        <div class="stat-label">รายได้รวม (บาท)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <input
+      type="text"
+      [(ngModel)]="searchQuery"
+      (ngModelChange)="applyFilters()"
+      placeholder="🔍 ค้นหา ID, ชื่อลูกค้า, เบอร์โทร..."
+      class="filter-input"
+    />
+    <select [(ngModel)]="statusFilter" (ngModelChange)="applyFilters()" class="filter-select">
+      <option value="">ทุกสถานะ</option>
+      <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+    </select>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>กำลังโหลดคำสั่งซื้อ...</p>
+  </div>
+
+  <!-- Empty -->
+  <div *ngIf="!isLoading && filteredOrders.length === 0" class="empty-state">
+    <div class="empty-icon">📭</div>
+    <p>ยังไม่มีคำสั่งซื้อในระบบ</p>
+  </div>
+
+  <!-- Order Cards -->
+  <div *ngIf="!isLoading && filteredOrders.length > 0" class="orders-list">
+    <div *ngFor="let order of filteredOrders" class="order-card">
+
+      <!-- Order Header -->
+      <div class="order-header" (click)="toggleExpand(order.order_id)">
+        <div class="order-id-col">
+          <span class="order-id">#{{ order.order_id }}</span>
+        </div>
+        <div class="order-customer-col">
+          <strong>{{ order.u_name || order.customer_name }}</strong>
+          <span class="order-phone">{{ order.phone }}</span>
+        </div>
+        <div class="order-date-col">
+          {{ order.order_date | date:'dd/MM/yyyy HH:mm' }}
+        </div>
+        <div class="order-price-col">
+          <span class="order-price">{{ order.total_price | number }} ฿</span>
+        </div>
+        <div class="order-status-col">
+          <span class="badge" [ngClass]="getStatusClass(order.status)">
+            {{ getStatusLabel(order.status) }}
+          </span>
+        </div>
+        <div class="order-expand-col">
+          <span class="expand-icon">{{ expandedOrderId === order.order_id ? '▲' : '▼' }}</span>
+        </div>
+      </div>
+
+      <!-- Order Detail (expandable) -->
+      <div class="order-detail" *ngIf="expandedOrderId === order.order_id">
+        <div class="detail-grid">
+
+          <!-- Customer Info -->
+          <div class="detail-section">
+            <h4>📦 ข้อมูลลูกค้า</h4>
+            <p><strong>ชื่อ:</strong> {{ order.customer_name }}</p>
+            <p><strong>อีเมล:</strong> {{ order.u_email || '-' }}</p>
+            <p><strong>เบอร์:</strong> {{ order.phone }}</p>
+            <p><strong>ที่อยู่:</strong> {{ order.address || '-' }}</p>
+            <p><strong>การชำระเงิน:</strong> {{ getPaymentLabel(order.payment_method) }}</p>
+          </div>
+
+          <!-- Items -->
+          <div class="detail-section">
+            <h4>🛒 รายการสินค้า</h4>
+            <div class="items-list">
+              <div *ngFor="let item of order.items" class="item-row">
+                <span class="item-name">{{ item.p_name }}</span>
+                <span class="item-qty">x{{ item.quantity }}</span>
+                <span class="item-price">{{ (item.price * item.quantity) | number }} ฿</span>
+              </div>
+            </div>
+            <div class="total-row">
+              <strong>ยอดรวม: {{ order.total_price | number }} ฿</strong>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Status Update -->
+        <div class="status-update-bar">
+          <span>เปลี่ยนสถานะเป็น:</span>
+          <div class="status-btns">
+            <button *ngFor="let s of statusOptions"
+              class="btn-status"
+              [class.active]="order.status === s.value"
+              (click)="updateStatus(order.order_id, s.value)">
+              {{ s.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>

@@ -1,6 +1,6 @@
 @echo off
 echo =============================================
-echo   🚀 T.A.K Tech Shop - FastAPI Backend Setup
+echo   🚀IT-RECOMMEND - FastAPI Backend Setup
 echo   (ไม่ต้องใช้ XAMPP อีกต่อไป!)
 echo =============================================
 echo.
@@ -16,14 +16,15 @@ if errorlevel 1 (
 )
 
 echo [2/3] ติดตั้ง dependencies...
-pip install -r requirements.txt
+pip install -r requirements.txt -q
 
 echo.
 echo [3/3] เริ่ม API Server...
 echo.
-echo ✅ API พร้อมใช้งาน!
+echo ✅ IT-RECOMMEND API พร้อมใช้งาน!
 echo 🌐 URL:      http://localhost:3000
 echo 📄 API Docs: http://localhost:3000/docs
+echo 👥 Admin:    http://localhost:3000/docs#/Admin
 echo.
 echo กด Ctrl+C เพื่อหยุดเซิร์ฟเวอร์
 echo.

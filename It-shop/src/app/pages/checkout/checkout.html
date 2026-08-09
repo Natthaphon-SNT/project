@@ -1,0 +1,107 @@
+<div class="checkout-page fade-in">
+
+  <!-- ─── Success State ─── -->
+  <div *ngIf="orderSuccess" class="success-screen">
+    <div class="success-icon">🎉</div>
+    <h2>สั่งซื้อสำเร็จ!</h2>
+    <p>คำสั่งซื้อ <strong>#{{ orderId }}</strong> ของคุณได้รับการบันทึกเรียบร้อยแล้ว</p>
+    <p class="success-note">เจ้าหน้าที่จะติดต่อกลับเพื่อยืนยันคำสั่งซื้อของคุณ</p>
+    <div class="success-actions">
+      <button routerLink="/profile" class="btn-primary">📋 ดูประวัติการสั่งซื้อ</button>
+      <button routerLink="/products" class="btn-secondary">🛒 เลือกสินค้าต่อ</button>
+    </div>
+  </div>
+
+  <!-- ─── Checkout Form ─── -->
+  <div *ngIf="!orderSuccess">
+
+    <div class="page-header">
+      <h1>📝 ยืนยันคำสั่งซื้อ</h1>
+      <button routerLink="/cart" class="btn-back">← กลับตะกร้า</button>
+    </div>
+
+    <!-- Alert -->
+    <div *ngIf="message" class="alert-msg" [class.alert-success]="messageType === 'success'" [class.alert-error]="messageType === 'error'">
+      {{ message }}
+    </div>
+
+    <div class="checkout-grid">
+
+      <!-- Left: Customer Form -->
+      <div class="form-card">
+        <h2>📦 ข้อมูลการจัดส่ง</h2>
+
+        <div class="form-group">
+          <label>ชื่อ-นามสกุลผู้รับ <span class="required">*</span></label>
+          <input type="text" [(ngModel)]="customerForm.name" placeholder="กรอกชื่อ-นามสกุล" class="form-input" />
+        </div>
+
+        <div class="form-group">
+          <label>เบอร์โทรศัพท์ <span class="required">*</span></label>
+          <input type="tel" [(ngModel)]="customerForm.phone" placeholder="0XX-XXX-XXXX" class="form-input" />
+        </div>
+
+        <div class="form-group">
+          <label>ที่อยู่จัดส่ง <span class="required">*</span></label>
+          <textarea [(ngModel)]="customerForm.address" placeholder="บ้านเลขที่, ถนน, ตำบล, อำเภอ, จังหวัด, รหัสไปรษณีย์" class="form-textarea" rows="3"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>วิธีชำระเงิน <span class="required">*</span></label>
+          <div class="payment-options">
+            <label *ngFor="let opt of paymentOptions" class="payment-opt" [class.selected]="customerForm.payment_method === opt.value">
+              <input type="radio" [(ngModel)]="customerForm.payment_method" [value]="opt.value" />
+              {{ opt.label }}
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Order Summary -->
+      <div class="summary-card">
+        <h2>🛒 สรุปรายการสินค้า</h2>
+
+        <div class="items-list">
+          <div *ngFor="let item of cartItems" class="item-row">
+            <div class="item-img">
+              <img *ngIf="item.img_url" [src]="item.img_url" [alt]="item.p_name" />
+              <span *ngIf="!item.img_url" class="img-placeholder">📦</span>
+            </div>
+            <div class="item-info">
+              <div class="item-name">{{ item.p_name }}</div>
+              <div class="item-qty">จำนวน: {{ item.quantity }}</div>
+            </div>
+            <div class="item-price">{{ (item.p_price * item.quantity) | number }} ฿</div>
+          </div>
+        </div>
+
+        <div class="total-section">
+          <div class="total-row">
+            <span>ราคาสินค้า</span>
+            <span>{{ totalPrice | number }} ฿</span>
+          </div>
+          <div class="total-row">
+            <span>ค่าจัดส่ง</span>
+            <span class="free-text">ฟรี</span>
+          </div>
+          <div class="total-row total-final">
+            <strong>ยอดรวมทั้งสิ้น</strong>
+            <strong class="total-amount">{{ totalPrice | number }} ฿</strong>
+          </div>
+        </div>
+
+        <div class="checkout-actions">
+          <button (click)="placeOrder()" class="btn-order" [disabled]="isSubmitting">
+            <span *ngIf="!isSubmitting">✅ ยืนยันคำสั่งซื้อ</span>
+            <span *ngIf="isSubmitting">⏳ กำลังดำเนินการ...</span>
+          </button>
+          <button (click)="exportText()" class="btn-copy">
+            📋 คัดลอกรายละเอียด
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
