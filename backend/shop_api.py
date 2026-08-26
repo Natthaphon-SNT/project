@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -27,8 +30,10 @@ DB_URL = "sqlite:///./shop.db"
 UPLOAD_DIR = Path("uploads/profile")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+# OpenCode Zen AI gateway (OpenAI-compatible)
+ZEN_BASE_URL  = os.getenv("ZEN_BASE_URL", "https://opencode.ai/zen/v1")
+OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "")
+ZEN_MODEL     = os.getenv("ZEN_MODEL", "x-preview-f-free")
 
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -154,6 +159,7 @@ def run_migrations(db_engine):
             ("desc_advice",   "TEXT DEFAULT ''"),
             ("desc_jib",      "TEXT DEFAULT ''"),
             ("desc_ihavecpu", "TEXT DEFAULT ''"),
+            ("updated_at",    "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(text(f"ALTER TABLE products ADD COLUMN {col} {defn}"))
@@ -162,7 +168,20 @@ def run_migrations(db_engine):
             except Exception:
                 pass  # column มีอยู่แล้ว
 
-        # เพิ่ม categories ใหม่ (Gaming Gear + Furniture)
+        # Price history table (freshness / trend)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS price_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id  TEXT NOT NULL,
+                store       TEXT NOT NULL,
+                price       REAL NOT NULL,
+                captured_at TEXT NOT NULL
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ph_product ON price_history(product_id, captured_at)"))
+        conn.commit()
+
+        # เพิ่ม categories ใหม่ (Gaming Gear + Furniture + PC Set)
         new_cats = [
             ("c10", "Mouse",         "Gaming Mouse / Optical Mouse"),
             ("c11", "Keyboard",      "Mechanical Keyboard / Gaming Keyboard"),
@@ -171,6 +190,7 @@ def run_migrations(db_engine):
             ("c14", "Monitor",       "Gaming Monitor / LED Monitor"),
             ("c15", "Gaming Chair",  "Ergonomic Chair / Gaming Chair"),
             ("c16", "Gaming Desk",   "Gaming Desk / Adjustable Desk"),
+            ("c18", "PC Set",        "ชุดคอมประกอบสำเร็จรูปจากร้าน iHaveCPU / JIB / Advice"),
         ]
         for cid, name, desc in new_cats:
             try:
@@ -181,6 +201,7 @@ def run_migrations(db_engine):
                 conn.commit()
             except Exception as e:
                 print(f"[Migration] Category {cid}: {e}")
+
 
 run_migrations(engine)
 
@@ -253,7 +274,8 @@ def product_to_dict(p: Product) -> dict:
         "img_url":        p.img_url,
         "category":       p.category,
         "cid":            p.cid,
-        "specs":          p.specs
+        "specs":          p.specs,
+        "updated_at":     getattr(p, 'updated_at', '') or ""
     }
 
 # ─────────────────────────────────────────
@@ -783,68 +805,107 @@ def admin_get_user_orders(uid: str, admin=Depends(require_admin), db: Session = 
     ]}
 
 # ─────────────────────────────────────────
-# AI Recommend – Gemini Proxy (FastAPI)
+# AI Recommend – Hybrid RAG + Compatibility Engine (OpenCode Zen)
 # ─────────────────────────────────────────
 
-# System Prompt สำหรับ IT-RECOMMEND AI
-IT_RECOMMEND_SYSTEM_PROMPT = """คุณคือ IT-RECOMMEND AI ผู้เชี่ยวชาญด้านฮาร์ดแวร์คอมพิวเตอร์และอุปกรณ์ IT ในประเทศไทย
-
-== กฎเหล็กที่ต้องปฏิบัติเสมอ ==
-1. ตอบเฉพาะคำถามที่เกี่ยวกับ IT Hardware, PC Components, Gaming Gear, อุปกรณ์ต่อพ่วง, จอมอนิเตอร์, เก้าอี้เกมมิ่ง, โต๊ะเกมมิ่ง เท่านั้น
-2. ห้ามตอบคำถามที่ไม่เกี่ยวกับ IT/Computer/Gaming Gear โดยเด็ดขาด – ถ้าถามเรื่องอื่นให้ตอบว่า "ขอโทษครับ ผมให้คำแนะนำเฉพาะด้าน IT Hardware และ Gaming Gear เท่านั้น"
-3. ราคาสินค้าต้องอ้างอิงจากตลาดไทยจริง (ร้าน JIB, Advice, iHaveCPU, Banana IT) ปี 2025-2026 เท่านั้น
-4. ตอบเป็น JSON ที่ถูกต้องเท่านั้น – ห้ามมี text อธิบายนอก JSON โดยเด็ดขาด
-5. ระบุชื่อรุ่นสินค้าจริงและครบถ้วนเสมอ เช่น "AMD Ryzen 5 7600X" ไม่ใช่แค่ "Ryzen 5"
-6. ชิ้นส่วนทุกอย่างต้องเข้ากันได้จริง (socket, DDR gen, PCIe, TDP, wattage)
-7. ราคารวมทั้งหมดต้องไม่เกินงบที่ระบุเกิน 10%
-8. ให้ข้อมูลที่ถูกต้องและเป็นปัจจุบัน ถ้าไม่แน่ใจให้ระบุว่า "ราคาประมาณ" แทนการให้ข้อมูลผิด
-9. หมวดสินค้าที่แนะนำได้: CPU, GPU, RAM, Mainboard, SSD/M.2, PSU, Case, Cooler, Monitor, Mouse, Keyboard, Headset, Microphone, Gaming Chair, Gaming Desk
-10. ห้ามแนะนำสินค้าที่ EOL (End of Life) หรือไม่มีจำหน่ายในไทยแล้ว"""
-
 @app.post("/api/ai/recommend")
-async def ai_recommend(body: AIRecommendBody, user: User = Depends(get_current_user)):
-    """AI Spec Recommendation ผ่าน Gemini API"""
-    if not GEMINI_API_KEY:
-        raise HTTPException(500, "GOOGLE_API_KEY ไม่ได้ตั้งค่าในระบบ")
-
-    full_prompt = f"{IT_RECOMMEND_SYSTEM_PROMPT}\n\n== คำขอของผู้ใช้ ==\n{body.prompt}"
-
-    payload = {
-        "contents": [{"parts": [{"text": full_prompt}]}],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 4096,
-            "topP": 0.95,
-        },
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-    }
+async def ai_recommend(body: AIRecommendBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Hybrid recommendation pipeline:
+      mode=recommend → RAG candidates from Product DB + LLM selection + deterministic validation
+      mode=compat    → deterministic compatibility engine (+ optional LLM suggestions)
+      mode=compare   → LLM comparison via OpenCode Zen
+    Response shape unchanged for the frontend: {"status": "success", "data": "<json text>"}
+    """
+    import recommender as rec
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            res = await client.post(
-                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
-                json=payload
-            )
+        if body.mode == "compat":
+            result = await rec.compat_check_hybrid(body.prompt)
+            return {"status": "success", "data": json.dumps(result, ensure_ascii=False)}
 
-        if res.status_code == 429:
+        if body.mode == "compare":
+            m = re.search(r"ชุดที่ 1[:：]\s*(.+?)\s*\|?\s*ชุดที่ 2[:：]\s*(.+)", body.prompt, re.DOTALL)
+            if not m:
+                # frontend sends spec1 | spec2 inside its own prompt; fallback: split by newline pairs
+                lines = [l for l in body.prompt.splitlines() if l.strip()]
+                m = re.search(r"ชุดที่ 1[:：](.+?)\n.*?ชุดที่ 2[:：](.+)", body.prompt, re.DOTALL)
+            if not m:
+                raise HTTPException(400, "รูปแบบข้อมูลเปรียบเทียบไม่ถูกต้อง")
+            text = await rec.compare_specs(m.group(1).strip(), m.group(2).strip())
+            return {"status": "success", "data": text}
+
+        # default: recommend (primary build + Top-3 scored alternatives)
+        result = await rec.recommend_with_alternatives(db, body.prompt)
+        return {"status": "success", "data": json.dumps(result, ensure_ascii=False)}
+
+    except RuntimeError as e:
+        msg = str(e)
+        if msg == "rate_limit":
             return {"status": "rate_limit", "message": "คนใช้งานเยอะ กรุณาลองใหม่อีกครั้ง"}
-
-        if res.status_code != 200:
-            raise HTTPException(res.status_code, f"Gemini API Error: {res.text[:200]}")
-
-        data = res.json()
-        text_out = data["candidates"][0]["content"]["parts"][0]["text"]
-        return {"status": "success", "data": text_out}
-
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Gemini API timeout – ลองใหม่อีกครั้ง")
+        raise HTTPException(502, f"AI Provider Error: {msg}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"AI Error: {str(e)}")
+
+
+class CompatCheckBody(BaseModel):
+    parts_text: str
+
+@app.post("/api/compat/check")
+async def compat_check(body: CompatCheckBody):
+    """Deterministic compatibility engine — no LLM involved in the verdict."""
+    import recommender as rec
+    result = await rec.compat_check_hybrid(body.parts_text)
+    return {"status": "success", "data": result}
+
+
+@app.get("/api/price-history/{product_id}")
+def get_price_history(product_id: str, db: Session = Depends(get_db)):
+    """Price trend for one product across tracked stores (data freshness / history)."""
+    rows = db.execute(
+        text("""SELECT store, price, captured_at FROM price_history
+                WHERE product_id = :pid ORDER BY captured_at ASC"""),
+        {"pid": product_id}).fetchall()
+    p = db.query(Product).filter(Product.product_id == product_id).first()
+    if not p:
+        raise HTTPException(404, "ไม่พบสินค้า")
+
+    series = {}
+    for store, price, captured_at in rows:
+        series.setdefault(store, []).append({"date": captured_at[:10], "price": int(price)})
+
+    stores = {
+        "advice":   {"name": "Advice",   "price": p.price_advice,   "url": p.url_advice},
+        "jib":      {"name": "JIB",      "price": p.price_jib,      "url": p.url_jib},
+        "ihavecpu": {"name": "iHaveCPU", "price": p.price_ihavecpu, "url": p.url_ihavecpu},
+    }
+    sources = [{"store": v["name"], "price": int(v["price"]), "url": v["url"] or ""}
+               for v in stores.values() if v["price"] and v["price"] > 0]
+
+    trend = None
+    all_points = [pt["price"] for pts in series.values() for pt in pts]
+    if len(all_points) >= 2:
+        first, last = all_points[0], all_points[-1]
+        change = last - first
+        trend = {
+            "direction": "down" if change < 0 else ("up" if change > 0 else "flat"),
+            "change_thb": int(change),
+            "change_pct": round(change / first * 100, 1) if first else 0,
+        }
+
+    return {
+        "status": "success",
+        "data": {
+            "product_id": product_id,
+            "p_name": p.p_name,
+            "last_updated": getattr(p, "updated_at", "") or "",
+            "current_prices": sorted(sources, key=lambda s: s["price"]),
+            "history": series,
+            "trend": trend,
+        },
+    }
 
 # ─────────────────────────────────────────
 # Scraper API

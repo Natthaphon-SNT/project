@@ -27,6 +27,10 @@ export class ApiService {
     return this.http.get(`${this.baseUrl}/api/products/${id}`);
   }
 
+  getPriceHistory(id: string | number): Observable<any> {
+    return this.http.get(`${this.baseUrl}/api/price-history/${id}`);
+  }
+
   getPromotions(): Observable<any> {
     return this.http.get(`${this.baseUrl}/api/promotions`);
   }

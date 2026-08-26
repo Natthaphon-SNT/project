@@ -10,6 +10,10 @@
 IT-RECOMMEND/
 ├── backend/          # FastAPI (Python) — REST API + SQLite
 │   ├── shop_api.py   # ไฟล์หลักของ API ทั้งหมด
+│   ├── recommender.py    # Hybrid RAG pipeline (Zen LLM + post-validation)
+│   ├── compat_engine.py  # Deterministic Compatibility Engine
+│   ├── spec_parser.py    # Parse spec จากชื่อสินค้า (socket/DDR/watt/TDP)
+│   ├── rules/*.md    # Knowledge base กฎ compatibility (audit ได้)
 │   ├── shop.db       # ฐานข้อมูล SQLite
 │   └── scraper.py    # ดึงข้อมูลสินค้าจากเว็บร้านค้า
 └── It-shop/          # Angular 17 (TypeScript) — Frontend
@@ -19,6 +23,35 @@ IT-RECOMMEND/
         ├── guards/   # Route Guards (Auth, Admin)
         └── components/navbar/
 ```
+
+### AI Pipeline (Hybrid Architecture)
+
+```text
+User intent → parse budget/use-case (deterministic)
+→ Candidate retrieval จาก Product DB จริง (RAG)
+→ LLM เลือกเฉพาะจาก candidates + อธิบาย (OpenCode Zen API)
+→ Post-validation: map กลับ product_id จริง + Compatibility Engine (deterministic)
+→ JSON result พร้อมผลตรวจ ✓/✗ ต่อ rule
+```
+
+- **LLM ไม่มีสิทธิ์ตัดสิน compatibility** — engine (`compat_engine.py`) enforce rules จาก `rules/*.md`
+- **ราคาเป็นราคาจริงจาก DB** — LLM เลือกได้เฉพาะสินค้าที่มีในฐานข้อมูล
+- **Offline fallback** — ถ้า LLM ล่ม ระบบยังจัดสเปคได้ด้วย heuristic builder + validator
+
+### AI Provider: OpenCode Zen
+
+ตั้งค่าใน `.env`:
+
+```env
+OPENCODE_API_KEY=<key จาก https://opencode.ai/auth>
+ZEN_MODEL=x-preview-f-free
+ZEN_BASE_URL=https://opencode.ai/zen/v1
+```
+
+| Endpoint | Method | คำอธิบาย |
+|---|---|---|
+| `/api/ai/recommend` | POST | Hybrid recommend / compare / compat |
+| `/api/compat/check` | POST | Deterministic compatibility check (ไม่ใช้ LLM) |
 
 | ส่วน | เทคโนโลยี | Port |
 |------|-----------|------|

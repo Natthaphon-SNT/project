@@ -1,0 +1,21 @@
+# Secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+venv/
+*.pyc
+
+# Node
+node_modules/
+dist/
+.angular/
+
+# Databases (local build artifacts)
+*.db-journal
+
+# Logs / temp
+*.log
+advice_html.txt
+uploads/

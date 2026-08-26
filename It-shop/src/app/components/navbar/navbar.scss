@@ -122,6 +122,34 @@
         box-shadow: 0 0 20px rgba(220, 38, 38, 0.6);
       }
     }
+
+    /* จัดสเปกเอง – green */
+    .pc-btn {
+      background: linear-gradient(to right, #15803d, #16a34a);
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 0 12px rgba(22, 163, 74, 0.3);
+
+      &:hover {
+        background: linear-gradient(to right, #16a34a, #22c55e);
+        transform: translateY(-2px);
+        box-shadow: 0 0 20px rgba(22, 163, 74, 0.6);
+      }
+    }
+
+    /* เซ็ตคอม – orange */
+    .pcset-btn {
+      background: linear-gradient(to right, #c2410c, #ea580c);
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 0 12px rgba(234, 88, 12, 0.3);
+
+      &:hover {
+        background: linear-gradient(to right, #ea580c, #f97316);
+        transform: translateY(-2px);
+        box-shadow: 0 0 20px rgba(234, 88, 12, 0.6);
+      }
+    }
   }
 
   /* ===== Dropdown Menu ===== */
@@ -143,15 +171,26 @@
     .dropdown-menu {
       display: none;
       position: absolute;
-      top: calc(100% + 8px);
+      top: 100%;          /* ติดขอบล่างของ trigger */
       left: 0;
-      background: #18181b;
-      border: 1px solid #3f3f46;
-      border-radius: 10px;
-      min-width: 200px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      padding-top: 8px;   /* แทน gap เดิม – เมาส์ยังอยู่ใน hover zone */
+      background: transparent;
       z-index: 200;
-      overflow: hidden;
+
+      /* กล่องเนื้อหาด้านใน */
+      &::after {
+        content: '';
+        display: block;
+      }
+
+      .dropdown-inner {
+        background: #18181b;
+        border: 1px solid #3f3f46;
+        border-radius: 10px;
+        min-width: 200px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+      }
 
       .dropdown-item {
         display: block;
@@ -162,8 +201,10 @@
         font-weight: 500;
         transition: all 0.2s;
         border-bottom: 1px solid #27272a;
+        background: #18181b;
 
-        &:last-child { border-bottom: none; }
+        &:first-child { border-radius: 10px 10px 0 0; }
+        &:last-child  { border-bottom: none; border-radius: 0 0 10px 10px; }
 
         &:hover {
           background: #27272a;
@@ -192,6 +233,50 @@
     &:hover {
       color: #ffffff;
       transform: scale(1.15);
+    }
+  }
+
+  /* ===== Search Box ใน Navbar ===== */
+  .nav-search {
+    display: flex;
+    align-items: center;
+    background: #18181b;
+    border: 1px solid #3f3f46;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+    flex-shrink: 0;
+    width: 220px;
+
+    &:focus-within {
+      border-color: #dc2626;
+      box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+    }
+
+    .nav-search-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #d4d4d8;
+      font-size: 13px;
+      padding: 7px 10px;
+
+      &::placeholder { color: #71717a; }
+    }
+
+    .nav-search-btn {
+      background: #dc2626;
+      border: none;
+      color: #fff;
+      padding: 7px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+
+      &:hover { background: #ef4444; }
     }
   }
 }

@@ -104,8 +104,13 @@ export class ProductsComponent implements OnInit, OnDestroy {
     const user = this.auth.currentUserSubject.value;
     this.isAdmin = user?.role === 'admin';
 
+    // รับทั้ง route param (category) และ query param (search จาก navbar)
     this.route.paramMap.subscribe(params => {
       this.category = params.get('type') || '';
+    });
+
+    this.route.queryParamMap.subscribe(qp => {
+      this.searchQuery = qp.get('search') || '';
       this.loadProducts();
     });
   }

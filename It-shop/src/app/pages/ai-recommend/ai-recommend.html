@@ -194,6 +194,66 @@
         </div>
       </div>
 
+      <!-- Compatibility Engine verdict (deterministic) -->
+      <div class="ai-card compat-verdict" *ngIf="recommendData.compat">
+        <div class="compat-verdict-head">
+          <span class="compat-emoji">
+            {{ recommendData.compat.overall === 'ok' ? '✅' : recommendData.compat.overall === 'warning' ? '⚠️' : '❌' }}
+          </span>
+          <span>{{ recommendData.compat.summary }}</span>
+        </div>
+        <div class="check-badge-row">
+          <div *ngFor="let check of recommendData.compat.checks" class="check-pill"
+            [class.ok]="check.ok && !isBadDetail(check.detail)"
+            [class.unknown]="check.ok && isBadDetail(check.detail)"
+            [class.fail]="!check.ok"
+            [title]="check.detail">
+            {{ check.ok ? (isBadDetail(check.detail) ? '➖' : '✅') : '❌' }} {{ check.item }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Scoring Engine: AI ranking explanation -->
+      <div class="ai-card ranking-box" *ngIf="recommendData.ranking_explanation">
+        <div class="ranking-title">🏆 เหตุผลการจัดอันดับ (Scoring Engine + AI)</div>
+        <p class="ranking-text">{{ recommendData.ranking_explanation }}</p>
+      </div>
+
+      <!-- Top-3 scored alternatives -->
+      <div class="alt-section" *ngIf="recommendData.alternatives?.length">
+        <h2 class="alt-heading">📊 Top ทางเลือกจาก Scoring Engine</h2>
+        <p class="alt-sub">Performance 40% · Budget 25% · Compatibility 20% · Preference 10% · Availability 5%</p>
+
+        <div *ngFor="let alt of recommendData.alternatives" class="ai-card alt-card">
+          <div class="alt-head">
+            <div>
+              <span class="alt-label">{{ alt.label }}</span>
+              <span class="alt-desc">{{ alt.description }}</span>
+            </div>
+            <div class="alt-score-wrap">
+              <div class="alt-score">{{ alt.score }}<small>/100</small></div>
+              <div class="alt-total">{{ alt.total_price | number:'' }} ฿</div>
+            </div>
+          </div>
+
+          <div class="breakdown-row">
+            <div class="bd-item" *ngFor="let bd of breakdownList(alt)">
+              <div class="bd-top"><span>{{ bd.label }}</span><span>{{ bd.value }}</span></div>
+              <div class="bd-bar"><div class="bd-fill" [style.width.%]="bd.value" [ngClass]="'bd-' + bd.key"></div></div>
+              <div class="bd-w">n{{ bd.weight }}</div>
+            </div>
+          </div>
+
+          <table class="alt-parts">
+            <tr *ngFor="let part of alt.parts">
+              <td class="ap-type">{{ part.type }}</td>
+              <td class="ap-name">{{ part.name }}</td>
+              <td class="ap-price">{{ part.price | number:'' }} ฿</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
       <button class="btn-ai-glow" (click)="reset()">🔄 แนะนำใหม่</button>
     </div>
 

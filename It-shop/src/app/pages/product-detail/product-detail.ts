@@ -16,6 +16,11 @@ export class ProductDetail implements OnInit {
   isLoading = true;
   activeDescTab: 'advice' | 'jib' | 'ihavecpu' = 'advice';
 
+  // Price history (data freshness / trend)
+  priceHistory: any = null;
+  sparkPoints = '';
+  trendLabel = '';
+
   constructor(
     private route: ActivatedRoute,
     private api: ApiService,
@@ -38,6 +43,7 @@ export class ProductDetail implements OnInit {
           }
           this.isLoading = false;
           this.cdr.detectChanges();
+          this.loadPriceHistory(id);
         },
         error: () => {
           this.isLoading = false;
@@ -45,6 +51,49 @@ export class ProductDetail implements OnInit {
         }
       });
     }
+  }
+
+  loadPriceHistory(id: string) {
+    this.api.getPriceHistory(id).subscribe({
+      next: (res) => {
+        if (res.status === 'success') {
+          this.priceHistory = res.data;
+          this.buildSparkline(res.data.history);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {}
+    });
+  }
+
+  buildSparkline(history: Record<string, { date: string; price: number }[]>) {
+    if (!history) return;
+    const points = Object.values(history)
+      .flat()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(p => p.price);
+    if (points.length < 2) { this.sparkPoints = ''; return; }
+    const w = 260, h = 60, pad = 4;
+    const min = Math.min(...points), max = Math.max(...points);
+    const range = max - min || 1;
+    this.sparkPoints = points.map((p, i) => {
+      const x = pad + i * ((w - pad * 2) / (points.length - 1));
+      const y = h - pad - ((p - min) / range) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const change = points[points.length - 1] - points[0];
+    this.trendLabel = change < 0
+      ? `📉 แนวโน้มราคาลดลง ${Math.abs(change).toLocaleString()}฿`
+      : change > 0 ? `📈 แนวโน้มราคาเพิ่มขึ้น ${change.toLocaleString()}฿`
+      : '➖ ราคาคงที่';
+  }
+
+  formatLastUpdated(ts: string): string {
+    if (!ts) return '';
+    const d = new Date(ts.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return ts;
+    return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
+      + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
   }
 
   getMinPrice(): number {

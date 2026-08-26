@@ -381,3 +381,16 @@
   .img-section { position: static; }
   .product-title { font-size: 20px; }
 }
+/* --- Price freshness & history --- */
+.freshness-box {
+  margin-top: 14px; padding: 12px 16px; border-radius: 12px;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+}
+.fresh-row { font-size: .82rem; color: #d1d5db; display: flex; gap: 8px; align-items: center; }
+.trend-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.spark { width: 260px; height: 60px; }
+.trend-label { font-size: .8rem; color: #fca5a5; font-weight: 600; }
+.sources-row { margin-top: 10px; font-size: .78rem; color: #9ca3af;
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.src-pill { padding: 3px 10px; border-radius: 999px;
+  background: rgba(239,68,68,.12); color: #f87171; border: 1px solid rgba(239,68,68,.25); }

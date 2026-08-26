@@ -1,0 +1,156 @@
+<div class="builder-page">
+
+  <!-- Toast -->
+  <div *ngIf="toastMessage" class="toast" [class.toast-success]="toastType==='success'" [class.toast-error]="toastType==='error'">
+    {{ toastMessage }}
+  </div>
+
+  <!-- Header -->
+  <div class="builder-header fade-in">
+    <h1 class="builder-title">🛠️ จัดสเปกเอง</h1>
+    <p class="builder-subtitle">เลือก Component ที่ต้องการ เปรียบเทียบราคาจาก 3 ร้าน</p>
+  </div>
+
+  <div class="builder-layout">
+
+    <!-- ─── LEFT: Component Slots ─── -->
+    <div class="slots-panel">
+      <div class="slot-card" *ngFor="let slot of slots" [class.slot-filled]="slot.selected">
+
+        <!-- Slot Header -->
+        <div class="slot-header">
+          <span class="slot-icon">{{ slot.icon }}</span>
+          <span class="slot-label">{{ slot.label }}</span>
+          <span class="slot-required" *ngIf="slot.required">*</span>
+        </div>
+
+        <!-- Empty State -->
+        <div class="slot-empty" *ngIf="!slot.selected" (click)="openPicker(slot)">
+          <span class="slot-plus">＋</span>
+          <span>คลิกเพื่อเลือก {{ slot.label }}</span>
+        </div>
+
+        <!-- Selected Product -->
+        <div class="slot-selected" *ngIf="slot.selected">
+          <img [src]="getProductImage(slot.selected)" [alt]="slot.selected.p_name" class="slot-img" (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
+          <div class="slot-info">
+            <p class="slot-product-name" [title]="slot.selected.p_name">{{ slot.selected.p_name }}</p>
+
+            <!-- Price comparison -->
+            <div class="slot-prices">
+              <span class="price-tag advice" *ngIf="slot.selected.price_advice > 0">
+                Advice: {{ slot.selected.price_advice | number }}฿
+              </span>
+              <span class="price-tag jib" *ngIf="slot.selected.price_jib > 0">
+                JIB: {{ slot.selected.price_jib | number }}฿
+              </span>
+              <span class="price-tag ihc" *ngIf="slot.selected.price_ihavecpu > 0">
+                iHaveCPU: {{ slot.selected.price_ihavecpu | number }}฿
+              </span>
+            </div>
+
+            <p class="slot-min-price">ราคาต่ำสุด: <strong>{{ getMinPrice(slot.selected) | number }} ฿</strong></p>
+          </div>
+          <div class="slot-actions">
+            <button class="btn-change" (click)="openPicker(slot)" title="เปลี่ยน">✏️</button>
+            <button class="btn-remove" (click)="removeProduct(slot)" title="ลบ">✕</button>
+          </div>
+        </div>
+
+        <!-- Product Picker Modal -->
+        <div class="picker-overlay" *ngIf="slot.showPicker" (click)="closePicker(slot)">
+          <div class="picker-modal" (click)="$event.stopPropagation()">
+            <div class="picker-header">
+              <h3>เลือก {{ slot.label }}</h3>
+              <button class="picker-close" (click)="closePicker(slot)">✕</button>
+            </div>
+
+            <!-- Search -->
+            <div class="picker-search">
+              <input type="text" [(ngModel)]="slot.search" placeholder="ค้นหา {{ slot.label }}..."
+                class="picker-search-input" autofocus />
+              <span class="picker-search-icon">🔍</span>
+            </div>
+
+            <!-- Loading -->
+            <div class="picker-loading" *ngIf="slot.isLoading">
+              <div class="mini-spinner"></div> กำลังโหลด...
+            </div>
+
+            <!-- Product List -->
+            <div class="picker-list" *ngIf="!slot.isLoading">
+              <div class="picker-empty" *ngIf="filteredProducts(slot).length === 0">
+                ไม่พบสินค้า
+              </div>
+              <div class="picker-item" *ngFor="let p of filteredProducts(slot)"
+                   (click)="selectProduct(slot, p)">
+                <img [src]="getProductImage(p)" [alt]="p.p_name" class="picker-img"
+                     (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
+                <div class="picker-item-info">
+                  <p class="picker-item-name">{{ p.p_name }}</p>
+                  <div class="picker-prices">
+                    <span *ngIf="p.price_advice > 0" class="price-tag advice">Advice: {{ p.price_advice | number }}฿</span>
+                    <span *ngIf="p.price_jib > 0" class="price-tag jib">JIB: {{ p.price_jib | number }}฿</span>
+                    <span *ngIf="p.price_ihavecpu > 0" class="price-tag ihc">iHaveCPU: {{ p.price_ihavecpu | number }}฿</span>
+                  </div>
+                </div>
+                <span class="picker-min">{{ getMinPrice(p) | number }}฿</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /slot-card -->
+    </div>
+
+    <!-- ─── RIGHT: Summary Panel ─── -->
+    <div class="summary-panel">
+      <div class="summary-card fade-in">
+        <h2 class="summary-title">สรุปสเปก</h2>
+
+        <div class="summary-list">
+          <div class="summary-row" *ngFor="let slot of slots" [class.summary-empty]="!slot.selected">
+            <span class="summary-icon">{{ slot.icon }}</span>
+            <span class="summary-slot-name">{{ slot.label }}</span>
+            <span class="summary-product-name">
+              {{ slot.selected ? slot.selected.p_name : '—' }}
+            </span>
+            <span class="summary-price" *ngIf="slot.selected">
+              {{ getMinPrice(slot.selected) | number }} ฿
+            </span>
+          </div>
+        </div>
+
+        <div class="summary-divider"></div>
+
+        <div class="summary-total">
+          <span>ราคารวม (ต่ำสุด)</span>
+          <span class="total-price">{{ getTotalPrice() | number }} ฿</span>
+        </div>
+
+        <p class="summary-note">เลือกแล้ว {{ getSelectedCount() }} / {{ slots.length }} ชิ้น</p>
+
+        <div class="summary-actions">
+          <button class="btn-add-all" (click)="addAllToCart()" [disabled]="getSelectedCount() === 0">
+            🛒 เพิ่มทั้งหมดลงสเปค
+          </button>
+          <button class="btn-clear" (click)="clearAll()" [disabled]="getSelectedCount() === 0">
+            ล้างทั้งหมด
+          </button>
+        </div>
+
+        <!-- Store comparison hint -->
+        <div class="store-hint">
+          <p class="hint-title">💡 เปรียบเทียบราคา</p>
+          <div class="hint-stores">
+            <span class="price-tag advice">Advice</span>
+            <span class="price-tag jib">JIB</span>
+            <span class="price-tag ihc">iHaveCPU</span>
+          </div>
+          <p class="hint-note">ราคาที่แสดงเป็นราคาต่ำสุดจากทั้ง 3 ร้าน</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /builder-layout -->
+</div>

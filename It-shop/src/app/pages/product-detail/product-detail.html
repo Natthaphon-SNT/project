@@ -36,6 +36,31 @@
         <span class="price-main">{{ getMinPrice() | number }} ฿</span>
       </div>
 
+      <!-- Data freshness + price trend -->
+      <div class="freshness-box" *ngIf="priceHistory">
+        <div class="fresh-row">
+          <span class="fresh-icon">🕒</span>
+          <span *ngIf="priceHistory.last_updated; else noUpdate">
+            ราคาอัปเดตล่าสุด: <b>{{ formatLastUpdated(priceHistory.last_updated) }}</b>
+          </span>
+          <ng-template #noUpdate>ยังไม่มีข้อมูลราคาอัปเดต</ng-template>
+        </div>
+        <div class="trend-row" *ngIf="sparkPoints">
+          <svg viewBox="0 0 260 60" class="spark" preserveAspectRatio="none">
+            <polyline [attr.points]="sparkPoints"
+              fill="none" stroke="#ef4444" stroke-width="2.5"
+              stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+          <span class="trend-label">{{ trendLabel }}</span>
+        </div>
+        <div class="sources-row" *ngIf="priceHistory.current_prices?.length">
+          แหล่งราคา:
+          <span class="src-pill" *ngFor="let s of priceHistory.current_prices">
+            {{ s.store }} {{ s.price | number }}฿
+          </span>
+        </div>
+      </div>
+
       <!-- ตารางเปรียบเทียบราคา + ลิงก์ตรง -->
       <div class="price-compare-box" *ngIf="hasAnyPrice()">
         <h3 class="compare-heading">เปรียบเทียบราคา & ตรวจสอบสินค้า</h3>

@@ -33,15 +33,17 @@
         <div class="nav-dropdown">
           <span class="nav-item dropdown-trigger">PC Components ▾</span>
           <div class="dropdown-menu">
-            <a routerLink="/category/cpu" class="dropdown-item">CPU / Processor</a>
-            <a routerLink="/category/gpu" class="dropdown-item">GPU / Graphic Card</a>
-            <a routerLink="/category/mainboard" class="dropdown-item">Mainboard</a>
-            <a routerLink="/category/ram" class="dropdown-item">RAM</a>
-            <a routerLink="/category/ssd" class="dropdown-item">SSD / M.2</a>
-            <a routerLink="/category/psu" class="dropdown-item">PSU</a>
-            <a routerLink="/category/case" class="dropdown-item">Case</a>
-            <a routerLink="/category/liquid cooler" class="dropdown-item">Liquid Cooler</a>
-            <a routerLink="/category/air cooler" class="dropdown-item">Air Cooler</a>
+            <div class="dropdown-inner">
+              <a routerLink="/category/cpu" class="dropdown-item">CPU / Processor</a>
+              <a routerLink="/category/gpu" class="dropdown-item">GPU / Graphic Card</a>
+              <a routerLink="/category/mainboard" class="dropdown-item">Mainboard</a>
+              <a routerLink="/category/ram" class="dropdown-item">RAM</a>
+              <a routerLink="/category/ssd" class="dropdown-item">SSD / M.2</a>
+              <a routerLink="/category/psu" class="dropdown-item">PSU</a>
+              <a routerLink="/category/case" class="dropdown-item">Case</a>
+              <a routerLink="/category/liquid cooler" class="dropdown-item">Liquid Cooler</a>
+              <a routerLink="/category/air cooler" class="dropdown-item">Air Cooler</a>
+            </div>
           </div>
         </div>
 
@@ -49,11 +51,13 @@
         <div class="nav-dropdown">
           <span class="nav-item dropdown-trigger">Gaming Gear ▾</span>
           <div class="dropdown-menu">
-            <a routerLink="/category/mouse" class="dropdown-item">Mouse</a>
-            <a routerLink="/category/keyboard" class="dropdown-item">Keyboard</a>
-            <a routerLink="/category/headset" class="dropdown-item">Headset</a>
-            <a routerLink="/category/microphone" class="dropdown-item">Microphone</a>
-            <a routerLink="/category/monitor" class="dropdown-item">Monitor</a>
+            <div class="dropdown-inner">
+              <a routerLink="/category/mouse" class="dropdown-item">Mouse</a>
+              <a routerLink="/category/keyboard" class="dropdown-item">Keyboard</a>
+              <a routerLink="/category/headset" class="dropdown-item">Headset</a>
+              <a routerLink="/category/microphone" class="dropdown-item">Microphone</a>
+              <a routerLink="/category/monitor" class="dropdown-item">Monitor</a>
+            </div>
           </div>
         </div>
 
@@ -61,15 +65,39 @@
         <div class="nav-dropdown">
           <span class="nav-item dropdown-trigger">เฟอร์นิเจอร์ ▾</span>
           <div class="dropdown-menu">
-            <a routerLink="/category/gaming chair" class="dropdown-item">Gaming Chair</a>
-            <a routerLink="/category/gaming desk" class="dropdown-item">Gaming Desk</a>
+            <div class="dropdown-inner">
+              <a routerLink="/category/gaming chair" class="dropdown-item">Gaming Chair</a>
+              <a routerLink="/category/gaming desk" class="dropdown-item">Gaming Desk</a>
+            </div>
           </div>
         </div>
 
         <div class="nav-divider"></div>
-        <a routerLink="/ai-recommend" class="nav-item ai-btn">AI จัดสเปค</a>
+        <a routerLink="/category/pc set" class="nav-item pcset-btn">เซ็ตคอม</a>
+        <a routerLink="/pc-builder" class="nav-item pc-btn">🛠️ จัดสเปกเอง</a>
+        <a routerLink="/ai-recommend" class="nav-item ai-btn">AI จัดสเปก</a>
       </div>
     </div>
+
+    <!-- Search Box (ข้างๆ หมวดหมู่) -->
+    <div class="nav-search">
+      <input
+        type="text"
+        [(ngModel)]="searchQuery"
+        (keyup.enter)="onSearch()"
+        placeholder="ค้นหาสินค้า..."
+        class="nav-search-input"
+      />
+      <button (click)="onSearch()" class="nav-search-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </button>
+    </div>
+
     <div class="nav-right">
       <a routerLink="/cart" class="nav-icon" title="สเปคของคุณ">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>

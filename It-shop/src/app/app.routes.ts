@@ -12,6 +12,7 @@ import { AdminUsersComponent } from './pages/admin-users/admin-users';
 import { ProfileComponent } from './pages/profile/profile';
 import { AiRecommendComponent } from './pages/ai-recommend/ai-recommend';
 import { HistoryComponent } from './pages/history/history';
+import { PcBuilderComponent } from './pages/pc-builder/pc-builder';
 import { authGuard } from './guards/auth.guard';
 import { adminGuard } from './guards/admin.guard';
 
@@ -26,6 +27,7 @@ export const routes: Routes = [
   { path: 'checkout', component: CheckoutComponent, canActivate: [authGuard] },
   { path: 'profile', component: ProfileComponent, canActivate: [authGuard] },
   { path: 'ai-recommend', component: AiRecommendComponent, canActivate: [authGuard] },
+  { path: 'pc-builder',   component: PcBuilderComponent,   canActivate: [authGuard] },
   { path: 'history', component: HistoryComponent, canActivate: [authGuard] },
 
   // ✅ Admin เท่านั้น

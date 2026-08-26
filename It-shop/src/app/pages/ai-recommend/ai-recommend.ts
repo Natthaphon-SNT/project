@@ -21,6 +21,21 @@ interface RecommendResult {
   performance: { gaming: string; productivity: string; upgrade: string };
   pros: string[];
   cons: string[];
+  ranking_explanation?: string;
+  compat?: { overall: string; summary: string; checks: CompatCheck[] };
+  alternatives?: AltBuild[];
+}
+
+interface AltBuild {
+  strategy: string;
+  label: string;
+  description: string;
+  score: number;
+  breakdown: Record<string, number>;
+  weights?: Record<string, number>;
+  total_price: number;
+  compat_overall: string;
+  parts: Part[];
 }
 
 interface CompareResult {
@@ -434,6 +449,27 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       console.error('JSON Parse Error. Raw:', raw);
       throw e;
     }
+  }
+
+  // ─── Scoring Engine helpers ───────────────────────────────────────────────────
+
+  breakdownList(alt: AltBuild): { key: string; label: string; value: number; weight: number }[] {
+    const labels: Record<string, string> = {
+      performance: 'Performance', budget: 'Budget', compatibility: 'Compatibility',
+      preference: 'Preference', availability: 'Availability',
+    };
+    return Object.keys(labels).map(k => ({
+      key: k,
+      label: labels[k],
+      value: Math.round(alt.breakdown?.[k] ?? 0),
+      weight: Math.round((alt.weights?.[k] ?? 0) * 100),
+    }));
+  }
+
+  isBadDetail(detail: string): boolean {
+    if (!detail) return false;
+    const d = detail.toLowerCase();
+    return d.includes('ข้ามการตรวจ') || d.includes('ไม่ทราบ') || d.includes('unknown');
   }
 
   // ─── Handlers ─────────────────────────────────────────────────────────────────
