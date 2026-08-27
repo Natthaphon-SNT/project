@@ -1,17 +1,20 @@
 """
-Full Scraper v1 - Advice / JIB / iHaveCPU
+Full Scraper v3 - Advice / JIB / iHaveCPU
 ==========================================
 Features:
   - ดึงสินค้าจาก 3 ร้าน: Advice (API), JIB (HTML), iHaveCPU (HTML)
-  - SmartMatcher: ถ้าชื่อสินค้าเดียวกัน → ใช้ record เดียว เพิ่ม URL/ราคาร้านใหม่
-  - Matching 2 ระดับ: exact (case-insensitive) → token-based fuzzy
-  - บันทึก url_advice / url_jib / url_ihavecpu แยกต่อร้านค้า
-  - ลูกค้าเปรียบเทียบราคาได้ผ่าน API /products/{id}/compare
+  - SmartMatcher 3 ระดับ:
+      1. Exact match (case-insensitive)
+      2. Model-key match  — ถ้า SKU/รุ่น token ชุดเดิมตรงกันหมด (เช่น 250K, RTX4070)
+      3. Token-based Jaccard similarity >= 0.50
+  - Dedup ข้ามร้าน → 1 record, 3 URL/ราคา
+  - --details: visit หน้าสินค้าแต่ละชิ้นเพื่อดึง description + รูปภาพเต็ม
 
 การใช้งาน:
-  python full_scraper.py                    # รัน 3 ร้าน, 3 หน้าต่อ category
-  python full_scraper.py --stores jib ihavecpu --pages 5
-  python full_scraper.py --stores all --pages 3
+  python full_scraper.py                          # เร็ว: listing เท่านั้น
+  python full_scraper.py --details                # ครบ: + visit หน้าสินค้า (ช้า)
+  python full_scraper.py --stores jib ihavecpu    # เลือกร้าน
+  python full_scraper.py --stores ihavecpu --details --pages 3
 """
 
 import asyncio
@@ -50,6 +53,18 @@ SKIP_KEYWORDS = [
     "UPS", "JOYSTICK", "PRINTER", "EXTERNAL", "NAS", "ROUTER",
     "NETWORK", "ACCESS POINT", "SWITCH", "GAMEPAD", "PROJECTOR",
     "SCANNER", "STABILIZER", "BY ORDER", "PRE ORDER",
+    "VACUUM", "CLEANER", "เครื่องดูดฝุ่น", "หุ่นยนต์ดูดฝุ่น", "DUST MITE",
+    "FLASH DRIVE", "SD CARD", "MICRO SD", "THUMB DRIVE", "DVD TRAY", "CARD READER",
+    "EXT SSD", "EXTERNAL SSD", "PORTABLE SSD", "EXTERNAL HDD",
+    "POWER BANK", "POWER TRACK", "POWER STATION", "เต้ารับ", "รางไฟ", "ปลั๊ก",
+    "PS5", "PS4", "PLAYSTATION", "XBOX", "NINTENDO", "SWITCH",
+    "CONTROLLER", "WHEEL", "พวงมาลัย", "ROG ALLY", "XBOX ALLY",
+    "SMART GUARD", "CHARGER", "แผ่นเกม", "GAME SONY", "ADAPTER",
+    "IPHONE", "IPAD", "GALAXY", "เคสโทรศัพท์", "เคสมือถือ", "ซอง", "ฟิล์ม", "AIRSUIT", "FORCEGUARD",
+    "SOUND CARD", "SOUNDCARD", "DAC", "AUDIO INTERFACE",
+    "DESKTOP ASUS", "DESKTOP LENOVO", "AIO ASUS", "ALL-IN-ONE",
+    "MINI PC", "NVIDIA DGX", "TABLET", "SURFACE", "LED TV", "SMART TV", "ขาแขวน",
+    "WALL RACK", "RACK SERVER", "ตู้ RACK", "คีม", "FACE PLATE", "WALL SCREEN", "TOUCH SCREEN",
 ]
 NOTEBOOK_URL_KW = ["notebook", "laptop", "macbook", "chromebook"]
 
@@ -82,22 +97,24 @@ async (args) => {
         method: 'POST', credentials: 'include',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
         body: JSON.stringify({category:"search",category_sub:"",product:"",keyword:args.kw,
-            take:12,skip:args.skip,refSearch:"",page:"product",arr_filter_brand:[],
+            take:24,skip:args.skip,refSearch:"",page:"product",arr_filter_brand:[],
             arr_filter_ict:[],arr_filter_price_ict:[],arr_filter_cate:[],addView:false,
             group_end:false})
     });
     const j = await r.json();
-    const pl = ((j.data||{}).data_res||{}).product_list || {};
     const out = [];
-    for (const g of (pl.result_search||[])) {
+    const prodGroups = (j.data||{}).product || [];
+    for (const g of prodGroups) {
         for (const p of (g.product||[])) {
-            const slug = encodeURIComponent((p.name||'').trim().replace(/\\s+/g,' ').substring(0,80));
+            const rawUrl = p.product_url || '';
+            const fullUrl = rawUrl ? (rawUrl.startsWith('http') ? rawUrl : 'https://www.advice.co.th/product/' + rawUrl) : '';
             out.push({
-                code: p.code,
-                name: (p.name||'').trim(),
-                price: p.price||0,
-                url: p.slug ? 'https://www.advice.co.th/product/' + p.slug : '',
-                img: p.image||''
+                code: p.code || '',
+                name: (p.product || p.name || '').trim(),
+                price: p.price_sale_true || p.price_srp || p.price || 0,
+                url: fullUrl,
+                img: p.pic_url || (p.code ? `https://img.advice.co.th/images_nas/pic_product4/${p.code}/${p.code}_1.jpg` : ''),
+                spec: p.spec || ''
             });
         }
     }
@@ -167,7 +184,6 @@ CID_MAP = {
     "gaming desk": "c16", "desk": "c16",
 }
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -211,36 +227,81 @@ def make_pid(name: str, store: str) -> str:
     return f"{slug}_{store[:3]}_{h}"
 
 
-def clean_name_tokens(name: str) -> frozenset:
-    """Normalize and tokenize a product name for fuzzy matching."""
-    n = name.upper().replace("-", " ").replace("/", " ").replace("+", " ").replace("_", " ")
-    # Remove socket/platform suffixes
-    n = re.sub(r"\b(AM4|AM5|LGA\d+|\d{4})\b", "", n)
-    # Remove frequency
-    n = re.sub(r"\b\d+(?:\.\d+)?\s*GHZ\b", "", n)
-    # Remove cores/threads
-    n = re.sub(r"\b\d+\s*C\s*/?\s*\d+\s*T\b|\b\d+\s*CORES?\b", "", n)
-    # Remove parentheses/brackets content
-    n = re.sub(r"\(.*?\)|\[.*?\]", "", n)
-    # Remove generic words
-    n = re.sub(
-        r"\b(WARRANTY|3Y|5Y|YEARS?|BOX|SANS?|WITH|COOLING|FANS?|"
-        r"CPU|VGA|GPU|RAM|SSD|M\.2|PSU|CASE|LIQUID|COOLER|MONITOR|"
-        r"MOUSE|KEYBOARD|HEADSET|MAINBOARD|MOTHERBOARD|DDR4|DDR5)\b",
-        "", n,
-    )
-    tokens = frozenset(
-        t for t in re.findall(r"\b[A-Z0-9]+\b", n)
-        if len(t) > 1 or any(c.isdigit() for c in t)
-    )
-    return tokens
+# Unit patterns to ignore in model codes
+UNIT_PATTERN = re.compile(r'^\d+(\.\d+)?(GHZ|MHZ|MB|GB|TB|W|MM|RPM)$', re.IGNORECASE)
+CORE_PATTERN = re.compile(r'^\d+[CT]$', re.IGNORECASE)
+
+
+def get_product_signature(name: str):
+    n = name.upper()
+    n = re.sub(r'[\u0E00-\u0E7F]+', ' ', n)
+    n = re.sub(r'\(.*?\)|\[.*?\]', ' ', n)
+    n = re.sub(r'[\-_/+,:]+', ' ', n)
+    
+    words = [w for w in n.split() if w]
+    model_codes = set()
+    for w in words:
+        if UNIT_PATTERN.match(w) or CORE_PATTERN.match(w):
+            continue
+        if w in {'3Y', '5Y', '2Y', '1Y', 'DDR4', 'DDR5', 'WARRANTY'}:
+            continue
+        if re.search(r'\d', w):
+            model_codes.add(w)
+            
+    tokens = set()
+    for w in words:
+        if w not in {'CPU', 'VGA', 'GPU', 'RAM', 'SSD', 'PSU', 'CASE', 'MONITOR', 'KEYBOARD', 'MOUSE', 'HEADSET', 'MAINBOARD', 'MOTHERBOARD', 'NEXT', 'TRAY', 'BOX', '3Y', '5Y', '2Y', '1Y', 'WARRANTY', 'SYSTEM'}:
+            if not UNIT_PATTERN.match(w) and not CORE_PATTERN.match(w):
+                tokens.add(w)
+                
+    return frozenset(model_codes), frozenset(tokens)
 
 
 def token_similarity(a: frozenset, b: frozenset) -> float:
-    """Jaccard similarity between two token sets."""
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
+
+
+def is_same_product(p1_name: str, p1_cat: str, p2_name: str, p2_cat: str) -> bool:
+    c1, c2 = (p1_cat or '').lower(), (p2_cat or '').lower()
+    if c1 and c2 and c1 != c2:
+        if not ('cooler' in c1 and 'cooler' in c2):
+            return False
+
+    if p1_name.strip().upper() == p2_name.strip().upper():
+        return True
+
+    m1, t1 = get_product_signature(p1_name)
+    m2, t2 = get_product_signature(p2_name)
+
+    if m1 and m2:
+        sku_m1 = {x for x in m1 if re.search(r'[A-Z]', x) and re.search(r'\d', x)}
+        sku_m2 = {x for x in m2 if re.search(r'[A-Z]', x) and re.search(r'\d', x)}
+        
+        if sku_m1 and sku_m2:
+            if sku_m1 == sku_m2:
+                sim = token_similarity(t1, t2)
+                if sim >= 0.25:
+                    return True
+            else:
+                return False
+        
+        intersect = m1 & m2
+        if len(intersect) >= 2:
+            sim = token_similarity(t1, t2)
+            if sim >= 0.35:
+                return True
+        elif len(intersect) == 1:
+            sim = token_similarity(t1, t2)
+            if sim >= 0.40:
+                return True
+
+    sim = token_similarity(t1, t2)
+    if sim >= 0.65:
+        return True
+
+    return False
 
 
 def clean_ihc_name(name: str) -> str:
@@ -298,96 +359,61 @@ def setup_db(conn: sqlite3.Connection):
     conn.commit()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SmartMatcher — deduplication engine
-# ─────────────────────────────────────────────────────────────────────────────
-class SmartMatcher:
-    """
-    Finds existing products in DB that match an incoming product name.
-    Matching order:
-      1. Exact match (case-insensitive, trimmed)
-      2. Token-based Jaccard similarity >= TOKEN_THRESHOLD
-    """
-
-    TOKEN_THRESHOLD = 0.75
-
-    def __init__(self, cur: sqlite3.Cursor):
-        self.cur = cur
-        # Cache: {normalized_name_upper: product_id}
-        self._exact_cache: dict[str, str] = {}
-        # Cache: {product_id: frozenset_of_tokens}
-        self._token_cache: dict[str, frozenset] = {}
-        self._loaded = False
-
-    def _load(self):
-        if self._loaded:
-            return
-        self.cur.execute("SELECT product_id, p_name FROM products")
-        for pid, name in self.cur.fetchall():
-            self._exact_cache[name.strip().upper()] = pid
-            tokens = clean_name_tokens(name)
-            if tokens:
-                self._token_cache[pid] = tokens
-        self._loaded = True
-
-    def find(self, name: str) -> str | None:
-        """Return product_id of best match, or None if no match."""
-        self._load()
-
-        # 1. Exact match
-        key = name.strip().upper()
-        if key in self._exact_cache:
-            return self._exact_cache[key]
-
-        # 2. Token similarity
-        tokens = clean_name_tokens(name)
-        if not tokens:
-            return None
-
-        best_pid = None
-        best_score = self.TOKEN_THRESHOLD
-        for pid, t in self._token_cache.items():
-            score = token_similarity(tokens, t)
-            if score > best_score:
-                best_score = score
-                best_pid = pid
-
-        return best_pid
-
-    def register(self, pid: str, name: str):
-        """Add a newly inserted product to the cache."""
-        self._exact_cache[name.strip().upper()] = pid
-        tokens = clean_name_tokens(name)
-        if tokens:
-            self._token_cache[pid] = tokens
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Upsert with deduplication
-# ─────────────────────────────────────────────────────────────────────────────
 def _record_price_history(cur: sqlite3.Cursor, pid: str, store: str, price: int):
-    if not price:
-        return
-    today = datetime.now().strftime("%Y-%m-%d")
-    row = cur.execute(
-        "SELECT id FROM price_history WHERE product_id=? AND store=? AND captured_at LIKE ?",
-        (pid, store, f"{today}%"),
-    ).fetchone()
-    if row:
-        cur.execute("UPDATE price_history SET price=? WHERE id=?", (price, row[0]))
-    else:
+    if price > 0:
         cur.execute(
             "INSERT INTO price_history (product_id, store, price, captured_at) VALUES (?,?,?,?)",
             (pid, store, price, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SmartMatcher — deduplication engine
+# ─────────────────────────────────────────────────────────────────────────────
+class SmartMatcher:
+    def __init__(self, cur: sqlite3.Cursor):
+        self.cur = cur
+        # List of (product_id, p_name, category)
+        self._items: list[tuple[str, str, str]] = []
+        self._exact_cache: dict[str, str] = {}
+        self._load_existing()
+
+    def _load_existing(self):
+        """Pre-load existing products into memory caches."""
+        self.cur.execute("SELECT product_id, p_name, category FROM products")
+        for pid, pname, cat in self.cur.fetchall():
+            if not pname:
+                continue
+            self._exact_cache[pname.strip().upper()] = pid
+            self._items.append((pid, pname, cat or ""))
+
+    def find(self, name: str, cat: str = "") -> str | None:
+        """Return product_id of a matching existing product, or None."""
+        if not name:
+            return None
+        key = name.strip().upper()
+
+        if key in self._exact_cache:
+            return self._exact_cache[key]
+
+        for pid, existing_name, existing_cat in self._items:
+            if is_same_product(name, cat, existing_name, existing_cat):
+                return pid
+
+        return None
+
+    def register(self, pid: str, name: str, cat: str = ""):
+        """Register newly inserted product in cache."""
+        self._exact_cache[name.strip().upper()] = pid
+        self._items.append((pid, name, cat))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Upsert helper
+# ─────────────────────────────────────────────────────────────────────────────
 def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
     """
     Insert or update a product record with smart deduplication.
-    If a product with a matching name already exists, only its store-specific
-    price/url/desc columns are updated — no duplicate row is created.
-    Returns True if a new row was inserted, False if an existing row was updated.
     """
     name  = (p.get("name") or "").strip()
     price = int(p.get("price") or 0)
@@ -408,10 +434,9 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
     url_col   = {"advice": "url_advice",   "jib": "url_jib",   "ihavecpu": "url_ihavecpu"}.get(store, "url_advice")
     desc_col  = {"advice": "desc_advice",  "jib": "desc_jib",  "ihavecpu": "desc_ihavecpu"}.get(store, "desc_advice")
 
-    pid = matcher.find(name)
+    pid = matcher.find(name, cat)
 
     if pid:
-        # ── UPDATE existing record with this store's data ──
         cur.execute(f"""
             UPDATE products SET
                 {price_col} = ?,
@@ -419,6 +444,7 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
                 {desc_col}  = CASE WHEN ? != '' THEN ? ELSE {desc_col} END,
                 p_price     = CASE WHEN p_price = 0 THEN ? ELSE p_price END,
                 img_url     = CASE WHEN ? != '' AND (img_url IS NULL OR img_url = '') THEN ? ELSE img_url END,
+                p_description = CASE WHEN (p_description IS NULL OR p_description = '') AND ? != '' THEN ? ELSE p_description END,
                 updated_at  = ?
             WHERE product_id = ?
         """, (
@@ -427,13 +453,13 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
             desc, desc,
             price,
             img, img,
+            desc, desc,
             now_str,
             pid,
         ))
         _record_price_history(cur, pid, store, price)
         return False
     else:
-        # ── INSERT new record ──
         pid = make_pid(name, store)
         cur.execute("""
             INSERT OR IGNORE INTO products
@@ -458,14 +484,107 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
             now_str, now_str,
         ))
         _record_price_history(cur, pid, store, price)
-        matcher.register(pid, name)
+        matcher.register(pid, name, cat)
         return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# fetch_detail_page — visit product URL to get description + better image
+# ─────────────────────────────────────────────────────────────────────────────
+_DESC_SELECTORS = [
+    # iHaveCPU
+    "div.product-description", "div.description", "#product-description",
+    "[class*='product-spec']", "[class*='spec-content']",
+    # JIB
+    "#product-description", "div#tab_description", "#detail_spec",
+    "table.table-spec", "div.product-detail-content",
+    # Advice
+    ".spec-content", ".spec-list", "div.product-spec", "table.spec-table",
+    # Generic
+    "[class*='description']", "[class*='detail']",
+    "div.tabs-content", "div.tab-content",
+    "#tab-description", "#tab-spec",
+]
+_IMG_SELECTORS = [
+    # iHaveCPU
+    "img.product-main-img", "img#main-image", "img#mainImage",
+    # JIB
+    "img#main_img", "img#bigimage", "div#bigimage img",
+    # Advice
+    "img.main-product-image", "img#main-product-img",
+    # Generic
+    "div.product-gallery img:first-child",
+    "div.product-images img:first-child",
+    "div.swiper-slide:first-child img",
+    "[class*='product-image'] img",
+    "[class*='gallery'] img",
+]
+
+
+async def fetch_detail_page(page, url: str) -> tuple[str, str]:
+    """
+    Visit a product detail page and extract (description, image_url).
+    """
+    desc = ""
+    img  = ""
+    if not url or url.startswith("https://www.advice.co.th/search"):
+        return desc, img
+    try:
+        await page.goto(url, timeout=35000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(3500)
+
+        for sel in _DESC_SELECTORS:
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    t = (await el.inner_text()).strip()
+                    if t and len(t) > 30:
+                        desc = t
+                        break
+            except Exception:
+                pass
+        if not desc:
+            try:
+                m = await page.query_selector('meta[name="description"]')
+                if m:
+                    c = (await m.get_attribute("content") or "").strip()
+                    if len(c) > 30:
+                        desc = c
+            except Exception:
+                pass
+
+        for sel in _IMG_SELECTORS:
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    for attr in ["src", "data-src", "data-lazy", "data-original"]:
+                        v = (await el.get_attribute(attr) or "").strip()
+                        if v and v.startswith("http") and not v.endswith(".gif"):
+                            img = v
+                            break
+                if img:
+                    break
+            except Exception:
+                pass
+        if not img:
+            try:
+                m = await page.query_selector('meta[property="og:image"]')
+                if m:
+                    c = (await m.get_attribute("content") or "").strip()
+                    if c.startswith("http"):
+                        img = c
+            except Exception:
+                pass
+    except Exception as e:
+        log(f"      [detail err] {str(e)[:80]}")
+    return desc, img
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scraper: Advice (JSON API)
 # ─────────────────────────────────────────────────────────────────────────────
-async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int = 3):
+async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher,
+                        pages: int = 3, fetch_details: bool = False):
     import urllib.parse
     cur = conn.cursor()
     total_new = total_upd = 0
@@ -477,8 +596,8 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher, pages: 
         )
         ctx = await browser.new_context(user_agent=UA, locale="th-TH")
         page = await ctx.new_page()
+        detail_pg = await ctx.new_page()
 
-        # Authenticate — landing page sets user_token JWT cookie
         try:
             await page.goto("https://www.advice.co.th/", timeout=30000, wait_until="domcontentloaded")
             await page.wait_for_timeout(4000)
@@ -523,15 +642,20 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher, pages: 
                         if code:
                             seen_codes.add(code)
 
-                        # Fallback URL: search page
                         if not url:
                             url = "https://www.advice.co.th/search?keyword=" + urllib.parse.quote(name[:60])
 
+                        det_desc = ""
+                        det_img  = ""
+                        if fetch_details and url and not url.startswith("https://www.advice.co.th/search"):
+                            det_desc, det_img = await fetch_detail_page(detail_pg, url)
+                            await asyncio.sleep(random.uniform(1.5, 3.0))
+
                         is_new = upsert_product(cur, matcher, {
                             "name": name, "price": price,
-                            "img_url": img, "url": url,
+                            "img_url": det_img or img, "url": url,
                             "category": cat_name, "store": "advice",
-                            "description": "",
+                            "description": det_desc or it.get("spec") or "",
                         })
                         if is_new:
                             cat_new += 1
@@ -556,7 +680,8 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher, pages: 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scraper: JIB (HTML category pages)
 # ─────────────────────────────────────────────────────────────────────────────
-async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int = 5):
+async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
+                     pages: int = 5, fetch_details: bool = False):
     cur = conn.cursor()
     total_new = total_upd = 0
 
@@ -568,6 +693,7 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
         ctx = await browser.new_context(user_agent=UA, viewport={"width": 1280, "height": 800})
         await ctx.add_init_script(ANTI_BOT)
         page = await ctx.new_page()
+        detail_pg = await ctx.new_page()
 
         for cat_name, base_url in JIB_CATS:
             if any(kw in base_url.lower() for kw in NOTEBOOK_URL_KW):
@@ -596,7 +722,6 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
                 count = 0
                 for card in cards:
                     try:
-                        # Name
                         ne = await card.query_selector("span.promo_name")
                         if not ne:
                             ne = await card.query_selector("[class*='name']")
@@ -608,7 +733,6 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
 
                         actual_cat = detect_jib_cat(name) or cat_name
 
-                        # Price
                         pe = await card.query_selector("p.price_total")
                         if not pe:
                             pe = await card.query_selector("[class*='price']")
@@ -616,7 +740,6 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
                         if not price:
                             continue
 
-                        # URL — prefer readProduct links
                         prod_url = ""
                         for link_sel in [
                             "a[href*='readProduct']",
@@ -635,7 +758,6 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
                                     )
                                     break
 
-                        # Image
                         img = ""
                         ie = await card.query_selector("img")
                         if ie:
@@ -647,11 +769,17 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
                             if img and not img.startswith("http"):
                                 img = "https://www.jib.co.th" + img
 
+                        det_desc = ""
+                        det_img  = ""
+                        if fetch_details and prod_url:
+                            det_desc, det_img = await fetch_detail_page(detail_pg, prod_url)
+                            await asyncio.sleep(random.uniform(1.5, 3.0))
+
                         is_new = upsert_product(cur, matcher, {
                             "name": name, "price": price,
-                            "img_url": img, "url": prod_url,
+                            "img_url": det_img or img, "url": prod_url,
                             "category": actual_cat, "store": "jib",
-                            "description": "",
+                            "description": det_desc,
                         })
                         if is_new:
                             cat_new += 1
@@ -681,7 +809,8 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int
 # ─────────────────────────────────────────────────────────────────────────────
 # Scraper: iHaveCPU (HTML category pages)
 # ─────────────────────────────────────────────────────────────────────────────
-async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher, pages: int = 3):
+async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
+                          pages: int = 3, fetch_details: bool = False):
     cur = conn.cursor()
     total_new = total_upd = 0
 
@@ -693,6 +822,7 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher, pages
         ctx = await browser.new_context(user_agent=UA, viewport={"width": 1280, "height": 800})
         await ctx.add_init_script(ANTI_BOT)
         page = await ctx.new_page()
+        detail_pg = await ctx.new_page()
 
         try:
             await page.goto("https://www.ihavecpu.com/", timeout=20000, wait_until="domcontentloaded")
@@ -744,7 +874,6 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher, pages
                         if not name:
                             continue
 
-                        # Price
                         price = 0
                         for sp in await le.query_selector_all("span"):
                             t = (await sp.inner_text()).strip()
@@ -755,26 +884,23 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher, pages
                         if not price:
                             continue
 
-                        # URL
                         href = await le.get_attribute("href") or ""
                         prod_url = (
                             href if href.startswith("http")
                             else "https://www.ihavecpu.com" + href
                         ) if href else ""
 
-                        # Image
                         img = ""
                         ie = await le.query_selector("img")
                         if ie:
-                            img = (
-                                await ie.get_attribute("src") or
-                                await ie.get_attribute("data-src") or
-                                await ie.get_attribute("data-lazy") or ""
-                            )
+                            for attr in ["data-src", "data-lazy", "src", "data-original"]:
+                                val = (await ie.get_attribute(attr) or "").strip()
+                                if val and not val.startswith("data:") and not val.endswith(".gif"):
+                                    img = val
+                                    break
                             if img and not img.startswith("http"):
                                 img = "https://www.ihavecpu.com" + img
 
-                        # Auto-classify cooler type
                         actual_cat = cat_name
                         if cat_name == "Cooler":
                             lower = name.lower()
@@ -786,11 +912,36 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher, pages
                             else:
                                 actual_cat = "Air Cooler"
 
+                        # Validate category from name
+                        n_up = name.upper()
+                        if n_up.startswith("RAM ") or n_up.startswith("DDR4") or n_up.startswith("DDR5"):
+                            actual_cat = "RAM"
+                        elif n_up.startswith("CPU ") and not ("COOLER" in n_up or "LIQUID" in n_up):
+                            actual_cat = "CPU"
+                        elif n_up.startswith("MAINBOARD ") or n_up.startswith("MOTHERBOARD "):
+                            actual_cat = "Mainboard"
+                        elif n_up.startswith("VGA ") or n_up.startswith("GPU "):
+                            actual_cat = "GPU"
+                        elif n_up.startswith("KEYBOARD "):
+                            actual_cat = "Keyboard"
+                        elif n_up.startswith("MOUSE "):
+                            actual_cat = "Mouse"
+                        elif n_up.startswith("CASE "):
+                            actual_cat = "Case"
+                        elif n_up.startswith("POWER SUPPLY ") or n_up.startswith("PSU "):
+                            actual_cat = "PSU"
+
+                        det_desc = ""
+                        det_img  = ""
+                        if fetch_details and prod_url:
+                            det_desc, det_img = await fetch_detail_page(detail_pg, prod_url)
+                            await asyncio.sleep(random.uniform(1.5, 3.0))
+
                         is_new = upsert_product(cur, matcher, {
                             "name": name, "price": price,
-                            "img_url": img, "url": prod_url,
+                            "img_url": det_img or img, "url": prod_url,
                             "category": actual_cat, "store": "ihavecpu",
-                            "description": "",
+                            "description": det_desc,
                         })
                         if is_new:
                             cat_new += 1
@@ -817,38 +968,38 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher, pages
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main
+# Main orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
-async def run_all(stores: list[str], pages: int):
+async def run_all(stores: list[str], pages: int, fetch_details: bool = False):
     conn = sqlite3.connect(DB_PATH)
     setup_db(conn)
 
-    # SmartMatcher is shared across all 3 scrapers so cross-store dedup works
     matcher = SmartMatcher(conn.cursor())
 
     start = datetime.now()
     log(f"\n{'='*60}")
-    log(f"  IT-RECOMMEND Full Scraper")
-    log(f"  Stores : {', '.join(stores)}")
-    log(f"  Pages  : {pages} per category")
-    log(f"  Started: {start.strftime('%Y-%m-%d %H:%M:%S')}")
+    log(f"  IT-RECOMMEND Full Scraper v3")
+    log(f"  Stores      : {', '.join(stores)}")
+    log(f"  Pages       : {pages} per category")
+    log(f"  Fetch detail: {'YES (slow)' if fetch_details else 'NO (fast)'}")
+    log(f"  Started     : {start.strftime('%Y-%m-%d %H:%M:%S')}")
     log(f"{'='*60}\n")
 
     summary = {}
 
     if "advice" in stores:
         log("=== [Advice] ===")
-        n, u = await scrape_advice(conn, matcher, pages)
+        n, u = await scrape_advice(conn, matcher, pages, fetch_details)
         summary["advice"] = {"new": n, "updated": u}
 
     if "jib" in stores:
         log("\n=== [JIB] ===")
-        n, u = await scrape_jib(conn, matcher, pages)
+        n, u = await scrape_jib(conn, matcher, pages, fetch_details)
         summary["jib"] = {"new": n, "updated": u}
 
     if "ihavecpu" in stores:
         log("\n=== [iHaveCPU] ===")
-        n, u = await scrape_ihavecpu(conn, matcher, pages)
+        n, u = await scrape_ihavecpu(conn, matcher, pages, fetch_details)
         summary["ihavecpu"] = {"new": n, "updated": u}
 
     conn.close()
@@ -884,7 +1035,17 @@ async def run_all(stores: list[str], pages: int):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Full 3-store scraper with deduplication")
+    parser = argparse.ArgumentParser(
+        description="Full 3-store scraper with SmartMatcher deduplication",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+ตัวอย่าง:
+  python full_scraper.py                          # เร็ว: listing เท่านั้น
+  python full_scraper.py --details                # ครบ: + visit หน้าสินค้า (ช้า)
+  python full_scraper.py --stores ihavecpu jib --pages 3
+  python full_scraper.py --stores ihavecpu --details --pages 2
+"""
+    )
     parser.add_argument(
         "--stores", nargs="+", default=["all"],
         choices=["all", "advice", "jib", "ihavecpu"],
@@ -894,10 +1055,19 @@ def main():
         "--pages", type=int, default=3,
         help="Max pages per category (default: 3)",
     )
+    parser.add_argument(
+        "--details", action="store_true", default=False,
+        help="Visit each product page to fetch description + full image (slow, ~3-5s per product)",
+    )
     args = parser.parse_args()
 
     stores = ["advice", "jib", "ihavecpu"] if "all" in args.stores else args.stores
-    asyncio.run(run_all(stores, args.pages))
+
+    if args.details:
+        log("[WARNING] --details เปิดอยู่ — จะ visit หน้าสินค้าทุกชิ้น (ใช้เวลาหลายชั่วโมง)")
+        log("          กด Ctrl+C เพื่อหยุดได้ตลอดเวลา (ข้อมูลที่ scrape ไปแล้วจะถูกบันทึก)")
+
+    asyncio.run(run_all(stores, args.pages, args.details))
 
 
 if __name__ == "__main__":

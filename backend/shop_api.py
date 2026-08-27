@@ -385,6 +385,57 @@ class AIRecommendBody(BaseModel):
 def root():
     return {"status": "ok", "message": "🚀 IT-RECOMMEND Shop API v3"}
 
+# ─────────────────────────────────────────
+# Image Proxy — bypass hotlink/CORS/Referer blocking from store CDNs
+# ─────────────────────────────────────────
+from fastapi.responses import Response as FastAPIResponse
+import urllib.parse as _urlparse
+
+@app.get("/api/image-proxy")
+async def image_proxy(url: str = Query(..., description="URL รูปภาพต้นทาง")):
+    """
+    Proxy รูปภาพจากร้านค้า (JIB, iHaveCPU, Advice) เพื่อหลีกเลี่ยง
+    hotlink-block / CORS / Referer ที่ทำให้ browser โหลดรูปไม่ได้โดยตรง
+    """
+    # Whitelist domain ที่อนุญาต
+    ALLOWED_DOMAINS = (
+        "jib.co.th", "ihavecpu.com", "advice.co.th",
+        "ihcupload-bkk.s3.ap-southeast-7.amazonaws.com",
+        "img.advice.co.th", "cdn.advice.co.th",
+    )
+    try:
+        parsed = _urlparse.urlparse(url)
+        host = parsed.netloc.lower()
+        if not any(host.endswith(d) for d in ALLOWED_DOMAINS):
+            raise HTTPException(400, f"Domain ไม่ได้รับอนุญาต: {host}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "URL ไม่ถูกต้อง")
+
+    # Headers ที่ช่วยให้ได้รูปจริง (simulate browser + Referer)
+    headers = {
+        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+        "Referer":         f"{parsed.scheme}://{parsed.netloc}/",
+        "Accept":          "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(502, f"ร้านค้าตอบกลับ {resp.status_code}")
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            return FastAPIResponse(
+                content=resp.content,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=86400"},  # cache 1 วัน
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"โหลดรูปไม่ได้: {str(e)[:100]}")
+
 @app.post("/api/register")
 def register(body: RegisterBody, db: Session = Depends(get_db)):
     if body.u_password != body.confirm:
@@ -937,6 +988,91 @@ async def compat_check(body: CompatCheckBody):
     import recommender as rec
     result = await rec.compat_check_hybrid(body.parts_text)
     return {"status": "success", "data": result}
+
+
+class CompatibilityPartsBody(BaseModel):
+    parts: list[dict]
+    budget: Optional[int] = None
+
+@app.post("/api/compatibility/check-parts")
+@app.post("/api/compatibility/check")
+def check_compatibility_parts(body: CompatibilityPartsBody):
+    """Real-time deterministic compatibility check for structured parts from PC Builder."""
+    import spec_parser as sp
+    import compat_engine as ce
+    
+    parsed = []
+    for p in body.parts:
+        cat = p.get("category") or ""
+        name = p.get("name") or p.get("p_name") or ""
+        price = p.get("price") or p.get("p_price") or 0
+        part_info = sp.parse_part(cat, name)
+        part_info["price"] = price
+        parsed.append(part_info)
+        
+    result = ce.check_build(parsed, body.budget)
+    return {"status": "success", "data": result}
+
+
+class SpecHistoryCreate(BaseModel):
+    uid: str
+    username: Optional[str] = ""
+    type: Optional[str] = "manual"
+    mode: Optional[str] = "manual"
+    title: Optional[str] = "จัดสเปกเอง"
+    inputSummary: Optional[str] = ""
+    result_data: object
+
+@app.get("/api/spec-history")
+def get_spec_history(uid: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):
+    q = db.query(SpecHistory)
+    if uid:
+        q = q.filter(SpecHistory.uid == uid)
+    items = q.order_by(SpecHistory.createdAt.desc()).limit(limit).all()
+    return {"status": "success", "data": [
+        {
+            "id": s.id, "uid": s.uid, "username": s.username,
+            "type": s.type, "mode": s.mode, "title": s.title,
+            "inputSummary": s.inputSummary, "result_data": s.result_data,
+            "createdAt": s.createdAt
+        } for s in items
+    ]}
+
+@app.post("/api/spec-history")
+def create_spec_history(body: SpecHistoryCreate, db: Session = Depends(get_db)):
+    res_str = json.dumps(body.result_data, ensure_ascii=False) if not isinstance(body.result_data, str) else body.result_data
+    item = SpecHistory(
+        uid=body.uid,
+        username=body.username or "",
+        type=body.type or "manual",
+        mode=body.mode or "manual",
+        title=body.title or "จัดสเปกเอง",
+        inputSummary=body.inputSummary or "",
+        result_data=res_str,
+        createdAt=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {
+        "status": "success",
+        "message": "บันทึกประวัติการจัดสเปคสำเร็จ",
+        "data": {
+            "id": item.id, "uid": item.uid, "username": item.username,
+            "type": item.type, "mode": item.mode, "title": item.title,
+            "inputSummary": item.inputSummary, "result_data": item.result_data,
+            "createdAt": item.createdAt
+        }
+    }
+
+@app.delete("/api/spec-history/{id}")
+def delete_spec_history(id: int, db: Session = Depends(get_db)):
+    item = db.query(SpecHistory).filter(SpecHistory.id == id).first()
+    if not item:
+        raise HTTPException(404, "ไม่พบประวัติการจัดสเปค")
+    db.delete(item)
+    db.commit()
+    return {"status": "success", "message": "ลบประวัติสำเร็จ"}
 
 
 @app.get("/api/price-history/{product_id}")

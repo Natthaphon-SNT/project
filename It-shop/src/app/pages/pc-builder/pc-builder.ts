@@ -1,35 +1,52 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { CartService } from '../../services/cart';
 import { AuthService } from '../../services/auth';
 
-interface Product {
+export interface Product {
   product_id: string;
   p_name: string;
   p_price: number;
   price_advice: number;
   price_jib: number;
   price_ihavecpu: number;
+  url_advice?: string;
+  url_jib?: string;
+  url_ihavecpu?: string;
   img_url: string;
   p_description: string;
   category: string;
   cid?: string;
 }
 
-interface BuildSlot {
+export interface BuildSlot {
   key: string;
   label: string;
   icon: string;
-  category: string;       // category name to query API
+  category: string;
   selected: Product | null;
   products: Product[];
   isLoading: boolean;
   showPicker: boolean;
   search: string;
   required: boolean;
+}
+
+export interface CompatibilityCheckItem {
+  item: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface CompatibilityResult {
+  overall: 'ok' | 'warning' | 'error';
+  summary: string;
+  checks: CompatibilityCheckItem[];
+  warnings: string[];
+  suggestions: string[];
 }
 
 const API = 'http://localhost:3000';
@@ -43,13 +60,13 @@ const API = 'http://localhost:3000';
 })
 export class PcBuilderComponent implements OnInit {
   slots: BuildSlot[] = [
-    { key: 'cpu',     label: 'CPU / Processor',  icon: '🔲', category: 'cpu',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'mb',      label: 'Mainboard',         icon: '🟦', category: 'mainboard',    selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'gpu',     label: 'GPU / VGA',         icon: '🎮', category: 'gpu',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
-    { key: 'ram',     label: 'RAM',               icon: '📊', category: 'ram',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'ssd',     label: 'SSD / M.2',         icon: '💾', category: 'ssd',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'psu',     label: 'Power Supply',      icon: '⚡', category: 'psu',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'case',    label: 'Case',              icon: '🖥️', category: 'case',         selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'cpu',     label: 'CPU / Processor',  icon: '🔲', category: 'cpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'mb',      label: 'Mainboard',         icon: '🟦', category: 'mainboard',     selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'gpu',     label: 'GPU / VGA',         icon: '🎮', category: 'gpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'ram',     label: 'RAM',               icon: '📊', category: 'ram',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'ssd',     label: 'SSD / M.2',         icon: '💾', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'psu',     label: 'Power Supply',      icon: '⚡', category: 'psu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'case',    label: 'Case',              icon: '🖥️', category: 'case',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
     { key: 'cooler',  label: 'CPU Cooler',        icon: '❄️', category: 'liquid cooler', selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
   ];
 
@@ -57,15 +74,19 @@ export class PcBuilderComponent implements OnInit {
   toastType: 'success' | 'error' | '' = '';
   private toastTimer: any;
 
+  compatResult: CompatibilityResult | null = null;
+  isCheckingCompat = false;
+  isSaving = false;
+
   constructor(
     private http: HttpClient,
     private cart: CartService,
     public auth: AuthService,
+    private router: Router,
     private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit() {
-    // Pre-load สินค้าทุก slot พร้อมกัน
     this.slots.forEach(slot => this.loadSlotProducts(slot));
   }
 
@@ -79,19 +100,30 @@ export class PcBuilderComponent implements OnInit {
     this.http.get<any>(`${API}/api/products?${query}`).subscribe({
       next: (res) => {
         let products: Product[] = res.status === 'success' ? res.data : [];
+        
+        // Filter out non-hardware items
+        products = products.filter(p => !p.p_name.toLowerCase().includes('vacuum') && !p.p_name.toLowerCase().includes('เครื่องดูดฝุ่น'));
+
         // สำหรับ cooler รวม air + liquid
         if (slot.key === 'cooler') {
-          // also fetch air cooler
           this.http.get<any>(`${API}/api/products?category=air+cooler`).subscribe({
             next: (res2) => {
-              const extra = res2.status === 'success' ? res2.data : [];
+              const extra = (res2.status === 'success' ? res2.data : []).filter(
+                (p: Product) => !p.p_name.toLowerCase().includes('vacuum') && !p.p_name.toLowerCase().includes('เครื่องดูดฝุ่น')
+              );
               slot.products = [...products, ...extra];
+              slot.isLoading = false;
+              this.cdr.detectChanges();
+            },
+            error: () => {
+              slot.products = products;
               slot.isLoading = false;
               this.cdr.detectChanges();
             }
           });
           return;
         }
+
         slot.products = products;
         slot.isLoading = false;
         this.cdr.detectChanges();
@@ -103,14 +135,12 @@ export class PcBuilderComponent implements OnInit {
     });
   }
 
-  // ─── Filtered products for search ───
   filteredProducts(slot: BuildSlot): Product[] {
     const q = slot.search.trim().toLowerCase();
     if (!q) return slot.products;
     return slot.products.filter(p => p.p_name.toLowerCase().includes(q));
   }
 
-  // ─── Open picker modal ───
   openPicker(slot: BuildSlot) {
     this.slots.forEach(s => s.showPicker = false);
     slot.showPicker = true;
@@ -124,15 +154,54 @@ export class PcBuilderComponent implements OnInit {
   selectProduct(slot: BuildSlot, product: Product) {
     slot.selected = product;
     slot.showPicker = false;
+    this.checkCompatibility();
     this.cdr.detectChanges();
   }
 
   removeProduct(slot: BuildSlot) {
     slot.selected = null;
+    this.checkCompatibility();
     this.cdr.detectChanges();
   }
 
-  // ─── Price helpers ───
+  // ─── Real-time Compatibility Check ───
+  checkCompatibility() {
+    const selected = this.slots.filter(s => s.selected);
+    if (selected.length < 2) {
+      this.compatResult = null;
+      return;
+    }
+
+    this.isCheckingCompat = true;
+    const parts = selected.map(s => ({
+      category: s.label.includes('CPU') && !s.label.includes('Cooler') ? 'CPU' :
+                s.label.includes('Mainboard') ? 'Mainboard' :
+                s.label.includes('GPU') ? 'GPU' :
+                s.label.includes('RAM') ? 'RAM' :
+                s.label.includes('SSD') ? 'SSD' :
+                s.label.includes('Power') ? 'PSU' :
+                s.label.includes('Case') ? 'Case' :
+                s.label.includes('Cooler') ? 'Liquid Cooler' : s.category,
+      name: s.selected!.p_name,
+      price: this.getMinPrice(s.selected!)
+    }));
+
+    this.http.post<any>(`${API}/api/compatibility/check-parts`, { parts }).subscribe({
+      next: (res) => {
+        this.isCheckingCompat = false;
+        if (res.status === 'success' && res.data) {
+          this.compatResult = res.data;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isCheckingCompat = false;
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ─── Price & Store Calculations ───
   getMinPrice(p: Product): number {
     const prices = [p.price_advice, p.price_jib, p.price_ihavecpu, p.p_price].filter(x => x && x > 0);
     return prices.length ? Math.min(...prices) : (p.p_price || 0);
@@ -148,6 +217,129 @@ export class PcBuilderComponent implements OnInit {
     return this.slots.filter(s => s.selected).length;
   }
 
+  getStoreTotal(store: 'advice' | 'jib' | 'ihavecpu'): number {
+    const key = store === 'advice' ? 'price_advice' : store === 'jib' ? 'price_jib' : 'price_ihavecpu';
+    return this.slots
+      .filter(s => s.selected && (s.selected[key] || 0) > 0)
+      .reduce((sum, s) => sum + (s.selected![key] || 0), 0);
+  }
+
+  getStoreAvailableCount(store: 'advice' | 'jib' | 'ihavecpu'): number {
+    const key = store === 'advice' ? 'price_advice' : store === 'jib' ? 'price_jib' : 'price_ihavecpu';
+    return this.slots.filter(s => s.selected && (s.selected[key] || 0) > 0).length;
+  }
+
+  getBestStoreInfo(): { bestStore: string; bestTotal: number; isSingleStore: boolean } {
+    const totalCount = this.getSelectedCount();
+    if (totalCount === 0) return { bestStore: 'ยังไม่ได้เลือก', bestTotal: 0, isSingleStore: false };
+
+    const advTotal = this.getStoreTotal('advice');
+    const advCount = this.getStoreAvailableCount('advice');
+
+    const jibTotal = this.getStoreTotal('jib');
+    const jibCount = this.getStoreAvailableCount('jib');
+
+    const ihcTotal = this.getStoreTotal('ihavecpu');
+    const ihcCount = this.getStoreAvailableCount('ihavecpu');
+
+    const candidates: Array<{ name: string; total: number; count: number }> = [
+      { name: 'Advice', total: advTotal, count: advCount },
+      { name: 'JIB', total: jibTotal, count: jibCount },
+      { name: 'iHaveCPU', total: ihcTotal, count: ihcCount },
+    ];
+
+    // Single store with all parts available
+    const fullStores = candidates.filter(c => c.count === totalCount && c.total > 0);
+    if (fullStores.length > 0) {
+      fullStores.sort((a, b) => a.total - b.total);
+      return { bestStore: fullStores[0].name, bestTotal: fullStores[0].total, isSingleStore: true };
+    }
+
+    return { bestStore: 'ซื้อแยกชิ้น (Mixed Best)', bestTotal: this.getTotalPrice(), isSingleStore: false };
+  }
+
+  // ─── Save Build & Navigate to History ───
+  saveAndNavigateToHistory() {
+    const selected = this.slots.filter(s => s.selected);
+    if (selected.length === 0) {
+      this.showToast('กรุณาเลือกสินค้าอย่างน้อย 1 ชิ้นก่อนบันทึก', 'error');
+      return;
+    }
+
+    let uid = '';
+    let username = '';
+    try {
+      const raw = localStorage.getItem('lt_user');
+      if (raw) {
+        const u = JSON.parse(raw);
+        uid = u.uid || u.u_id || u.id || '';
+        username = u.u_name || u.username || '';
+      }
+    } catch {}
+
+    if (!uid) {
+      this.showToast('กรุณาเข้าสู่ระบบก่อนบันทึกสเปค', 'error');
+      this.router.navigate(['/login']);
+      return;
+    }
+
+    this.isSaving = true;
+
+    const partsData = selected.map(s => ({
+      key: s.key,
+      label: s.label,
+      name: s.selected!.p_name,
+      min_price: this.getMinPrice(s.selected!),
+      price_advice: s.selected!.price_advice || 0,
+      price_jib: s.selected!.price_jib || 0,
+      price_ihavecpu: s.selected!.price_ihavecpu || 0,
+      url_advice: s.selected!.url_advice || '',
+      url_jib: s.selected!.url_jib || '',
+      url_ihavecpu: s.selected!.url_ihavecpu || '',
+      img_url: s.selected!.img_url || ''
+    }));
+
+    const bestInfo = this.getBestStoreInfo();
+
+    const payload = {
+      uid,
+      username,
+      type: 'manual',
+      mode: 'manual',
+      title: `จัดสเปกเอง (${this.getTotalPrice().toLocaleString()} ฿)`,
+      inputSummary: `${selected.length}/${this.slots.length} ชิ้นส่วน | ราคาเริ่มต้น ${this.getTotalPrice().toLocaleString()} ฿`,
+      result_data: {
+        parts: partsData,
+        totals: {
+          min: this.getTotalPrice(),
+          advice: this.getStoreTotal('advice'),
+          advice_count: this.getStoreAvailableCount('advice'),
+          jib: this.getStoreTotal('jib'),
+          jib_count: this.getStoreAvailableCount('jib'),
+          ihavecpu: this.getStoreTotal('ihavecpu'),
+          ihavecpu_count: this.getStoreAvailableCount('ihavecpu'),
+          best_store: bestInfo.bestStore,
+          best_total: bestInfo.bestTotal
+        },
+        compatibility: this.compatResult
+      }
+    };
+
+    this.http.post<any>(`${API}/api/spec-history`, payload).subscribe({
+      next: (res) => {
+        this.isSaving = false;
+        this.showToast('บันทึกสเปกเรียบร้อยแล้ว กำลังนำท่านไปยังหน้าประวัติ...', 'success');
+        setTimeout(() => {
+          this.router.navigate(['/history']);
+        }, 1000);
+      },
+      error: () => {
+        this.isSaving = false;
+        this.showToast('เกิดข้อผิดพลาดในการบันทึกสเปก', 'error');
+      }
+    });
+  }
+
   // ─── Add all to cart ───
   addAllToCart() {
     const selected = this.slots.filter(s => s.selected);
@@ -160,11 +352,12 @@ export class PcBuilderComponent implements OnInit {
       const result = this.cart.addToCart(slot.selected!);
       if (result.success) added++;
     }
-    this.showToast(`เพิ่ม ${added} ชิ้นลงสเปคสำเร็จ ✓`, 'success');
+    this.showToast(`เพิ่ม ${added} ชิ้นลงตะกร้าสำเร็จ ✓`, 'success');
   }
 
   clearAll() {
     this.slots.forEach(s => s.selected = null);
+    this.compatResult = null;
     this.cdr.detectChanges();
   }
 

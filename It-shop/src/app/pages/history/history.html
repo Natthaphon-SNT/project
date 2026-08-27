@@ -4,14 +4,18 @@
   <div class="page-header">
     <div>
       <h1>📜 ประวัติการจัดสเปค</h1>
-      <p class="header-sub">ผลลัพธ์จาก AI Recommend ของคุณ</p>
+      <p class="header-sub">ดูสเปกที่เคยจัด เปรียบเทียบราคาทั้ง 3 ร้าน และลิงก์สั่งซื้อสินค้า</p>
     </div>
-    <button routerLink="/ai-recommend" class="btn-new">🤖 จัดสเปคใหม่</button>
+    <div class="header-actions">
+      <button routerLink="/pc-builder" class="btn-new btn-builder">🛠️ จัดสเปกเองใหม่</button>
+      <button routerLink="/ai-recommend" class="btn-new">🤖 AI จัดสเปกใหม่</button>
+    </div>
   </div>
 
   <!-- Filter Tabs -->
   <div class="filter-tabs">
     <button [class.active]="filterMode === 'all'"       (click)="filterMode = 'all'">ทั้งหมด ({{ historyList.length }})</button>
+    <button [class.active]="filterMode === 'manual'"    (click)="filterMode = 'manual'">🛠️ จัดสเปกเอง</button>
     <button [class.active]="filterMode === 'recommend'" (click)="filterMode = 'recommend'">🤖 แนะนำสเปค</button>
     <button [class.active]="filterMode === 'compare'"   (click)="filterMode = 'compare'">⚖️ เปรียบเทียบ</button>
     <button [class.active]="filterMode === 'compat'"    (click)="filterMode = 'compat'">🔗 เช็คความเข้ากัน</button>
@@ -27,8 +31,11 @@
   <div *ngIf="!isLoading && filteredHistory.length === 0" class="empty-state">
     <div class="empty-icon">📭</div>
     <h3>ยังไม่มีประวัติการจัดสเปค</h3>
-    <p>ลอง AI Recommend เพื่อบันทึกประวัติ</p>
-    <button routerLink="/ai-recommend" class="btn-new">🤖 เริ่มใช้ AI Recommend</button>
+    <p>ลองจัดสเปกเอง หรือใช้ AI Recommend เพื่อบันทึกประวัติ</p>
+    <div class="empty-actions">
+      <button routerLink="/pc-builder" class="btn-new btn-builder">🛠️ เริ่มจัดสเปกเอง</button>
+      <button routerLink="/ai-recommend" class="btn-new">🤖 เริ่มใช้ AI Recommend</button>
+    </div>
   </div>
 
   <!-- History List -->
@@ -45,10 +52,10 @@
           <div class="card-meta">{{ item.inputSummary }}</div>
         </div>
         <div class="card-right">
-          <span *ngIf="item.mode === 'recommend' && getTotalBudget(item)" class="card-budget">
+          <span *ngIf="getTotalBudget(item)" class="card-budget">
             {{ getTotalBudget(item) }}
           </span>
-          <span *ngIf="item.mode === 'compat'" class="compat-badge"
+          <span *ngIf="item.result_data?.compatibility || item.mode === 'compat'" class="compat-badge"
             [class.ok]="getCompatOverall(item) === 'ok'"
             [class.warning]="getCompatOverall(item) === 'warning'"
             [class.error]="getCompatOverall(item) === 'error'">
@@ -65,8 +72,123 @@
       <!-- Card Detail (expandable) -->
       <div class="card-detail" *ngIf="expandedId === item.id">
 
-        <!-- Summary -->
-        <div class="summary-box" *ngIf="getSummary(item)">
+        <!-- ─── MANUAL BUILD: 3-Store Breakdown & Parts Table ─── -->
+        <ng-container *ngIf="item.mode === 'manual'">
+
+          <!-- 3-Store Summary Grid -->
+          <div class="store-summary-grid" *ngIf="item.result_data?.totals">
+            <div class="store-card advice">
+              <div class="store-card-title">Advice รวม</div>
+              <div class="store-card-price" *ngIf="item.result_data.totals.advice > 0">
+                {{ item.result_data.totals.advice | number }} ฿
+              </div>
+              <div class="store-card-price empty" *ngIf="!item.result_data.totals.advice || item.result_data.totals.advice === 0">
+                ไม่มีสินค้าครบ
+              </div>
+              <div class="store-card-count" *ngIf="item.result_data.totals.advice_count">
+                มี {{ item.result_data.totals.advice_count }} ชิ้น
+              </div>
+            </div>
+
+            <div class="store-card jib">
+              <div class="store-card-title">JIB รวม</div>
+              <div class="store-card-price" *ngIf="item.result_data.totals.jib > 0">
+                {{ item.result_data.totals.jib | number }} ฿
+              </div>
+              <div class="store-card-price empty" *ngIf="!item.result_data.totals.jib || item.result_data.totals.jib === 0">
+                ไม่มีสินค้าครบ
+              </div>
+              <div class="store-card-count" *ngIf="item.result_data.totals.jib_count">
+                มี {{ item.result_data.totals.jib_count }} ชิ้น
+              </div>
+            </div>
+
+            <div class="store-card ihc">
+              <div class="store-card-title">iHaveCPU รวม</div>
+              <div class="store-card-price" *ngIf="item.result_data.totals.ihavecpu > 0">
+                {{ item.result_data.totals.ihavecpu | number }} ฿
+              </div>
+              <div class="store-card-price empty" *ngIf="!item.result_data.totals.ihavecpu || item.result_data.totals.ihavecpu === 0">
+                ไม่มีสินค้าครบ
+              </div>
+              <div class="store-card-count" *ngIf="item.result_data.totals.ihavecpu_count">
+                มี {{ item.result_data.totals.ihavecpu_count }} ชิ้น
+              </div>
+            </div>
+
+            <div class="store-card best">
+              <div class="store-card-title">🏆 ราคาดีที่สุด</div>
+              <div class="store-card-price highlight">
+                {{ (item.result_data.totals.min || item.result_data.totals.best_total) | number }} ฿
+              </div>
+              <div class="store-card-sub">
+                {{ item.result_data.totals.best_store || 'ซื้อแยกชิ้นถูกสุด' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Compatibility Box -->
+          <div class="summary-box" *ngIf="item.result_data?.compatibility">
+            <p [class.error-text]="getCompatOverall(item)==='error'" [class.warning-text]="getCompatOverall(item)==='warning'">
+              {{ item.result_data.compatibility.summary }}
+            </p>
+            <div *ngIf="item.result_data.compatibility.warnings?.length > 0" class="compat-warn-list">
+              <div *ngFor="let w of item.result_data.compatibility.warnings" class="warn-item">• {{ w }}</div>
+            </div>
+          </div>
+
+          <!-- Parts Table with Direct Links -->
+          <table class="parts-table manual-table">
+            <thead>
+              <tr>
+                <th>ชิ้นส่วน</th>
+                <th>ชื่อสินค้า</th>
+                <th>Advice</th>
+                <th>JIB</th>
+                <th>iHaveCPU</th>
+                <th>ราคาต่ำสุด</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let p of getParts(item)">
+                <td>
+                  <span class="part-type">{{ p.label || p.key }}</span>
+                </td>
+                <td class="part-name-cell">
+                  <img *ngIf="p.img_url" [src]="p.img_url" class="part-thumb" (error)="$any($event.target).style.display='none'">
+                  <span class="part-name-text">{{ p.name }}</span>
+                </td>
+                <td>
+                  <div *ngIf="p.price_advice > 0" class="store-link-cell">
+                    <span class="p-price-val advice">{{ p.price_advice | number }}฿</span>
+                    <a *ngIf="p.url_advice" [href]="p.url_advice" target="_blank" class="store-btn advice">ซื้อ Advice ↗</a>
+                  </div>
+                  <span *ngIf="!p.price_advice || p.price_advice === 0" class="no-item">—</span>
+                </td>
+                <td>
+                  <div *ngIf="p.price_jib > 0" class="store-link-cell">
+                    <span class="p-price-val jib">{{ p.price_jib | number }}฿</span>
+                    <a *ngIf="p.url_jib" [href]="p.url_jib" target="_blank" class="store-btn jib">ซื้อ JIB ↗</a>
+                  </div>
+                  <span *ngIf="!p.price_jib || p.price_jib === 0" class="no-item">—</span>
+                </td>
+                <td>
+                  <div *ngIf="p.price_ihavecpu > 0" class="store-link-cell">
+                    <span class="p-price-val ihc">{{ p.price_ihavecpu | number }}฿</span>
+                    <a *ngIf="p.url_ihavecpu" [href]="p.url_ihavecpu" target="_blank" class="store-btn ihc">ซื้อ iHaveCPU ↗</a>
+                  </div>
+                  <span *ngIf="!p.price_ihavecpu || p.price_ihavecpu === 0" class="no-item">—</span>
+                </td>
+                <td class="part-min-cell">
+                  <strong>{{ (p.min_price || p.price || 0) | number }} ฿</strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </ng-container>
+
+        <!-- Summary for other modes -->
+        <div class="summary-box" *ngIf="item.mode !== 'manual' && getSummary(item)">
           <p>{{ getSummary(item) }}</p>
         </div>
 
@@ -142,7 +264,8 @@
         </ng-container>
 
         <!-- COMPAT: Checks Table -->
-        <ng-container *ngIf="item.mode === 'compat' && getChecks(item).length > 0">
+        <ng-container *ngIf="getChecks(item).length > 0">
+          <h4 class="checks-header" *ngIf="item.mode === 'manual'">🔗 รายการตรวจสอบความเข้ากันได้</h4>
           <table class="parts-table">
             <thead>
               <tr>
@@ -156,7 +279,7 @@
                 <td>{{ check.item }}</td>
                 <td>
                   <span class="check-badge" [class.check-ok]="check.ok" [class.check-fail]="!check.ok">
-                    {{ check.ok ? '✅ OK' : '❌ ไม่ผ่าน' }}
+                    {{ check.ok ? '✅ ผ่าน' : '❌ ไม่ผ่าน' }}
                   </span>
                 </td>
                 <td class="part-reason">{{ check.detail }}</td>

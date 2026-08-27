@@ -8,7 +8,7 @@
   <!-- Header -->
   <div class="builder-header fade-in">
     <h1 class="builder-title">🛠️ จัดสเปกเอง</h1>
-    <p class="builder-subtitle">เลือก Component ที่ต้องการ เปรียบเทียบราคาจาก 3 ร้าน</p>
+    <p class="builder-subtitle">เลือก Component ที่ต้องการ เปรียบเทียบราคาแยก 3 ร้าน พร้อมระบบตรวจเช็คความเข้ากันได้</p>
   </div>
 
   <div class="builder-layout">
@@ -36,7 +36,7 @@
           <div class="slot-info">
             <p class="slot-product-name" [title]="slot.selected.p_name">{{ slot.selected.p_name }}</p>
 
-            <!-- Price comparison -->
+            <!-- Price comparison per item -->
             <div class="slot-prices">
               <span class="price-tag advice" *ngIf="slot.selected.price_advice > 0">
                 Advice: {{ slot.selected.price_advice | number }}฿
@@ -108,6 +108,26 @@
       <div class="summary-card fade-in">
         <h2 class="summary-title">สรุปสเปก</h2>
 
+        <!-- Compatibility Alert Banner -->
+        <div class="compat-banner" *ngIf="compatResult" [ngClass]="'compat-' + compatResult.overall">
+          <div class="compat-header">
+            <span class="compat-icon">{{ compatResult.overall === 'error' ? '❌' : compatResult.overall === 'warning' ? '⚠️' : '✅' }}</span>
+            <span class="compat-title">{{ compatResult.summary }}</span>
+          </div>
+
+          <!-- Failed/Warning Checks -->
+          <div class="compat-details" *ngIf="compatResult.overall !== 'ok'">
+            <div *ngFor="let c of compatResult.checks" class="compat-check-row">
+              <span *ngIf="!c.ok" class="compat-item-fail">• {{ c.detail }}</span>
+            </div>
+            <div *ngIf="compatResult.suggestions.length > 0" class="compat-suggestions">
+              <strong>💡 แนะนำ:</strong>
+              <div *ngFor="let s of compatResult.suggestions" class="sug-item">- {{ s }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected Parts List -->
         <div class="summary-list">
           <div class="summary-row" *ngFor="let slot of slots" [class.summary-empty]="!slot.selected">
             <span class="summary-icon">{{ slot.icon }}</span>
@@ -123,32 +143,62 @@
 
         <div class="summary-divider"></div>
 
+        <!-- 3-Store Breakdown -->
+        <div class="store-breakdown-box" *ngIf="getSelectedCount() > 0">
+          <h3 class="breakdown-title">🏪 เปรียบเทียบราคารวมแยก 3 ร้าน</h3>
+          <div class="store-row">
+            <span class="store-name advice">Advice</span>
+            <span class="store-val" *ngIf="getStoreTotal('advice') > 0">
+              {{ getStoreTotal('advice') | number }} ฿
+              <small>({{ getStoreAvailableCount('advice') }}/{{ getSelectedCount() }} ชิ้น)</small>
+            </span>
+            <span class="store-val empty" *ngIf="getStoreTotal('advice') === 0">ไม่มีสินค้า</span>
+          </div>
+
+          <div class="store-row">
+            <span class="store-name jib">JIB</span>
+            <span class="store-val" *ngIf="getStoreTotal('jib') > 0">
+              {{ getStoreTotal('jib') | number }} ฿
+              <small>({{ getStoreAvailableCount('jib') }}/{{ getSelectedCount() }} ชิ้น)</small>
+            </span>
+            <span class="store-val empty" *ngIf="getStoreTotal('jib') === 0">ไม่มีสินค้า</span>
+          </div>
+
+          <div class="store-row">
+            <span class="store-name ihc">iHaveCPU</span>
+            <span class="store-val" *ngIf="getStoreTotal('ihavecpu') > 0">
+              {{ getStoreTotal('ihavecpu') | number }} ฿
+              <small>({{ getStoreAvailableCount('ihavecpu') }}/{{ getSelectedCount() }} ชิ้น)</small>
+            </span>
+            <span class="store-val empty" *ngIf="getStoreTotal('ihavecpu') === 0">ไม่มีสินค้า</span>
+          </div>
+
+          <div class="best-store-badge">
+            🏆 ราคาดีที่สุด: <strong>{{ getBestStoreInfo().bestStore }}</strong>
+          </div>
+        </div>
+
+        <!-- Total Price -->
         <div class="summary-total">
-          <span>ราคารวม (ต่ำสุด)</span>
+          <span>ราคารวมเริ่มต้น (ต่ำสุด)</span>
           <span class="total-price">{{ getTotalPrice() | number }} ฿</span>
         </div>
 
         <p class="summary-note">เลือกแล้ว {{ getSelectedCount() }} / {{ slots.length }} ชิ้น</p>
 
+        <!-- Actions -->
         <div class="summary-actions">
+          <button class="btn-save-spec" (click)="saveAndNavigateToHistory()" [disabled]="getSelectedCount() === 0 || isSaving">
+            💾 {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกและดูสรุปสเปก (แยก 3 ร้าน)' }}
+          </button>
           <button class="btn-add-all" (click)="addAllToCart()" [disabled]="getSelectedCount() === 0">
-            🛒 เพิ่มทั้งหมดลงสเปค
+            🛒 เพิ่มทั้งหมดลงตะกร้า
           </button>
           <button class="btn-clear" (click)="clearAll()" [disabled]="getSelectedCount() === 0">
             ล้างทั้งหมด
           </button>
         </div>
 
-        <!-- Store comparison hint -->
-        <div class="store-hint">
-          <p class="hint-title">💡 เปรียบเทียบราคา</p>
-          <div class="hint-stores">
-            <span class="price-tag advice">Advice</span>
-            <span class="price-tag jib">JIB</span>
-            <span class="price-tag ihc">iHaveCPU</span>
-          </div>
-          <p class="hint-note">ราคาที่แสดงเป็นราคาต่ำสุดจากทั้ง 3 ร้าน</p>
-        </div>
       </div>
     </div>
 

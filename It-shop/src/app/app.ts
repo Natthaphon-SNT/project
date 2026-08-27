@@ -20,6 +20,7 @@ export class AppComponent {
       filter(event => event instanceof NavigationEnd)
     ).subscribe((event: any) => {
       this.showNavbar = !event.url.includes('/login') && !event.url.includes('/register');
+      window.scrollTo({ top: 0, behavior: 'instant' });
     });
   }
 }

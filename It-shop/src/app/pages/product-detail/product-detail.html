@@ -146,42 +146,72 @@
   </div>
 
   <!-- รายละเอียดสินค้าแยกตามร้าน -->
-  <div *ngIf="product && hasDescription()" class="desc-section">
+  <div *ngIf="product" class="desc-section">
     <h2 class="desc-section-title">รายละเอียดสินค้า</h2>
 
-    <!-- Tabs รายละเอียดแต่ละร้าน -->
-    <div class="desc-tabs">
-      <button *ngIf="product.desc_advice"
-              [class.active]="activeDescTab === 'advice'"
-              (click)="activeDescTab = 'advice'">
-        Advice
-      </button>
-      <button *ngIf="product.desc_jib"
-              [class.active]="activeDescTab === 'jib'"
-              (click)="activeDescTab = 'jib'">
-        JIB
-      </button>
-      <button *ngIf="product.desc_ihavecpu"
-              [class.active]="activeDescTab === 'ihavecpu'"
-              (click)="activeDescTab = 'ihavecpu'">
-        iHaveCPU
-      </button>
-      <button *ngIf="product.p_description && !product.desc_advice && !product.desc_jib && !product.desc_ihavecpu"
-              class="active">
-        ข้อมูลสินค้า
-      </button>
-    </div>
+    <!-- มี description จากร้าน -->
+    <ng-container *ngIf="hasDescription(); else noDesc">
+      <!-- Tabs รายละเอียดแต่ละร้าน -->
+      <div class="desc-tabs">
+        <button *ngIf="product.desc_advice"
+                [class.active]="activeDescTab === 'advice'"
+                (click)="activeDescTab = 'advice'">
+          Advice
+        </button>
+        <button *ngIf="product.desc_jib"
+                [class.active]="activeDescTab === 'jib'"
+                (click)="activeDescTab = 'jib'">
+          JIB
+        </button>
+        <button *ngIf="product.desc_ihavecpu"
+                [class.active]="activeDescTab === 'ihavecpu'"
+                (click)="activeDescTab = 'ihavecpu'">
+          iHaveCPU
+        </button>
+        <button *ngIf="product.p_description && !product.desc_advice && !product.desc_jib && !product.desc_ihavecpu"
+                class="active">
+          ข้อมูลสินค้า
+        </button>
+      </div>
 
-    <div class="desc-content">
-      <pre *ngIf="activeDescTab === 'advice' && product.desc_advice"
-           class="desc-text">{{ product.desc_advice }}</pre>
-      <pre *ngIf="activeDescTab === 'jib' && product.desc_jib"
-           class="desc-text">{{ product.desc_jib }}</pre>
-      <pre *ngIf="activeDescTab === 'ihavecpu' && product.desc_ihavecpu"
-           class="desc-text">{{ product.desc_ihavecpu }}</pre>
-      <pre *ngIf="!product.desc_advice && !product.desc_jib && !product.desc_ihavecpu && product.p_description"
-           class="desc-text">{{ product.p_description }}</pre>
-    </div>
+      <div class="desc-content">
+        <pre *ngIf="activeDescTab === 'advice' && product.desc_advice"
+             class="desc-text">{{ product.desc_advice }}</pre>
+        <pre *ngIf="activeDescTab === 'jib' && product.desc_jib"
+             class="desc-text">{{ product.desc_jib }}</pre>
+        <pre *ngIf="activeDescTab === 'ihavecpu' && product.desc_ihavecpu"
+             class="desc-text">{{ product.desc_ihavecpu }}</pre>
+        <pre *ngIf="!product.desc_advice && !product.desc_jib && !product.desc_ihavecpu && product.p_description"
+             class="desc-text">{{ product.p_description }}</pre>
+      </div>
+    </ng-container>
+
+    <!-- ไม่มี description — แสดงลิงก์ตรงร้านค้า -->
+    <ng-template #noDesc>
+      <div class="no-desc-box">
+        <p class="no-desc-msg">
+          📦 ยังไม่มีรายละเอียดสินค้าในระบบ<br>
+          <small>กดปุ่มด้านล่างเพื่อดูข้อมูลจากเว็บร้านค้าโดยตรง</small>
+        </p>
+        <div class="no-desc-links">
+          <a *ngIf="product.price_advice || product.url_advice"
+             [href]="getStoreUrl('advice')" target="_blank" rel="noopener noreferrer"
+             class="btn-goto-store advice-btn">
+            🔗 ดูรายละเอียดที่ Advice
+          </a>
+          <a *ngIf="product.price_jib || product.url_jib"
+             [href]="getStoreUrl('jib')" target="_blank" rel="noopener noreferrer"
+             class="btn-goto-store jib-btn">
+            🔗 ดูรายละเอียดที่ JIB
+          </a>
+          <a *ngIf="product.price_ihavecpu || product.url_ihavecpu"
+             [href]="getStoreUrl('ihavecpu')" target="_blank" rel="noopener noreferrer"
+             class="btn-goto-store ihc-btn">
+            🔗 ดูรายละเอียดที่ iHaveCPU
+          </a>
+        </div>
+      </div>
+    </ng-template>
   </div>
 
 </div>

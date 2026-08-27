@@ -85,9 +85,14 @@ export class ProductsComponent implements OnInit, OnDestroy {
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
   }
 
+  private readonly PROXY = 'http://localhost:3000/api/image-proxy?url=';
+  private readonly FALLBACK_ICON = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+
   getProductImage(p: Product): string {
-    if (p.img_url && p.img_url.startsWith('http')) return p.img_url;
-    return CATEGORY_ICONS[p.category] || DEFAULT_ICON;
+    if (p.img_url && p.img_url.startsWith('http')) {
+      return this.PROXY + encodeURIComponent(p.img_url);
+    }
+    return CATEGORY_ICONS[p.category] || this.FALLBACK_ICON;
   }
 
   getMinPrice(p: Product): number {
@@ -97,8 +102,10 @@ export class ProductsComponent implements OnInit, OnDestroy {
 
   onImgError(event: Event, p: Product) {
     const img = event.target as HTMLImageElement;
-    img.src = CATEGORY_ICONS[p.category] || DEFAULT_ICON;
-    img.style.padding = '20px';
+    if (!img.src.includes('flaticon')) {
+      img.src = CATEGORY_ICONS[p.category] || this.FALLBACK_ICON;
+    }
+    img.style.padding = '10px';
     img.style.objectFit = 'contain';
   }
 

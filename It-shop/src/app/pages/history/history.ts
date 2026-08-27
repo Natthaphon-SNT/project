@@ -1,24 +1,24 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
 
-interface SpecHistoryItem {
+export interface SpecHistoryItem {
   id: number;
   uid: string;
   username: string;
   type: 'ai' | 'manual';
-  mode: 'recommend' | 'compare' | 'compat';
+  mode: 'recommend' | 'compare' | 'compat' | 'manual';
   title: string;
   inputSummary: string;
   createdAt: string;
-  result_data: any; // parsed JSON
+  result_data: any;
 }
 
 @Component({
   selector: 'app-history',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, DecimalPipe],
   templateUrl: './history.html',
   styleUrls: ['./history.scss']
 })
@@ -26,7 +26,7 @@ export class HistoryComponent implements OnInit {
   historyList: SpecHistoryItem[] = [];
   isLoading = true;
   expandedId: number | null = null;
-  filterMode: 'all' | 'recommend' | 'compare' | 'compat' = 'all';
+  filterMode: 'all' | 'manual' | 'recommend' | 'compare' | 'compat' = 'all';
 
   private readonly API = 'http://localhost:3000';
 
@@ -77,14 +77,18 @@ export class HistoryComponent implements OnInit {
                 id: item.id,
                 uid: item.uid,
                 username: item.username,
-                type: item.type || 'ai',
-                mode: item.mode || 'recommend',
+                type: item.type || 'manual',
+                mode: item.mode || 'manual',
                 title: item.title || '',
                 inputSummary: item.inputSummary || '',
                 createdAt: item.createdAt || '',
                 result_data: parsed
               };
             });
+            // Automatically expand the first (latest) item if present
+            if (this.historyList.length > 0) {
+              this.expandedId = this.historyList[0].id;
+            }
           }
           this.cdr.detectChanges();
         },
@@ -121,6 +125,7 @@ export class HistoryComponent implements OnInit {
 
   getModeLabel(mode: string): string {
     const map: Record<string, string> = {
+      manual:    '🛠️ จัดสเปกเอง',
       recommend: '🤖 แนะนำสเปค',
       compare:   '⚖️ เปรียบเทียบ',
       compat:    '🔗 เช็คความเข้ากัน',
@@ -130,6 +135,7 @@ export class HistoryComponent implements OnInit {
 
   getModeClass(mode: string): string {
     const map: Record<string, string> = {
+      manual:    'mode-manual',
       recommend: 'mode-recommend',
       compare:   'mode-compare',
       compat:    'mode-compat',
@@ -148,7 +154,7 @@ export class HistoryComponent implements OnInit {
   }
 
   getParts(item: SpecHistoryItem): any[] {
-    if (item.mode === 'recommend' && item.result_data?.parts) {
+    if (item.result_data?.parts) {
       return item.result_data.parts;
     }
     return [];
@@ -162,6 +168,9 @@ export class HistoryComponent implements OnInit {
   }
 
   getChecks(item: SpecHistoryItem): any[] {
+    if (item.result_data?.compatibility?.checks) {
+      return item.result_data.compatibility.checks;
+    }
     if (item.mode === 'compat' && item.result_data?.checks) {
       return item.result_data.checks;
     }
@@ -169,10 +178,15 @@ export class HistoryComponent implements OnInit {
   }
 
   getTotalBudget(item: SpecHistoryItem): string {
+    if (item.mode === 'manual') {
+      const total = item.result_data?.totals?.min || 0;
+      return total > 0 ? `${total.toLocaleString()} ฿` : '';
+    }
     return item.result_data?.totalBudget || '';
   }
 
   getSummary(item: SpecHistoryItem): string {
+    if (item.mode === 'manual') return item.result_data?.compatibility?.summary || '';
     if (item.mode === 'recommend') return item.result_data?.summary || '';
     if (item.mode === 'compare') return item.result_data?.verdict || '';
     if (item.mode === 'compat') return item.result_data?.summary || '';
@@ -180,6 +194,15 @@ export class HistoryComponent implements OnInit {
   }
 
   getCompatOverall(item: SpecHistoryItem): string {
+    if (item.mode === 'manual') {
+      return item.result_data?.compatibility?.overall || 'ok';
+    }
     return item.result_data?.overall || 'ok';
+  }
+
+  openUrl(url?: string) {
+    if (url) {
+      window.open(url, '_blank');
+    }
   }
 }

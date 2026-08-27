@@ -145,16 +145,25 @@ export class ProductDetail implements OnInit {
     }
   }
 
+  private readonly PROXY = 'http://localhost:3000/api/image-proxy?url=';
+  private readonly FALLBACK = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+
   getProductImage(): string {
-    if (this.product?.img_url && this.product.img_url.startsWith('http')) {
-      return this.product.img_url;
+    const raw = this.product?.img_url || '';
+    if (raw && raw.startsWith('http')) {
+      return this.PROXY + encodeURIComponent(raw);
     }
-    return 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+    return this.FALLBACK;
   }
 
   onImgError(event: Event) {
-    (event.target as HTMLImageElement).src =
-      'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+    const img = event.target as HTMLImageElement;
+    // ถ้า proxy ล้มเหลว ให้ fallback icon
+    if (!img.src.includes('flaticon')) {
+      img.src = this.FALLBACK;
+    }
+    img.style.padding = '20px';
+    img.style.objectFit = 'contain';
   }
 
   addToCart() {
