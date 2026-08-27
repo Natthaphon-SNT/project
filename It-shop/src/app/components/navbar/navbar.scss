@@ -295,3 +295,116 @@
   from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ===== Responsive ===== */
+
+/* Large screens (1200px+): ปกติ */
+@media (max-width: 1200px) {
+  .navbar-main {
+    .nav-search { width: 180px; }
+  }
+}
+
+/* Medium screens (1024px) */
+@media (max-width: 1024px) {
+  .navbar-main {
+    padding: 10px 16px;
+
+    .nav-links {
+      gap: 4px;
+
+      .nav-item { padding: 5px 9px; font-size: 12px; }
+    }
+
+    .nav-search { width: 160px; }
+  }
+}
+
+/* Tablet (768px) */
+@media (max-width: 768px) {
+  .navbar-top {
+    padding: 6px 16px;
+    font-size: 12px;
+
+    .top-links { gap: 10px; }
+  }
+
+  .navbar-main {
+    padding: 10px 16px;
+
+    .nav-container {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .nav-left {
+      gap: 12px;
+      width: 100%;
+    }
+
+    .nav-links {
+      flex-wrap: wrap;
+      gap: 4px;
+
+      .nav-item { font-size: 11px; padding: 4px 8px; }
+
+      /* ซ่อน dividers ที่ไม่จำเป็น */
+      .nav-divider { display: none; }
+    }
+
+    .nav-search {
+      width: 100%;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .nav-right { flex-shrink: 0; }
+  }
+}
+
+/* Mobile (480px) */
+@media (max-width: 480px) {
+  .navbar-top {
+    display: none; /* ซ่อน top bar บนมือถือ */
+  }
+
+  .navbar-main {
+    padding: 8px 12px;
+
+    .nav-container { gap: 6px; }
+
+    .nav-logo { font-size: 18px; }
+
+    .nav-links {
+      order: 3;
+      width: 100%;
+      gap: 4px;
+
+      .nav-item { font-size: 11px; padding: 4px 7px; }
+
+      /* ซ่อน dropdown triggers ที่ยาวเกินบนมือถือ — ใช้แค่ปุ่มหลัก */
+      .nav-dropdown .dropdown-trigger { font-size: 11px; }
+    }
+
+    .nav-search {
+      order: 2;
+      flex: 1;
+      width: auto;
+    }
+
+    .nav-right {
+      order: 1;
+      flex-shrink: 0;
+    }
+  }
+}
+
+/* Very small (360px) */
+@media (max-width: 360px) {
+  .navbar-main {
+    .nav-links {
+      /* ซ่อน dropdowns บนหน้าจอเล็กมาก เหลือแค่ปุ่มหลัก */
+      .nav-dropdown { display: none; }
+    }
+  }
+}

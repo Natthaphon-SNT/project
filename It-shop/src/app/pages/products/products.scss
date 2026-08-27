@@ -479,4 +479,91 @@
       color: #34d399;
     }
   }
-}
+}
+
+/* ===== Responsive ===== */
+
+/* Large (1280px+): ปกติ */
+@media (max-width: 1280px) {
+  .shop-container { padding: 40px 4%; }
+  .product-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 28px; }
+}
+
+/* Medium (1024px) */
+@media (max-width: 1024px) {
+  .shop-container { padding: 36px 3%; }
+  .product-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px; }
+  .header-section .main-title { font-size: 2.4rem; }
+}
+
+/* Tablet (768px) */
+@media (max-width: 768px) {
+  .shop-container { padding: 28px 4%; }
+
+  .header-section {
+    margin-bottom: 28px;
+    .main-title { font-size: 2rem; letter-spacing: 3px; }
+  }
+
+  .search-wrapper { margin-bottom: 36px; }
+  .search-box { max-width: 100%; }
+
+  .product-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 20px;
+  }
+
+  .product-img-box { height: 180px; }
+
+  .product-info {
+    padding: 14px;
+    .product-name { font-size: 0.95rem; }
+    .product-price { font-size: 1.3rem; }
+  }
+}
+
+/* Mobile (480px) */
+@media (max-width: 480px) {
+  .shop-container { padding: 20px 3%; }
+
+  .header-section {
+    margin-bottom: 20px;
+    .main-title { font-size: 1.6rem; letter-spacing: 2px; }
+    .title-underline { width: 60px; height: 4px; }
+  }
+
+  .search-wrapper { margin-bottom: 24px; }
+  .search-box {
+    padding: 4px 4px 4px 14px;
+    .search-input { font-size: 14px; }
+    .search-btn { padding: 8px 16px; font-size: 13px; }
+  }
+
+  /* 2 คอลัมน์บนมือถือ */
+  .product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .product-img-box { height: 150px; padding: 10px; }
+
+  .product-info {
+    padding: 10px;
+    .product-name { font-size: 0.82rem; }
+    .product-price { font-size: 1.1rem; margin-bottom: 6px; }
+    .price-compare { display: none; } /* ซ่อนราคาเปรียบเทียบบนมือถือ */
+  }
+
+  .product-actions {
+    gap: 6px;
+    button { padding: 7px 0; font-size: 0.8rem; }
+  }
+}
+
+/* Very small (360px) */
+@media (max-width: 360px) {
+  .product-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .product-img-box { height: 130px; }
+  .product-info .product-name { font-size: 0.75rem; }
+}
+

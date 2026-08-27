@@ -13,7 +13,13 @@ body {
   margin: 0;
   padding: 0;
   color: #fff;
+  overflow-x: hidden; /* ป้องกัน horizontal scroll บนมือถือ */
 }
+
+*, *::before, *::after {
+  box-sizing: border-box; /* ให้ padding ไม่ทำให้ layout พัง */
+}
+
 
 /* Navbar Style */
 .main-nav {
