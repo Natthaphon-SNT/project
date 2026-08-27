@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { combineLatest, Subscription } from 'rxjs';
 import { ApiService } from '../../services/api';
 import { CartService } from '../../services/cart';
 import { AuthService } from '../../services/auth';
@@ -61,7 +60,6 @@ export class ProductsComponent implements OnInit, OnDestroy {
   toastMessage = '';
   toastType: 'success' | 'error' | '' = '';
   private toastTimer: any;
-  private routeSub?: Subscription;
 
   // Modal แก้ไข
   showEditModal = false;
@@ -106,20 +104,18 @@ export class ProductsComponent implements OnInit, OnDestroy {
     const user = this.auth.currentUserSubject.value;
     this.isAdmin = user?.role === 'admin';
 
-    // ใช้ combineLatest เพื่อให้ category และ searchQuery อัพเดตพร้อมกันก่อนโหลดสินค้า
-    this.routeSub = combineLatest([
-      this.route.paramMap,
-      this.route.queryParamMap
-    ]).subscribe(([params, qp]) => {
+    // รับทั้ง route param (category) และ query param (search จาก navbar)
+    this.route.paramMap.subscribe(params => {
       this.category = params.get('type') || '';
+    });
+
+    this.route.queryParamMap.subscribe(qp => {
       this.searchQuery = qp.get('search') || '';
       this.loadProducts();
     });
   }
 
-  ngOnDestroy() {
-    this.routeSub?.unsubscribe();
-  }
+  ngOnDestroy() {}
 
   loadProducts() {
     this.isLoading = true;
