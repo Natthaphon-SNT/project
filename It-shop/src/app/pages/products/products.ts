@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { combineLatest, Subscription } from 'rxjs';
 import { ApiService } from '../../services/api';
 import { CartService } from '../../services/cart';
 import { AuthService } from '../../services/auth';
@@ -60,6 +61,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
   toastMessage = '';
   toastType: 'success' | 'error' | '' = '';
   private toastTimer: any;
+  private routeSub?: Subscription;
 
   // Modal แก้ไข
   showEditModal = false;
@@ -104,18 +106,22 @@ export class ProductsComponent implements OnInit, OnDestroy {
     const user = this.auth.currentUserSubject.value;
     this.isAdmin = user?.role === 'admin';
 
-    // รับทั้ง route param (category) และ query param (search จาก navbar)
-    this.route.paramMap.subscribe(params => {
-      this.category = params.get('type') || '';
-    });
-
-    this.route.queryParamMap.subscribe(qp => {
+    // ใช้ combineLatest เพื่อให้ category และ search ถูก set พร้อมกัน
+    // ก่อน loadProducts ถูกเรียก — แก้ bug ที่ category ถูก set ช้ากว่า
+    this.routeSub = combineLatest([
+      this.route.paramMap,
+      this.route.queryParamMap,
+    ]).subscribe(([params, qp]) => {
+      this.category    = params.get('type') || '';
       this.searchQuery = qp.get('search') || '';
       this.loadProducts();
     });
   }
 
-  ngOnDestroy() {}
+  ngOnDestroy() {
+    this.routeSub?.unsubscribe();
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+  }
 
   loadProducts() {
     this.isLoading = true;
@@ -134,7 +140,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
   }
 
   onSearch() {
-    this.category = '';
+    // ไม่ clear category เพื่อให้ค้นหาภายในหมวดหมู่ปัจจุบันได้
     this.loadProducts();
   }
 

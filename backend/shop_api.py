@@ -445,6 +445,84 @@ def get_product(product_id: str, db: Session = Depends(get_db)):
     if not p: raise HTTPException(404, "ไม่พบสินค้า")
     return {"status": "success", "data": product_to_dict(p)}
 
+@app.get("/api/products/{product_id}/compare")
+def compare_product_prices(product_id: str, db: Session = Depends(get_db)):
+    """
+    เปรียบเทียบราคาสินค้าชิ้นเดียวกันจากหลายร้านค้า
+    Response:
+    {
+      product_id, p_name, img_url, description,
+      stores: [ {store, store_name, price, url, available: bool} ],
+      cheapest: {store, store_name, price, url},
+      price_range: {min, max, diff}
+    }
+    """
+    p = db.query(Product).filter(Product.product_id == product_id).first()
+    if not p:
+        raise HTTPException(404, "ไม่พบสินค้า")
+
+    store_data = [
+        {
+            "store":      "advice",
+            "store_name": "Advice",
+            "price":      int(getattr(p, "price_advice",   0) or 0),
+            "url":        getattr(p, "url_advice",   "") or "",
+        },
+        {
+            "store":      "jib",
+            "store_name": "JIB",
+            "price":      int(getattr(p, "price_jib",     0) or 0),
+            "url":        getattr(p, "url_jib",     "") or "",
+        },
+        {
+            "store":      "ihavecpu",
+            "store_name": "iHaveCPU",
+            "price":      int(getattr(p, "price_ihavecpu", 0) or 0),
+            "url":        getattr(p, "url_ihavecpu", "") or "",
+        },
+    ]
+
+    # Mark available stores (price > 0)
+    available = [
+        {**s, "available": s["price"] > 0}
+        for s in store_data
+    ]
+    available_only = [s for s in available if s["available"]]
+
+    # Sort by price ascending
+    available_sorted = sorted(available_only, key=lambda s: s["price"])
+
+    cheapest = available_sorted[0] if available_sorted else None
+    prices   = [s["price"] for s in available_only]
+
+    best_desc = (
+        getattr(p, "desc_advice",   "") or
+        getattr(p, "desc_jib",      "") or
+        getattr(p, "desc_ihavecpu", "") or
+        p.p_description or ""
+    )
+
+    return {
+        "status": "success",
+        "data": {
+            "product_id":  p.product_id,
+            "p_name":      p.p_name,
+            "img_url":     p.img_url or "",
+            "description": best_desc,
+            "category":    p.category,
+            "stores":      available,          # ทุกร้าน (รวมที่ไม่มีราคา)
+            "available_stores": available_sorted,  # เฉพาะร้านที่มีราคา เรียงราคาถูก→แพง
+            "cheapest":    cheapest,           # ร้านถูกสุด
+            "price_range": {
+                "min":  min(prices) if prices else 0,
+                "max":  max(prices) if prices else 0,
+                "diff": max(prices) - min(prices) if len(prices) >= 2 else 0,
+            },
+            "store_count": len(available_only),  # จำนวนร้านที่มีสินค้านี้
+            "updated_at":  getattr(p, "updated_at", "") or "",
+        },
+    }
+
 @app.post("/api/products")
 def create_product(body: ProductCreate, admin=Depends(require_admin), db: Session = Depends(get_db)):
     if db.query(Product).filter(Product.product_id == body.product_id).first():
@@ -916,13 +994,32 @@ class ScrapeRequest(BaseModel):
 
 @app.post("/api/scrape")
 async def trigger_scrape(body: ScrapeRequest, admin=Depends(require_admin)):
+    """
+    ทริกเกอร์ full scraper (full_scraper.py) แบบ background
+    - store: "all" | "advice" | "jib" | "ihavecpu"
+    - pages: จำนวนหน้าต่อ category
+    """
     try:
-        from scraper import run_scraper
-        stores = ["ihavecpu", "advice", "jib"] if body.store == "all" else [body.store]
-        result = await run_scraper(stores, body.pages)
-        return {"status": "success", "data": result}
+        import subprocess, sys
+        stores_arg = body.store  # "all" or single store name
+        cmd = [
+            sys.executable, "full_scraper.py",
+            "--stores", stores_arg,
+            "--pages",  str(body.pages),
+        ]
+        # รัน subprocess แบบ detached (non-blocking) — ไม่รอผล
+        subprocess.Popen(
+            cmd,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return {
+            "status":  "started",
+            "message": f"Scraper กำลังทำงานใน background (stores={stores_arg}, pages={body.pages})",
+        }
     except Exception as e:
-        raise HTTPException(500, f"Scraper error: {str(e)}")
+        raise HTTPException(500, f"Scraper launch error: {str(e)}")
 
 @app.get("/api/scrape/status")
 def scrape_status(db: Session = Depends(get_db)):
@@ -932,10 +1029,17 @@ def scrape_status(db: Session = Depends(get_db)):
         has_ihc = conn.execute(text("SELECT COUNT(*) FROM products WHERE price_ihavecpu > 0")).scalar()
         has_adv = conn.execute(text("SELECT COUNT(*) FROM products WHERE price_advice > 0")).scalar()
         has_jib = conn.execute(text("SELECT COUNT(*) FROM products WHERE price_jib > 0")).scalar()
+        multi   = conn.execute(text(
+            "SELECT COUNT(*) FROM products WHERE "
+            "(CASE WHEN price_advice>0 THEN 1 ELSE 0 END + "
+            " CASE WHEN price_jib>0 THEN 1 ELSE 0 END + "
+            " CASE WHEN price_ihavecpu>0 THEN 1 ELSE 0 END) >= 2"
+        )).scalar()
     return {
         "status": "ok",
         "products": {"total": total, "with_image": has_img},
-        "prices":   {"ihavecpu": has_ihc, "advice": has_adv, "jib": has_jib}
+        "prices":   {"ihavecpu": has_ihc, "advice": has_adv, "jib": has_jib},
+        "multi_store": multi,  # สินค้าที่เปรียบเทียบราคาได้ (>= 2 ร้าน)
     }
 
 # ─────────────────────────────────────────
