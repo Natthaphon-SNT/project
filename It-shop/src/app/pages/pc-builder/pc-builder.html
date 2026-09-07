@@ -116,9 +116,14 @@
           </div>
 
           <!-- Failed/Warning Checks -->
-          <div class="compat-details" *ngIf="compatResult.overall !== 'ok'">
+          <div class="compat-details">
             <div *ngFor="let c of compatResult.checks" class="compat-check-row">
-              <span *ngIf="!c.ok" class="compat-item-fail">• {{ c.detail }}</span>
+              <span [class.compat-item-fail]="!c.ok">{{ c.severity === 'PASS' ? '✓' : c.severity === 'ERROR' ? '✗' : '⚠' }} {{ c.detail }}</span>
+              <div *ngFor="let source of c.sources" class="compat-source">
+                <a [href]="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
+                — {{ source.field === 'recommended_psu_watt' ? 'PSU ระบบที่แนะนำ' : 'กำลังไฟอุปกรณ์' }} {{ source.value }}{{ source.unit }}
+                <small *ngIf="source.checked_at"> (ตรวจข้อมูล {{ source.checked_at }})</small>
+              </div>
             </div>
             <div *ngIf="compatResult.suggestions.length > 0" class="compat-suggestions">
               <strong>💡 แนะนำ:</strong>

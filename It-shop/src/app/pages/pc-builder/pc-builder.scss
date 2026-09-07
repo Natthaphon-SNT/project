@@ -385,6 +385,8 @@
 }
 
 /* Compatibility Banner */
+.compat-source { margin: 6px 0 12px; font-size: 11px; overflow-wrap: anywhere; }
+.compat-source a { color: #71bdff; text-decoration: underline; }
 .compat-banner {
   border-radius: 10px;
   padding: 12px 14px;

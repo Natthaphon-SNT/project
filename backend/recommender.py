@@ -4,7 +4,7 @@ IT-RECOMMEND — Hybrid Recommendation Layer
 Pipeline:
   User intent → Budget/UseCase parsing (deterministic)
   → Candidate retrieval from Product DB (RAG, real prices)
-  → LLM selection restricted to candidates (OpenCode Zen API)
+  → LLM selection restricted to candidates (user-selected AI API)
   → Post-validation: map to real products + Compatibility Engine
   → Fallback: heuristic builder if LLM unavailable
 
@@ -22,15 +22,6 @@ import spec_parser as sp
 import compat_engine as ce
 
 # ─────────────────────────────────────────
-# OpenCode Zen config
-# ─────────────────────────────────────────
-ZEN_BASE_URL = os.getenv("ZEN_BASE_URL", "https://opencode.ai/zen/v1")
-ZEN_API_KEY = os.getenv("OPENCODE_API_KEY", "")
-ZEN_MODEL = os.getenv("ZEN_MODEL", "x-preview-f-free")   # free tier model
-# Failover chain: if the primary free model is unavailable, try these next
-ZEN_FALLBACK_MODELS = [m for m in os.getenv(
-    "ZEN_FALLBACK_MODELS", "big-pickle,mimo-v2.5-free").split(",") if m.strip()]
-
 PC_CATEGORIES = ["CPU", "Mainboard", "RAM", "GPU", "SSD", "PSU", "Case"]
 
 # Budget allocation shares per use case (sum ≈ 1.0 over PC categories)
@@ -104,6 +95,7 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
         for r in fetch_cat(cat, target, k_per_cat):
             candidates.append({
                 "product_id": r.product_id,
+                "specs": r.specs or "",
                 "category": cat,
                 "name": r.p_name,
                 "price": best_price(r),
@@ -123,6 +115,7 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
                 seen_ids.add(r.product_id)
                 candidates.append({
                     "product_id": r.product_id,
+                "specs": r.specs or "",
                     "category": cat,
                     "name": r.p_name,
                     "price": best_price(r),
@@ -150,6 +143,7 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
                 seen_ids.add(r.product_id)
                 candidates.append({
                     "product_id": r.product_id,
+                "specs": r.specs or "",
                     "category": cat,
                     "name": r.p_name,
                     "price": pr,
@@ -183,72 +177,75 @@ def candidates_to_text(candidates: list) -> str:
 
 
 # ─────────────────────────────────────────
-# OpenCode Zen LLM call
-# ─────────────────────────────────────────
-# Per Zen docs, these model families use the /responses endpoint;
-# everything else uses OpenAI-compatible /chat/completions.
-RESPONSES_MODEL_PREFIXES = ("gpt-", "grok", "muse-spark")
+# Multi-provider LLM router
+PROVIDER_BASE_URLS = {
+    "openai":     "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "google":     "https://generativelanguage.googleapis.com/v1beta/openai",
+}
+
+DEFAULT_MODELS = {
+    "openai":     "gpt-4o-mini",
+    "openrouter": "openai/gpt-4o-mini",
+    "google":     "gemini-2.0-flash",
+}
 
 
-def _uses_responses_endpoint(model: str) -> bool:
-    m = model.lower()
-    return any(m.startswith(p) for p in RESPONSES_MODEL_PREFIXES)
-
-
-async def zen_chat(messages: list, temperature: float = 0.4, max_tokens: int = 4096) -> str:
+async def llm_chat(
+    messages: list,
+    provider: str = "google",
+    model: str = "",
+    api_key: str = "",
+    temperature: float = 0.4,
+    max_tokens: int = 4096,
+) -> str:
     """
-    Call OpenCode Zen. Auto-routes between /chat/completions and /responses
-    depending on the model. Tries ZEN_MODEL first, then free fallback models.
-    Returns assistant text. Raises RuntimeError on failure.
+    Universal LLM chat that routes to the appropriate provider.
+    Supported: google | openai | openrouter
+    Requires a supported provider and its API key.
     """
-    if not ZEN_API_KEY:
-        raise RuntimeError("OPENCODE_API_KEY is not configured")
-    headers = {"Authorization": f"Bearer {ZEN_API_KEY}",
-               "Content-Type": "application/json"}
-
     import asyncio as _asyncio
-    models = [ZEN_MODEL] + [m for m in ZEN_FALLBACK_MODELS if m != ZEN_MODEL]
-    last_err: Optional[Exception] = None
-    for model in models:
-        for attempt in range(2):
-            try:
-                async with httpx.AsyncClient(timeout=120.0) as client:
-                    if _uses_responses_endpoint(model):
-                        res = await client.post(
-                            f"{ZEN_BASE_URL}/responses",
-                            json={
-                                "model": model,
-                                "instructions": next((m["content"] for m in messages if m["role"] == "system"), ""),
-                                "input": [
-                                    {"role": m["role"], "content": [{"type": "input_text", "text": m["content"]}]}
-                                    for m in messages if m["role"] != "system"
-                                ],
-                                "max_output_tokens": max_tokens,
-                                "temperature": temperature,
-                            },
-                            headers=headers,
-                        )
-                        return _parse_responses(res)
-                    else:
-                        res = await client.post(
-                            f"{ZEN_BASE_URL}/chat/completions",
-                            json={
-                                "model": model,
-                                "messages": messages,
-                                "temperature": temperature,
-                                "max_tokens": max_tokens,
-                            },
-                            headers=headers,
-                        )
-                        return _parse_chat_completions(res)
-            except RuntimeError as e:
-                # fail fast on auth/credits; retry then failover on transient errors
-                msg = str(e)
-                if "Auth/Credits" in msg or "rate_limit" in msg:
-                    raise
-                last_err = e
-                await _asyncio.sleep(1.5 * (attempt + 1))
-    raise last_err or RuntimeError("Zen API failed")
+
+    provider = (provider or "google").lower()
+
+    if provider not in PROVIDER_BASE_URLS:
+        raise RuntimeError("Unsupported AI provider")
+    if not api_key:
+        raise RuntimeError("API key required for selected provider")
+
+    base_url = PROVIDER_BASE_URLS[provider]
+    model    = model or DEFAULT_MODELS.get(provider, "gpt-4o-mini")
+    headers  = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type":  "application/json",
+    }
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = "https://it-recommend.app"
+        headers["X-Title"]      = "IT-RECOMMEND"
+
+    payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+    if provider == "openai" and model.startswith(("o1", "o3", "o4")):
+        payload.pop("temperature")
+        payload["max_completion_tokens"] = payload.pop("max_tokens")
+        if model.startswith("o1-mini"):
+            payload["messages"] = [{**m, "role": "user" if m["role"] == "system" else m["role"]} for m in messages]
+
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                res = await client.post(
+                    f"{base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+                return _parse_chat_completions(res)
+        except RuntimeError as e:
+            if "Auth/Credits" in str(e) or "rate_limit" in str(e):
+                raise
+            if attempt == 1:
+                raise
+            await _asyncio.sleep(2)
+    raise RuntimeError(f"LLM provider '{provider}' failed")
 
 
 def _check_http(res: httpx.Response):
@@ -261,7 +258,7 @@ def _check_http(res: httpx.Response):
             msg = res.text[:200]
         raise RuntimeError(f"Auth/Credits error ({res.status_code}): {msg}")
     if res.status_code != 200:
-        raise RuntimeError(f"Zen API error {res.status_code}: {res.text[:300]}")
+        raise RuntimeError(f"AI provider error {res.status_code}: {res.text[:300]}")
 
 
 def _parse_chat_completions(res: httpx.Response) -> str:
@@ -270,7 +267,7 @@ def _parse_chat_completions(res: httpx.Response) -> str:
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
-        raise RuntimeError(f"Unexpected Zen response: {json.dumps(data)[:300]}")
+        raise RuntimeError(f"Unexpected AI response: {json.dumps(data)[:300]}")
     if not content or not content.strip():
         # reasoning models can exhaust max_tokens before emitting content
         raise RuntimeError("LLM returned empty content (increase max_tokens)")
@@ -367,7 +364,7 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
         db_cat = label if label in PC_CATEGORIES else (
             "Air Cooler" if label in ("Air Cooler", "Liquid Cooler") else None)
         if db_cat and entry["name"]:
-            parsed = sp.parse_part(db_cat, entry["name"])
+            parsed = sp.parse_part(db_cat, entry["name"], specs=cand.get("specs", "") if cand else "")
             parsed["price"] = price_for_calc
             parsed_parts.append(parsed)
 
@@ -387,8 +384,8 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
         "compat": compat,
         "_meta": {
             "engine": "hybrid-rag-v1",
-            "llm_provider": "opencode-zen",
-            "llm_model": ZEN_MODEL,
+
+
             "compatibility": "deterministic-engine",
             "candidates_offered": len(candidates),
             "parts_matched_to_db": sum(1 for p in parts_out if p.get("matched_real_product")),
@@ -447,13 +444,15 @@ def assemble_build(candidates: list, budget: Optional[int], use_case: str,
     gpu = _nearest(by_cat.get("GPU", []), int(budget * base["GPU"]))
     if gpu:
         picked["GPU"] = gpu
-        total_draw += sp.parse_part("GPU", gpu["name"]).get("tdp") or 150
-    need_watt = int(total_draw * 1.25)
+        total_draw += sp.parse_part("GPU", gpu["name"], specs=gpu.get("specs", "")).get("tdp") or 150
+    gpu_min = sp.parse_part("GPU", gpu["name"], specs=gpu.get("specs", "")).get("recommended_psu_watt", 0) if gpu else 0
+    import math
+    need_watt = max(math.ceil(total_draw * 1.25), gpu_min)
 
     psus = by_cat.get("PSU", [])
     psu_fit = [c for c in psus
-               if (sp.parse_part("PSU", c["name"]).get("watt") or 0) >= need_watt]
-    psu = _nearest(psu_fit, need_watt * 1.15) or _nearest(psus, need_watt)
+               if (sp.parse_part("PSU", c["name"], specs=c.get("specs", "")).get("watt") or 0) >= need_watt]
+    psu = _nearest(psu_fit, need_watt * 1.15)
     if psu:
         picked["PSU"] = psu
 
@@ -470,7 +469,7 @@ def assemble_build(candidates: list, budget: Optional[int], use_case: str,
     if case:
         picked["Case"] = case
 
-    parsed = [sp.parse_part(cat, c["name"]) | {"price": c["price"]}
+    parsed = [sp.parse_part(cat, c["name"], specs=c.get("specs", "")) | {"price": c["price"]}
               for cat, c in picked.items()]
     return {"picked": picked, "parsed": parsed,
             "total_draw": total_draw, "need_watt": need_watt}
@@ -485,7 +484,7 @@ def heuristic_build(candidates: list, budget: Optional[int], use_case: str) -> d
         "RAM": "generation ตรงกับที่ mainboard รองรับ",
         "GPU": "ตัวขับประสิทธิภาพหลักภายใต้งบ",
         "SSD": "NVMe เพียงพอสำหรับ OS และโปรแกรม",
-        "PSU": f"กำลังไฟเพียงพอ (draw ~{built['total_draw']}W, headroom {built['need_watt']}W)",
+        "PSU": f"เลือกตามเกณฑ์ประมาณการ ≥{built['need_watt']}W; ดูผลตรวจ PSU และแหล่งอ้างอิงประกอบ",
         "Case": "รองรับ form factor ของ mainboard",
     }
     parts = [{"type": cat, "product_id": c["product_id"], "name": c["name"],
@@ -533,7 +532,8 @@ SYSTEM_PROMPT_TEMPLATE = """คุณคือ IT-RECOMMEND AI ผู้เช�
 }}"""
 
 
-async def recommend_build(db, prompt: str, extra: str = "", candidates: Optional[list] = None) -> dict:
+async def recommend_build(db, prompt: str, extra: str = "", candidates: Optional[list] = None,
+                          provider: str = "google", model: str = "", api_key: str = "") -> dict:
     budget = detect_budget_thb(prompt)
     use_case = detect_use_case(prompt)
     budget_eff = budget or 25000
@@ -550,21 +550,26 @@ async def recommend_build(db, prompt: str, extra: str = "", candidates: Optional
     )
 
     try:
-        text = await zen_chat(
+        text = await llm_chat(
             [{"role": "system", "content": system},
              {"role": "user", "content": user}],
+            provider=provider, model=model, api_key=api_key,
             temperature=0.4,
         )
         llm_result = extract_json(text)
         if not llm_result or not llm_result.get("parts"):
             raise RuntimeError("LLM returned invalid JSON")
-        return build_final_result(llm_result, candidates, budget, use_case)
+        result = build_final_result(llm_result, candidates, budget, use_case)
+        result["_meta"].update(llm_provider=provider, llm_model=model or DEFAULT_MODELS[provider])
+        return result
+    except RuntimeError:
+        raise
     except Exception:
         # Graceful degradation: deterministic heuristic build, still validated
         return heuristic_build(candidates, budget, use_case)
 
 
-async def compat_check_hybrid(parts_text: str) -> dict:
+async def compat_check_hybrid(parts_text: str, provider: str = "google", model: str = "", api_key: str = "") -> dict:
     """
     Deterministic-first compatibility check.
     Parses pasted spec lines into parts via spec_parser, validates with the
@@ -586,15 +591,15 @@ async def compat_check_hybrid(parts_text: str) -> dict:
         result["warnings"].append("ไม่สามารถระบุหมวดหมู่ของ: " + ", ".join(unmatched[:5]))
 
     # Optional LLM enrichment of suggestions (never overrides verdict)
-    if ZEN_API_KEY:
+    if api_key:
         try:
             verdict = json.dumps(result, ensure_ascii=False)
-            text = await zen_chat(
+            text = await llm_chat(
                 [{"role": "system", "content":
                   "คุณเป็นผู้เชี่ยวชาญ PC hardware ช่วยเสนอคำแนะนำเพิ่มเติมจากผลตรวจ deterministic "
                   "ตอบเป็น JSON array ของ string เท่านั้น ไม่เกิน 4 ข้อ สั้น ๆ ภาษาไทย"},
                  {"role": "user", "content": f"ผลตรวจ:\n{verdict}\n\nรายการ input:\n{parts_text}"}],
-                temperature=0.3, max_tokens=2000,
+                temperature=0.3, max_tokens=2000, provider=provider, model=model, api_key=api_key,
             )
             arr_m = re.search(r"\[.*\]", text, re.DOTALL)
             if arr_m:
@@ -610,8 +615,9 @@ async def compat_check_hybrid(parts_text: str) -> dict:
     return result
 
 
-async def compare_specs(spec1: str, spec2: str) -> str:
-    """LLM passthrough comparison via Zen (returns raw text for frontend parseJson)."""
+async def compare_specs(spec1: str, spec2: str,
+                        provider: str = "google", model: str = "", api_key: str = "", context: str = "") -> str:
+    """LLM passthrough comparison (returns raw text for frontend parseJson)."""
     prompt = (
         "คุณคือผู้เชี่ยวชาญคอมพิวเตอร์ในประเทศไทย เปรียบเทียบสเปค 2 ชุดนี้อย่างละเอียดและตรงไปตรงมา:\n\n"
         f"ชุดที่ 1: {spec1}\nชุดที่ 2: {spec2}\n\n"
@@ -624,9 +630,10 @@ async def compare_specs(spec1: str, spec2: str) -> str:
         '"categories":[{"name":"...","spec1":"...","spec2":"...","winner":"..."}],'
         '"spec1Pros":["..."],"spec2Pros":["..."],"recommendation":"..."}'
     )
-    return await zen_chat(
+    return await llm_chat(
         [{"role": "system", "content": "คุณคือ IT-RECOMMEND AI ตอบเป็น JSON เท่านั้น"},
-         {"role": "user", "content": prompt}],
+         {"role": "user", "content": prompt + "\n" + context}],
+        provider=provider, model=model, api_key=api_key,
         temperature=0.4,
     )
 
@@ -642,7 +649,7 @@ def _format_variant(built: dict, use_case: str, candidates: list) -> dict:
         "RAM": "generation ตรงกับ mainboard",
         "GPU": "ตัวขับประสิทธิภาพหลัก",
         "SSD": "NVMe สำหรับ OS และโปรแกรม",
-        "PSU": f"กำลังไฟพอ (draw ~{built_info['total_draw']}W)",
+        "PSU": f"เลือกตามเกณฑ์ประมาณการ ≥{built_info['need_watt']}W; ดูผลตรวจ PSU ประกอบ",
         "Case": "รองรับ form factor",
     }
     cand_by_id = {c["product_id"]: c for c in candidates}
@@ -730,14 +737,16 @@ def top3_builds(candidates: list, budget: Optional[int], use_case: str) -> list:
     return alternatives
 
 
-async def recommend_with_alternatives(db, prompt: str, extra: str = "") -> dict:
-    """Full pipeline: primary LLM build + Top-3 deterministic scored builds + AI ranking explanation."""
+async def recommend_with_alternatives(db, prompt: str, extra: str = "",
+                                      provider: str = "google", model: str = "", api_key: str = "") -> dict:
+    """Full pipeline: primary LLM build + Top-3 deterministic scored builds."""
     budget = detect_budget_thb(prompt)
     use_case = detect_use_case(prompt)
     budget_eff = budget or 25000
     candidates = select_candidates(db, budget_eff, use_case)
 
-    result = await recommend_build(db, prompt, extra=extra, candidates=candidates)
+    result = await recommend_build(db, prompt, extra=extra, candidates=candidates,
+                                   provider=provider, model=model, api_key=api_key)
     alternatives = top3_builds(candidates, budget_eff, use_case)
 
     # ── Auto-repair: if the LLM primary build failed compatibility, promote
@@ -762,8 +771,8 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "") -> dict:
                 "parts": safe["parts"],
                 "performance": {}, "pros": [], "cons": [],
                 "compat": safe["compat"],
-                "_meta": {"engine": "hybrid-rag-v1", "llm_provider": "opencode-zen",
-                          "llm_model": ZEN_MODEL, "compatibility": "deterministic-engine",
+                "_meta": {"engine": "hybrid-rag-v1",
+                           "compatibility": "deterministic-engine",
                           "auto_corrected": True},
                 "_rejected_primary": rejected,
             }
@@ -776,9 +785,9 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "") -> dict:
         f"breakdown={a['breakdown']}, total {a['total_price']:,} THB"
         for a in alternatives)
     explanation_text = ""
-    if ZEN_API_KEY and alternatives:
+    if (api_key) and alternatives:
         try:
-            explanation_text = await zen_chat(
+            explanation_text = await llm_chat(
                 [{"role": "system", "content":
                   "คุณคือ IT-RECOMMEND AI อธิบายเหตุผลการจัดอันดับ build อย่างสั้น กระชับ ภาษาไทย "
                   "(4-6 ประโยค) อ้างอิงเฉพาะตัวเลข score/breakdown/ราคาที่ให้ไว้เท่านั้น ห้ามเดาตัวเลขเอง"},
@@ -787,7 +796,7 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "") -> dict:
                   f"ผลการจัดอันดับจาก Scoring Engine (Performance 40% / Budget 25% / "
                   f"Compatibility 20% / Preference 10% / Availability 5%):\n{ranking_summary}\n"
                   "อธิบายว่าทำไมชุดแรกเหมาะกับผู้ใช้มากที่สุด และ trade-off ของแต่ละชุด"}],
-                temperature=0.4, max_tokens=2000,
+                temperature=0.4, max_tokens=2000, provider=provider, model=model, api_key=api_key,
             )
         except Exception:
             explanation_text = ""

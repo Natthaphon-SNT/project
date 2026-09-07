@@ -231,6 +231,40 @@ def make_pid(name: str, store: str) -> str:
 UNIT_PATTERN = re.compile(r'^\d+(\.\d+)?(GHZ|MHZ|MB|GB|TB|W|MM|RPM)$', re.IGNORECASE)
 CORE_PATTERN = re.compile(r'^\d+[CT]$', re.IGNORECASE)
 
+# Known GPU/CPU brands — must match between products
+HW_BRANDS = [
+    'ASUS', 'GIGABYTE', 'MSI', 'ZOTAC', 'GALAX', 'PALIT', 'INNO3D', 'POWERCOLOR',
+    'SAPPHIRE', 'XFX', 'ASROCK', 'EVGA', 'PNY', 'COLORFUL', 'GAINWARD',
+    'INTEL', 'AMD', 'RYZEN', 'CORE',
+    'CORSAIR', 'GSKILL', 'KINGSTON', 'CRUCIAL', 'TEAMGROUP', 'ADATA',
+    'SAMSUNG', 'WESTERN', 'SEAGATE', 'TOSHIBA', 'HYNIX',
+    'SEASONIC', 'BE QUIET', 'ANTEC', 'COOLER MASTER', 'NOCTUA', 'DEEPCOOL',
+    'LIAN LI', 'PHANTEKS', 'FRACTAL', 'NZXT', 'THERMALTAKE',
+    'LOGITECH', 'RAZER', 'STEELSERIES', 'HYPERX', 'BENQ', 'DELL', 'LG', 'AOC', 'VIEWSONIC',
+]
+
+
+def extract_brand(name: str) -> str:
+    """Extract the first known brand found in product name (uppercase)."""
+    n = name.upper()
+    for brand in HW_BRANDS:
+        if brand in n:
+            return brand
+    return ''
+
+
+def extract_numeric_model(name: str) -> set:
+    """Extract pure numeric tokens (e.g. 3050, 5050, 4070, 13600) — these must match exactly."""
+    n = name.upper()
+    n = re.sub(r'[\u0E00-\u0E7F]+', ' ', n)
+    n = re.sub(r'[\-_/+,:]+', ' ', n)
+    nums = set()
+    for w in n.split():
+        # Pure numbers 3+ digits (likely model numbers, not years/units)
+        if re.fullmatch(r'\d{3,5}', w):
+            nums.add(w)
+    return nums
+
 
 def get_product_signature(name: str):
     n = name.upper()
@@ -272,17 +306,34 @@ def is_same_product(p1_name: str, p1_cat: str, p2_name: str, p2_cat: str) -> boo
     if p1_name.strip().upper() == p2_name.strip().upper():
         return True
 
+    # --- Guard 1: Brand must match if both have a known brand ---
+    brand1 = extract_brand(p1_name)
+    brand2 = extract_brand(p2_name)
+    if brand1 and brand2 and brand1 != brand2:
+        return False
+
+    # --- Guard 2: Pure numeric model numbers must match exactly ---
+    # e.g. 3050 vs 5050, 4070 vs 4080 — these must NEVER merge
+    nums1 = extract_numeric_model(p1_name)
+    nums2 = extract_numeric_model(p2_name)
+    if nums1 and nums2 and nums1 != nums2:
+        return False
+
     m1, t1 = get_product_signature(p1_name)
     m2, t2 = get_product_signature(p2_name)
 
     if m1 and m2:
-        sku_m1 = {x for x in m1 if re.search(r'[A-Z]', x) and re.search(r'\d', x)}
-        sku_m2 = {x for x in m2 if re.search(r'[A-Z]', x) and re.search(r'\d', x)}
+        # SKU tokens must contain both letters AND digits (e.g. RTX3050, i5-13600K)
+        # Exclude pure-alpha tokens like "OC", "V2", "DUAL" from sku matching
+        sku_m1 = {x for x in m1 if re.search(r'[A-Z]', x) and re.search(r'\d', x)
+                  and not re.fullmatch(r'[A-Z]+\d', x)}  # exclude V2, V3 etc
+        sku_m2 = {x for x in m2 if re.search(r'[A-Z]', x) and re.search(r'\d', x)
+                  and not re.fullmatch(r'[A-Z]+\d', x)}
         
         if sku_m1 and sku_m2:
             if sku_m1 == sku_m2:
                 sim = token_similarity(t1, t2)
-                if sim >= 0.25:
+                if sim >= 0.30:  # raised from 0.25
                     return True
             else:
                 return False
@@ -290,15 +341,15 @@ def is_same_product(p1_name: str, p1_cat: str, p2_name: str, p2_cat: str) -> boo
         intersect = m1 & m2
         if len(intersect) >= 2:
             sim = token_similarity(t1, t2)
-            if sim >= 0.35:
+            if sim >= 0.50:  # raised from 0.35
                 return True
         elif len(intersect) == 1:
             sim = token_similarity(t1, t2)
-            if sim >= 0.40:
+            if sim >= 0.60:  # raised from 0.40
                 return True
 
     sim = token_similarity(t1, t2)
-    if sim >= 0.65:
+    if sim >= 0.72:  # raised from 0.65
         return True
 
     return False

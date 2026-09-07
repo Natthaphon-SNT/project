@@ -16,14 +16,14 @@ ANTI_BOT = ("Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
 
 PCSET_URLS = {
     "ihavecpu": [
-        "https://www.ihavecpu.com/category/promotion",
+        "https://ihavecpu.com/promotion?type=M",        # ชุดคอม (Promotion type M)
     ],
     "jib": [
-        "https://www.jib.co.th/web/product/product_list/3/2988",   # DIY SET / SET COM
-        "https://www.jib.co.th/web/product/product_list/2/43",
+        "https://www.jib.co.th/web/product/product_list/1/1400",  # เซ็ตคอม JIB
     ],
     "advice": [
-        "https://www.advice.co.th/product/computer-set",
+        "https://www.advice.co.th/product/computer-set-amd",     # ชุดคอม AMD
+        "https://www.advice.co.th/product/computer-set-intel",   # ชุดคอม Intel
     ],
 }
 
@@ -75,31 +75,55 @@ def init_db(conn: sqlite3.Connection):
 # ────────────────────────────────────────────
 async def scrape_ihavecpu_pcsets(page, max_pages: int = 3) -> list[dict]:
     items = []
-    base_url = "https://www.ihavecpu.com/category/promotion"
+    base_url = PCSET_URLS["ihavecpu"][0]  # https://ihavecpu.com/promotion?type=M
 
     for page_num in range(1, max_pages + 1):
-        url = f"{base_url}?page={page_num}" if page_num > 1 else base_url
+        # URL pattern: ?type=M&page=2, ?type=M&page=3 ...
+        url = f"{base_url}&page={page_num}" if page_num > 1 else base_url
         log(f"[iHaveCPU] Page {page_num}: {url}")
         try:
             await page.goto(url, timeout=30000, wait_until="networkidle")
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(2500)
 
             products = await page.evaluate("""
                 () => {
+                    // Try __NEXT_DATA__ first
                     const el = document.getElementById('__NEXT_DATA__');
-                    if (!el) return [];
-                    try {
-                        const d = JSON.parse(el.textContent);
-                        const prodObj = d?.props?.pageProps?.product;
-                        const dataList = prodObj?.data || [];
-                        return dataList.map(p => ({
-                            name: p.name_th || p.name_gb || '',
-                            price: p.price_sale || p.price_before || 0,
-                            img: p.image800 || p.image || '',
-                            product_id: p.product_id,
-                            url: 'https://ihavecpu.com/product/' + p.product_id
-                        }));
-                    } catch(e) { return []; }
+                    if (el) {
+                        try {
+                            const d = JSON.parse(el.textContent);
+                            const items = d?.props?.pageProps?.product?.data
+                                       || d?.props?.pageProps?.products
+                                       || d?.props?.pageProps?.data
+                                       || [];
+                            if (items.length > 0) {
+                                return items.map(p => ({
+                                    name:  p.name_th || p.name_gb || p.name || '',
+                                    price: p.price_sale || p.price_before || p.price || 0,
+                                    img:   p.image800 || p.image || '',
+                                    url:   p.product_id
+                                           ? 'https://ihavecpu.com/product/' + p.product_id
+                                           : (p.url || ''),
+                                }));
+                            }
+                        } catch(e) {}
+                    }
+                    // Fallback: parse DOM cards
+                    const cards = document.querySelectorAll(
+                        '.product-card, .product-item, [class*="product"], .card'
+                    );
+                    return Array.from(cards).map(card => {
+                        const nameEl  = card.querySelector('[class*="name"], h3, h4, a[title]');
+                        const priceEl = card.querySelector('[class*="price"], .price');
+                        const imgEl   = card.querySelector('img');
+                        const linkEl  = card.querySelector('a');
+                        return {
+                            name:  nameEl  ? (nameEl.getAttribute('title') || nameEl.innerText.trim()) : '',
+                            price: priceEl ? priceEl.innerText.trim() : '0',
+                            img:   imgEl   ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
+                            url:   linkEl  ? linkEl.href : '',
+                        };
+                    }).filter(p => p.name && p.name.length > 3);
                 }
             """)
 
@@ -114,13 +138,13 @@ async def scrape_ihavecpu_pcsets(page, max_pages: int = 3) -> list[dict]:
                 if price < 500:
                     continue
                 items.append({
-                    "name":   p["name"],
-                    "price":  price,
-                    "img":    p.get("img", ""),
-                    "url":    p.get("url", ""),
-                    "store":  "ihavecpu",
+                    "name":  p["name"],
+                    "price": price,
+                    "img":   p.get("img", ""),
+                    "url":   p.get("url", ""),
+                    "store": "ihavecpu",
                 })
-            log(f"[iHaveCPU] Page {page_num}: +{len(products)} (total {len(items)})")
+            log(f"[iHaveCPU] Page {page_num}: +{len(products)} raw → {len(items)} kept so far")
         except Exception as e:
             log(f"[iHaveCPU] Page {page_num} error: {e}")
             break
@@ -132,10 +156,10 @@ async def scrape_ihavecpu_pcsets(page, max_pages: int = 3) -> list[dict]:
 # ────────────────────────────────────────────
 async def scrape_jib_pcsets(page, max_pages: int = 3) -> list[dict]:
     items = []
-    found_url = PCSET_URLS["jib"][0]
+    base_url = PCSET_URLS["jib"][0]  # https://www.jib.co.th/web/product/product_list/1/1400
 
     for page_num in range(1, max_pages + 1):
-        url = f"{found_url}/{page_num}" if page_num > 1 else found_url
+        url = f"{base_url}/{page_num}" if page_num > 1 else base_url
         log(f"[JIB] Page {page_num}: {url}")
         try:
             await page.goto(url, timeout=30000, wait_until="domcontentloaded")
@@ -143,17 +167,19 @@ async def scrape_jib_pcsets(page, max_pages: int = 3) -> list[dict]:
 
             products = await page.evaluate("""
                 () => {
-                    const cards = document.querySelectorAll('.div_product, .product_list_item, .box_product, [class*="product_box"]');
+                    const cards = document.querySelectorAll(
+                        '.div_product, .product_list_item, .box_product, [class*="product_box"]'
+                    );
                     return Array.from(cards).map(card => {
-                        const nameEl = card.querySelector('.proname, .product-name, .title, h3, a[title]');
+                        const nameEl  = card.querySelector('.proname, .product-name, .title, h3, a[title]');
                         const priceEl = card.querySelector('.price, .product-price, [class*="price"]');
-                        const imgEl  = card.querySelector('img');
-                        const linkEl = card.querySelector('a');
+                        const imgEl   = card.querySelector('img');
+                        const linkEl  = card.querySelector('a');
                         return {
-                            name:  nameEl ? (nameEl.getAttribute('title') || nameEl.innerText.trim()) : '',
+                            name:  nameEl  ? (nameEl.getAttribute('title') || nameEl.innerText.trim()) : '',
                             price: priceEl ? priceEl.innerText.trim() : '',
-                            img:   imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
-                            url:   linkEl ? linkEl.href : '',
+                            img:   imgEl   ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
+                            url:   linkEl  ? linkEl.href : '',
                         };
                     }).filter(p => p.name && p.name.length > 3);
                 }
@@ -177,7 +203,7 @@ async def scrape_jib_pcsets(page, max_pages: int = 3) -> list[dict]:
                     "url":   p.get("url", ""),
                     "store": "jib",
                 })
-            log(f"[JIB] Page {page_num}: +{len(products)} (total {len(items)})")
+            log(f"[JIB] Page {page_num}: +{len(products)} raw → {len(items)} kept so far")
         except Exception as e:
             log(f"[JIB] Page {page_num} error: {e}")
             break
@@ -189,55 +215,59 @@ async def scrape_jib_pcsets(page, max_pages: int = 3) -> list[dict]:
 # ────────────────────────────────────────────
 async def scrape_advice_pcsets(page, max_pages: int = 3) -> list[dict]:
     items = []
-    found_url = PCSET_URLS["advice"][0]
+    urls = PCSET_URLS["advice"]  # [amd_url, intel_url]
 
-    for page_num in range(1, max_pages + 1):
-        url = f"{found_url}?page={page_num}" if page_num > 1 else found_url
-        log(f"[Advice] Page {page_num}: {url}")
-        try:
-            await page.goto(url, timeout=30000, wait_until="networkidle")
-            await page.wait_for_timeout(3000)
+    for base_url in urls:
+        tag = "AMD" if "amd" in base_url else "Intel"
+        for page_num in range(1, max_pages + 1):
+            url = f"{base_url}?page={page_num}" if page_num > 1 else base_url
+            log(f"[Advice-{tag}] Page {page_num}: {url}")
+            try:
+                await page.goto(url, timeout=30000, wait_until="networkidle")
+                await page.wait_for_timeout(3000)
 
-            products = await page.evaluate("""
-                () => {
-                    const cards = document.querySelectorAll('.product-item, .product-card, .box-product, [class*="product"]');
-                    return Array.from(cards).map(card => {
-                        const nameEl  = card.querySelector('.product-name, .name, h3, [class*="name"]');
-                        const priceEl = card.querySelector('.price, [class*="price"]');
-                        const imgEl   = card.querySelector('img');
-                        const linkEl  = card.querySelector('a');
-                        return {
-                            name:  nameEl ? nameEl.innerText.trim() : '',
-                            price: priceEl ? priceEl.innerText.trim() : '',
-                            img:   imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
-                            url:   linkEl ? linkEl.href : '',
-                        };
-                    }).filter(p => p.name.length > 5);
-                }
-            """)
+                products = await page.evaluate("""
+                    () => {
+                        const cards = document.querySelectorAll(
+                            '.product-item, .product-card, .box-product, [class*="product-item"]'
+                        );
+                        return Array.from(cards).map(card => {
+                            const nameEl  = card.querySelector('.product-name, .name, h3, [class*="name"]');
+                            const priceEl = card.querySelector('.price, [class*="price"]');
+                            const imgEl   = card.querySelector('img');
+                            const linkEl  = card.querySelector('a');
+                            return {
+                                name:  nameEl  ? nameEl.innerText.trim() : '',
+                                price: priceEl ? priceEl.innerText.trim() : '',
+                                img:   imgEl   ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
+                                url:   linkEl  ? linkEl.href : '',
+                            };
+                        }).filter(p => p.name.length > 5);
+                    }
+                """)
 
-            if not products:
-                log(f"[Advice] Page {page_num}: ไม่มีสินค้า → หยุด")
+                if not products:
+                    log(f"[Advice-{tag}] Page {page_num}: ไม่มีสินค้า → หยุด")
+                    break
+
+                for p in products:
+                    name = p.get("name", "")
+                    if not name or should_skip(name):
+                        continue
+                    price = parse_price(p.get("price", ""))
+                    if price < 500:
+                        continue
+                    items.append({
+                        "name":  name,
+                        "price": price,
+                        "img":   p.get("img", ""),
+                        "url":   p.get("url", ""),
+                        "store": "advice",
+                    })
+                log(f"[Advice-{tag}] Page {page_num}: +{len(products)} raw → {len(items)} kept so far")
+            except Exception as e:
+                log(f"[Advice-{tag}] Page {page_num} error: {e}")
                 break
-
-            for p in products:
-                name = p.get("name", "")
-                if not name or should_skip(name):
-                    continue
-                price = parse_price(p.get("price", ""))
-                if price < 500:
-                    continue
-                items.append({
-                    "name":  name,
-                    "price": price,
-                    "img":   p.get("img", ""),
-                    "url":   p.get("url", ""),
-                    "store": "advice",
-                })
-            log(f"[Advice] Page {page_num}: +{len(products)} (total {len(items)})")
-        except Exception as e:
-            log(f"[Advice] Page {page_num} error: {e}")
-            break
 
     return items
 

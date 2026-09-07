@@ -26,7 +26,7 @@ export const routes: Routes = [
   { path: 'cart', component: CartComponent, canActivate: [authGuard] },
   { path: 'checkout', component: CheckoutComponent, canActivate: [authGuard] },
   { path: 'profile', component: ProfileComponent, canActivate: [authGuard] },
-  { path: 'ai-recommend', component: AiRecommendComponent, canActivate: [authGuard] },
+  { path: 'ai-recommend', component: AiRecommendComponent },
   { path: 'pc-builder',   component: PcBuilderComponent,   canActivate: [authGuard] },
   { path: 'history', component: HistoryComponent, canActivate: [authGuard] },
 

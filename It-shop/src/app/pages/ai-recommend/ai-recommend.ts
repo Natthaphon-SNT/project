@@ -63,6 +63,33 @@ interface CompatResult {
   suggestions: string[];
 }
 
+// ─── AI Provider Settings ────────────────────────────────────────────────────
+export interface AiProviderSettings {
+  provider: 'google' | 'openai' | 'openrouter';
+  model: string;
+  api_key: string;
+  custom_model: string;
+}
+
+export interface AiModel {
+  id: string;
+  name: string;
+  badge: 'FREE' | 'PAID' | 'BEST' | 'FAST';
+  description?: string;
+}
+
+export interface ChatSession {
+  id: number;
+  uid: string;
+  title: string;
+  mode: string;
+  provider: string;
+  model: string;
+  messages: string; // JSON
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── ประวัติการจัดสเปค (เก็บใน localStorage) ──────────────────────────────────
 export interface SpecHistory {
   id: string;
@@ -129,6 +156,106 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   adminSearch   = '';
   viewingDetail: SpecHistory | null = null;
 
+  currentUserEmail = '';
+  errorMessage = '';
+
+  // ─── AI Provider Settings ─────────────────────────────────────────────────────
+  showSettingsPanel = false;
+  settingsTab: 'google' | 'openai' | 'openrouter' = 'google';
+  aiSettings: AiProviderSettings = {
+    provider: 'google', model: 'gemini-2.0-flash', api_key: '', custom_model: ''
+  };
+  settingsSaving = false;
+  settingsSaved  = false;
+  showApiKey: Record<string, boolean> = {};
+
+  // ─── Chat Sessions ────────────────────────────────────────────────────────────
+  showHistorySidebar = false;
+  chatSessions: ChatSession[] = [];
+  activeSessionId: number | null = null;
+  loadingSessions = false;
+
+  // ─── Provider model catalogs ─────────────────────────────────────────────────
+  readonly PROVIDER_MODELS: Record<string, AiModel[]> = {
+    google: [
+      { id: 'gemini-2.5-pro',     name: 'Gemini 2.5 Pro (Best Coding + Reasoning)', badge: 'BEST', description: 'ความสามารถสูงสุด แนะนำสำหรับการจัดสเปกละเอียด' },
+      { id: 'gemini-2.0-flash',   name: 'Gemini 2.0 Flash',                         badge: 'FAST', description: 'เร็ว ฉลาด คุ้มค่า แนะนำเป็นค่าเริ่มต้น' },
+      { id: 'gemini-1.5-flash',   name: 'Gemini 1.5 Flash (Free Tier)',            badge: 'FREE', description: 'มีโควตาใช้งานฟรีใน Google AI Studio' },
+      { id: 'gemini-1.5-pro',     name: 'Gemini 1.5 Pro',                          badge: 'PAID', description: 'โมเดล Pro เสียเงิน' },
+    ],
+    openai: [
+      { id: 'gpt-4o',             name: 'GPT-4o (Flagship)',                       badge: 'BEST', description: 'ฉลาดที่สุด วิเคราะห์สเปคคอมได้แม่นยำสูง' },
+      { id: 'gpt-4o-mini',        name: 'GPT-4o mini',                             badge: 'FAST', description: 'เร็ว ประหยัดค่า Token' },
+      { id: 'o1-mini',            name: 'o1-mini (Reasoning)',                     badge: 'PAID', description: 'โมเดลคิดวิเคราะห์เชิงลึก' },
+      { id: 'gpt-3.5-turbo',      name: 'GPT-3.5 Turbo',                           badge: 'PAID', description: 'รุ่นประหยัด ราคาถูก' },
+    ],
+    openrouter: [
+      { id: 'openai/gpt-4o',               name: 'GPT-4o (via OpenRouter)',        badge: 'BEST', description: 'OpenRouter Flagship' },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet',              badge: 'BEST', description: 'Claude Sonnet 3.5' },
+      { id: 'google/gemini-2.0-flash',     name: 'Gemini 2.0 Flash (via OR)',      badge: 'FAST', description: 'Google Flash via OpenRouter' },
+      { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B Free',    badge: 'FREE', description: 'OpenRouter Free Model' },
+    ],
+  };
+
+  get currentProviderModels(): AiModel[] {
+    return this.PROVIDER_MODELS[this.settingsTab] || [];
+  }
+
+  get providerBadgeLabel(): string {
+    const p = this.aiSettings.provider || 'google';
+    switch (p) {
+      case 'google':     return 'GOOGLE AI';
+      case 'openai':     return 'OPENAI';
+      case 'openrouter': return 'OPENROUTER';
+      default:           return String(p).toUpperCase();
+    }
+  }
+
+  get providerKeyName(): string {
+    switch (this.settingsTab) {
+      case 'google':     return 'Google AI API Key';
+      case 'openai':     return 'OpenAI API Key';
+      case 'openrouter': return 'OpenRouter API Key';
+      default:           return 'API Key';
+    }
+  }
+
+  get providerKeyPlaceholder(): string {
+    switch (this.settingsTab) {
+      case 'google':     return 'AIzaSy... (จาก Google AI Studio)';
+      case 'openai':     return 'sk-... (จาก platform.openai.com)';
+      case 'openrouter': return 'sk-or-v1-... (จาก openrouter.ai)';
+      default:           return 'ใส่ API Key ของคุณ';
+    }
+  }
+
+  get providerKeyHelpUrl(): string {
+    switch (this.settingsTab) {
+      case 'google':     return 'https://aistudio.google.com/app/apikey';
+      case 'openai':     return 'https://platform.openai.com/api-keys';
+      case 'openrouter': return 'https://openrouter.ai/keys';
+      default:           return '#';
+    }
+  }
+
+  get providerModelHeader(): string {
+    switch (this.settingsTab) {
+      case 'google':     return 'GEMINI MODEL';
+      case 'openai':     return 'OPENAI MODEL';
+      case 'openrouter': return 'OPENROUTER MODEL';
+      default:           return 'AI MODEL';
+    }
+  }
+
+  get providerModelsHelpUrl(): string {
+    switch (this.settingsTab) {
+      case 'google':     return 'https://ai.google.dev/gemini-api/docs/models/gemini';
+      case 'openai':     return 'https://platform.openai.com/docs/models';
+      case 'openrouter': return 'https://openrouter.ai/models';
+      default:           return '#';
+    }
+  }
+
   // ─── Data constants ──────────────────────────────────────────────────────────
   useCases = [
     { id: 'gaming',  icon: '🎮', label: 'เล่นเกม',      desc: 'AAA / Esports / Streaming' },
@@ -172,8 +299,22 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────────
   ngOnInit() {
-    this.loadCurrentUser();
-    this.loadHistory();
+    const token = localStorage.getItem('lt_token');
+    if (!token) return;
+    this.http.get<any>('http://localhost:3000/api/profile', {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+      next: res => {
+        localStorage.setItem('lt_user', JSON.stringify(res.data));
+        this.loadCurrentUser();
+        this.loadAiSettings();
+        this.loadSessions();
+        this.loadHistory();
+        this.cdr.detectChanges();
+      },
+      error: err => {
+        this.authError = err.status === 401 ? 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่' : 'ตรวจสอบการเข้าสู่ระบบไม่สำเร็จ กรุณาตรวจว่า Backend เปิดอยู่';
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   ngOnDestroy() {
@@ -191,8 +332,171 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
           username: u.username || u.u_name || u.name || 'Guest',
           role:     u.role    || u.u_role || 'user',
         };
+        this.currentUserEmail = u.email || u.u_email || '';
       }
     } catch { /* ใช้ default */ }
+  }
+
+  // ─── AI Provider Settings API ─────────────────────────────────────────────────
+  settingsError = '';
+  authError = '';
+  readonly providerTabs = ['google', 'openai', 'openrouter'] as const;
+  private providerDrafts: Partial<Record<AiProviderSettings['provider'], AiProviderSettings>> = {};
+  loadAiSettings() {
+    localStorage.removeItem('ai_provider_settings');
+    const token = localStorage.getItem('lt_token');
+    if (!token || this.currentUser.uid === 'guest') return;
+    this.http.get<any>('http://localhost:3000/api/ai/settings', {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+      next: res => {
+        this.aiSettings = {provider: res.data.provider, model: res.data.model, api_key: res.data.api_key || '', custom_model: res.data.custom_model || ''};
+        this.settingsTab = this.aiSettings.provider; this.cdr.detectChanges();
+      }, error: () => { this.settingsError = 'Unable to load settings'; this.cdr.detectChanges(); }
+    });
+  }
+  saveAiSettings() {
+    this.settingsError = ''; this.settingsSaved = false;
+    if (!this.aiSettings.api_key.trim()) { this.settingsError = 'API Key is required'; return; }
+    const token = localStorage.getItem('lt_token');
+    if (!token || this.currentUser.uid === 'guest') { this.settingsSaved = true; return; }
+    this.settingsSaving = true;
+    this.http.put<any>('http://localhost:3000/api/ai/settings', this.aiSettings, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+      next: () => { this.settingsSaving = false; this.settingsSaved = true; this.cdr.detectChanges(); },
+      error: () => { this.settingsSaving = false; this.settingsError = 'Unable to save settings. Please retry.'; this.cdr.detectChanges(); }
+    });
+  }
+  toggleSettingsPanel() { this.showSettingsPanel = !this.showSettingsPanel; }
+  selectProviderTab(tab: AiProviderSettings['provider']) {
+    this.providerDrafts[this.aiSettings.provider] = {...this.aiSettings};
+    this.aiSettings = {...(this.providerDrafts[tab] || {provider: tab, model: this.PROVIDER_MODELS[tab][0].id, api_key: '', custom_model: ''})};
+    this.settingsTab = tab; this.settingsSaved = false; this.settingsError = '';
+  }
+
+  loadSessions() {
+    const token = localStorage.getItem('lt_token') || '';
+    if (!token || this.currentUser.uid === 'guest') {
+      this.chatSessions = [];
+      return;
+    }
+
+    this.loadingSessions = true;
+    this.http.get<any>('http://localhost:3000/api/ai/sessions', {
+      headers: { Authorization: `Bearer ${token}` }
+    }).subscribe({
+      next: (res) => {
+        this.loadingSessions = false;
+        if (res.status === 'success') {
+          this.chatSessions = res.data || [];
+          this.cdr.detectChanges();
+        }
+      },
+      error: (err) => {
+        this.loadingSessions = false;
+        console.warn('Load sessions error:', err);
+      }
+    });
+  }
+
+  toggleHistorySidebar() {
+    this.showHistorySidebar = !this.showHistorySidebar;
+    if (this.showHistorySidebar) {
+      this.loadSessions();
+    }
+    this.cdr.detectChanges();
+  }
+
+  startNewChat() {
+    if (this.step === 2) return;
+    this.chatMessages = []; this.followUp = ''; this.extraDetail = ''; this.spec1 = ''; this.spec2 = ''; this.compatText = ''; this.activeTab = 'form';
+    this.activeSessionId = null;
+    this.reset();
+    this.showHistorySidebar = false;
+    this.cdr.detectChanges();
+  }
+
+  clearCurrentChat() {
+    if (this.activeSessionId !== null) this.deleteSession(this.activeSessionId);
+    else this.startNewChat();
+  }
+
+  selectSession(s: ChatSession) {
+    if (this.step === 2) return;
+    const token = localStorage.getItem('lt_token');
+    this.http.get<any>(`http://localhost:3000/api/ai/sessions/${s.id}`, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+      next: res => this.displaySession(res.data),
+      error: () => { this.errorMessage = 'Unable to load session'; this.cdr.detectChanges(); }
+    });
+  }
+  private displaySession(s: ChatSession) {
+    this.reset(); this.activeTab = 'form';
+    this.activeSessionId = s.id;
+    this.showHistorySidebar = false;
+    this.mode = (s.mode as any) || 'recommend';
+
+    try {
+      const msgs = typeof s.messages === 'string' ? JSON.parse(s.messages) : s.messages;
+      this.chatMessages = msgs;
+      const source = [...msgs].reverse().find(m => m.spec1 && m.spec2);
+      this.spec1 = source?.spec1 || ''; this.spec2 = source?.spec2 || '';
+      if (Array.isArray(msgs) && msgs.length > 0) {
+        const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+        const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
+
+        if (lastUser && lastUser.content) {
+          if (s.mode === 'recommend') this.extraDetail = lastUser.content;
+          else if (s.mode === 'compat') this.compatText = lastUser.content;
+        }
+
+        if (lastAssistant && lastAssistant.content) {
+          const parsed = this.parseJson(lastAssistant.content);
+          this.resultType = s.mode as any;
+          if (s.mode === 'recommend') {
+            this.recommendData = parsed;
+            if (this.recommendData?.parts) {
+              this.visibleCards = Array(this.recommendData.parts.length).fill(true);
+            }
+          } else if (s.mode === 'compare') {
+            this.compareData = parsed;
+          } else if (s.mode === 'compat') {
+            this.compatData = parsed;
+          }
+          this.step = 3;
+          this.cdr.detectChanges();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse session messages:', e);
+    }
+    this.step = 1;
+    this.cdr.detectChanges();
+  }
+
+  deleteSession(id: number, event?: Event) {
+    if (event) event.stopPropagation();
+    if (this.step === 2) return;
+    if (!confirm('⚠️ ยืนยันการลบประวัติการแชทนี้?')) return;
+
+    const token = localStorage.getItem('lt_token') || '';
+    if (!token || this.currentUser.uid === 'guest') {
+      this.chatSessions = this.chatSessions.filter(s => s.id !== id);
+      localStorage.setItem('ai_guest_sessions', JSON.stringify(this.chatSessions));
+      if (this.activeSessionId === id) this.startNewChat();
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.http.delete<any>(`http://localhost:3000/api/ai/sessions/${id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).subscribe({
+      next: (res) => {
+        if (res.status === 'success') {
+          this.chatSessions = this.chatSessions.filter(s => s.id !== id);
+          if (this.activeSessionId === id) this.startNewChat();
+          this.cdr.detectChanges();
+        }
+      },
+      error: (err) => console.error('Delete session error:', err)
+    });
   }
 
   // ─── History ──────────────────────────────────────────────────────────────────
@@ -200,7 +504,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     const token = localStorage.getItem('lt_token') || '';
     const uid = this.currentUser.uid;
     
-    if (uid === 'guest') return;
+    if (uid === 'guest' || !token) return;
 
     // โหลดประวัติของ user
     const url = `http://localhost:3000/api/spec-history?uid=${uid}&limit=50`;
@@ -217,7 +521,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     });
 
     // ถ้า admin โหลดทั้งหมด
-    if (this.isAdmin) {
+    if (this.isAdmin && this.activeTab === 'admin') {
       this.http.get<any>('http://localhost:3000/api/spec-history/all', {
         headers: { Authorization: `Bearer ${token}` }
       }).subscribe({
@@ -227,7 +531,11 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
             this.cdr.detectChanges();
           }
         },
-        error: (err) => console.error('Load all history error:', err)
+        error: (err) => {
+          this.allHistory = [];
+          this.authError = err.status === 401 ? 'กรุณาเข้าสู่ระบบใหม่เพื่อดูประวัติ Admin' : err.status === 403 ? 'บัญชีนี้ไม่มีสิทธิ์ดูประวัติทั้งหมด' : 'โหลดประวัติ Admin ไม่สำเร็จ';
+          this.cdr.detectChanges();
+        }
       });
     }
   }
@@ -354,6 +662,8 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── Navigation ───────────────────────────────────────────────────────────────
   setMode(m: 'recommend' | 'compare' | 'compat') {
+    if (this.step === 2) return;
+    if (this.mode !== m) this.startNewChat();
     this.mode = m;
     this.reset();
   }
@@ -391,324 +701,74 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (this.loadingInterval) clearInterval(this.loadingInterval);
   }
 
-  // ─── Gemini API ผ่าน FastAPI Proxy (IT-RECOMMEND Backend) ────────────────────
-  private async callGemini(prompt: string, retries = 3): Promise<string> {
-    const token = localStorage.getItem('lt_token') || '';
-    const proxyUrl = 'http://localhost:3000/api/ai/recommend';
-
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const res = await fetch(proxyUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ prompt: prompt, mode: this.mode }),
-        });
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const data = await res.json();
-
-        if (data.status === 'rate_limit') {
-          if (attempt < retries) {
-            const wait = 6000 * attempt;
-            this.loadingText = `⏳ คนใช้งานเยอะ รอ ${wait / 1000} วิ... (พยายาม ${attempt + 1}/${retries})`;
-            this.cdr.detectChanges();
-            await new Promise(r => setTimeout(r, wait));
-            continue;
-          }
-          throw new Error('Rate limit exceeded');
-        }
-
-        if (data.status === 'error') {
-          throw new Error(data.message || 'API Error');
-        }
-
-        return data.data || '';
-
-      } catch (err) {
-        if (attempt === retries) throw err;
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    }
-    return '';
-  }
-
-  // ─── JSON Parser (robust) ─────────────────────────────────────────────────────
-  private parseJson(raw: string): any {
+  // ─── AI API ผ่าน FastAPI Proxy (Multi-Provider Support) ──────────────────────
+  chatMessages: {role: string; content: string}[] = [];
+  formatChatContent(message: {role: string; content: string}): string {
+    if (message.role !== 'assistant') return message.content;
     try {
-      const start = raw.indexOf('{');
-      const end   = raw.lastIndexOf('}');
-      if (start !== -1 && end !== -1) {
-        return JSON.parse(raw.substring(start, end + 1));
-      }
-      return JSON.parse(raw.replace(/```json|```/g, '').trim());
-    } catch (e) {
-      console.error('JSON Parse Error. Raw:', raw);
-      throw e;
+      const d = this.parseJson(message.content);
+      return [d.summary || d.verdict, d.totalBudget, ...(d.parts || []).map((p: any) => p.type + ': ' + p.name + ' ' + p.price), d.recommendation, ...(d.suggestions || [])].filter(Boolean).join('\n') || JSON.stringify(d, null, 2);
+    } catch { return message.content; }
+  }
+  followUp = '';
+  private parseJson(raw: string): any {
+    return JSON.parse(raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
+  }
+  private async callGemini(prompt: string): Promise<string> {
+    if (this.authError) throw new Error(this.authError);
+    if (!this.aiSettings.api_key.trim()) {
+      this.showSettingsPanel = true;
+      throw new Error('กรุณาเปิด Settings และใส่ API Key ของ Provider ที่เลือก');
     }
+    const token = localStorage.getItem('lt_token') || '';
+    const res = await fetch('http://localhost:3000/api/ai/recommend', {
+      method: 'POST', headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {})},
+      body: JSON.stringify({prompt, mode: this.mode, ...this.aiSettings,
+        model: this.aiSettings.custom_model.trim() || this.aiSettings.model,
+        session_id: this.activeSessionId, spec1: this.spec1, spec2: this.spec2})
+    });
+    const data = await res.json();
+    if (res.status === 401) {
+      this.authError = 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่';
+      throw new Error(this.authError);
+    }
+    if (!res.ok || data.status !== 'success') throw new Error(data.detail || data.message || 'AI request failed');
+    this.activeSessionId = data.session_id;
+    this.chatMessages = [...this.chatMessages, {role: 'user', content: prompt}, {role: 'assistant', content: data.data}];
+    this.loadSessions();
+    return data.data;
   }
-
-  // ─── Scoring Engine helpers ───────────────────────────────────────────────────
-
-  breakdownList(alt: AltBuild): { key: string; label: string; value: number; weight: number }[] {
-    const labels: Record<string, string> = {
-      performance: 'Performance', budget: 'Budget', compatibility: 'Compatibility',
-      preference: 'Preference', availability: 'Availability',
-    };
-    return Object.keys(labels).map(k => ({
-      key: k,
-      label: labels[k],
-      value: Math.round(alt.breakdown?.[k] ?? 0),
-      weight: Math.round((alt.weights?.[k] ?? 0) * 100),
-    }));
-  }
-
-  isBadDetail(detail: string): boolean {
-    if (!detail) return false;
-    const d = detail.toLowerCase();
-    return d.includes('ข้ามการตรวจ') || d.includes('ไม่ทราบ') || d.includes('unknown');
-  }
-
-  // ─── Handlers ─────────────────────────────────────────────────────────────────
-
   async handleRecommend() {
     if (!this.selectedUseCase || !this.selectedBudget) return;
-    this.step = 2;
-    this.startLoadingAnimation();
-
-    const budgetMap: Record<string, string> = {
-      '10k': 'ต่ำกว่า 10,000 บาท',   '15k': '10,000–15,000 บาท',
-      '20k': '15,000–20,000 บาท',     '30k': '20,000–30,000 บาท',
-      '50k': '30,000–50,000 บาท',     '100k': '50,000 บาทขึ้นไป',
-    };
-    const useCaseMap: Record<string, string> = {
-      gaming:  'เล่นเกม PC (AAA / Esports)',
-      work:    'ทำงานออฟฟิศ (Office / Video Call)',
-      video:   'ตัดต่อวิดีโอ (Premiere Pro / DaVinci Resolve)',
-      '3d':    'งาน 3D Rendering / Animation (Blender / Maya)',
-      ai:      'งาน AI / Machine Learning / Stable Diffusion',
-      general: 'ใช้งานทั่วไป (ท่องเน็ต / ดูหนัง / เรียน)',
-    };
-
-    const budgetLabel  = budgetMap[this.selectedBudget];
-    const useCaseLabel = useCaseMap[this.selectedUseCase];
-    const today        = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-
-    // ─── Prompt ที่ปรับปรุงแล้ว ─────────────────────────────────────────────────
-    const prompt = `
-วันนี้คือ ${today}
-
-คุณคือผู้เชี่ยวชาญคอมพิวเตอร์และที่ปรึกษาด้านฮาร์ดแวร์ในประเทศไทย
-มีความรู้เรื่อง CPU, GPU, RAM, Storage, Mainboard, PSU, Case, Cooler ทุกรุ่นที่วางจำหน่ายในปัจจุบัน
-รู้ราคาจริงในตลาดไทยล่าสุด (JIB, Advice, iHaveCPU, Banana IT)
-
-== ความต้องการของลูกค้า ==
-การใช้งานหลัก: ${useCaseLabel}
-งบประมาณ: ${budgetLabel}
-ความต้องการเพิ่มเติม: ${this.extraDetail || 'ไม่มี'}
-
-== กฎในการแนะนำ ==
-1. เลือกชิ้นส่วนที่คุ้มค่าที่สุดในงบตั้งแต่ปี 2023 - ปัจจุบัน
-2. ต้อง "เข้ากันได้" ทุกชิ้น: Socket CPU ↔ Mainboard, DDR gen, PCIe gen, TDP ↔ Cooler, วัตต์ ↔ PSU
-3. ราคาแต่ละชิ้นรวมกันต้องไม่เกินงบที่ระบุ (เผื่อ 5–20% ได้)
-4. หาก ${this.selectedUseCase} === 'gaming' ให้ prioritize GPU มากกว่า CPU
-5. หาก ${this.selectedUseCase} === 'video' หรือ '3d' ให้ prioritize CPU core/thread และ RAM
-6. ระบุชื่อรุ่นสินค้าจริงและครบ เช่น "AMD Ryzen 5 7600" ไม่ใช่แค่ "Ryzen 5"
-7. ราคาเป็นบาทไทย ประมาณการจากตลาดไทย ณ ปัจจุบัน
-
-== รูปแบบตอบกลับ ==
-ตอบเป็น JSON เท่านั้น ห้ามมี text นอก JSON ห้ามมี markdown:
-{
-  "summary": "สรุปสเปคโดยรวมใน 2 ประโยค บอกจุดเด่นและเหมาะกับอะไร",
-  "totalBudget": "ราคารวมโดยประมาณ เช่น 27,500 ฿",
-  "tier": "ระดับสเปค เช่น Entry-level / Mid-range / High-end / Enthusiast",
-  "parts": [
-    {"type":"CPU","name":"ชื่อรุ่นเต็ม","price":"ราคา ฿","reason":"เหตุผลที่เลือกรุ่นนี้ เปรียบเทียบกับรุ่นอื่นในงบ"},
-    {"type":"Mainboard","name":"ชื่อรุ่นเต็ม","price":"ราคา ฿","reason":"เหตุผล: socket, chipset, feature"},
-    {"type":"RAM","name":"ชื่อรุ่น ขนาด ความเร็ว","price":"ราคา ฿","reason":"เหตุผล: ขนาดเพียงพอกับการใช้งาน"},
-    {"type":"GPU","name":"ชื่อรุ่นเต็ม","price":"ราคา ฿","reason":"เหตุผล: ประสิทธิภาพที่ได้"},
-    {"type":"Storage",":"ราคา ฿"name":"ชื่อรุ่น ขนาด interface","price","reason":"เหตุผล"},
-    {"type":"PSU","name":"ชื่อรุ่น วัตต์ 80+grade","price":"ราคา ฿","reason":"เหตุผล: วัตต์เพียงพอกับ GPU+CPU"},
-    {"type":"Case","name":"ชื่อรุ่น","price":"ราคา ฿","reason":"เหตุผล: ขนาด airflow"},
-    {"type":"Cooler","name":"ชื่อรุ่น","price":"ราคา ฿","reason":"เหตุผล: TDP รองรับ CPU นี้ได้"}
-  ],
-  "performance": {
-    "gaming":       "ประสิทธิภาพเกมในรายละเอียด เช่น 1080p/1440p High–Ultra กี่ fps เกมอะไร",
-    "productivity": "ประสิทธิภาพงานที่ระบุ เช่น render เวลา export",
-    "upgrade":      "แนะนำ upgrade อะไรได้อีกในอนาคต"
-  },
-  "pros": ["ข้อดี 1","ข้อดี 2","ข้อดี 3"],
-  "cons": ["ข้อเสีย/ข้อควรระวัง 1","ข้อเสีย 2"]
-}
-`;
-
-    try {
-      const raw = await this.callGemini(prompt);
-      this.recommendData = this.parseJson(raw);
-      this.resultType    = 'recommend';
-      this.stopLoadingAnimation();
-      this.step = 3;
-
-      const count = this.recommendData!.parts.length;
-      this.visibleCards = Array(count).fill(false);
-      this.cdr.detectChanges();
-      this.animateCards(count);
-
-      // บันทึก history
-      this.saveHistory({
-        type:          'ai',
-        mode:          'recommend',
-        title:         `${useCaseLabel} | ${budgetLabel}`,
-        inputSummary:  `${useCaseLabel}, ${budgetLabel}${this.extraDetail ? ', ' + this.extraDetail : ''}`,
-        recommendData: this.recommendData!,
-      });
-
-    } catch (e) {
-      console.error(e);
-      this.stopLoadingAnimation();
-      this.resultType = 'error';
-      this.step = 3;
-      this.cdr.detectChanges();
-    }
+    const budget = this.budgets.find(b => b.id === this.selectedBudget)?.label;
+    await this.runPrompt(`Recommend a PC for ${this.selectedUseCase}, budget ${budget} THB. ${this.extraDetail}. Answer in Thai.`);
   }
-
   async handleCompare() {
-    if (!this.spec1 || !this.spec2) return;
-    this.step = 2;
-    this.startLoadingAnimation();
-
-    const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-
-    const prompt = `
-วันนี้คือ ${today}
-
-คุณคือผู้เชี่ยวชาญคอมพิวเตอร์ในประเทศไทย เปรียบเทียบสเปค 2 ชุดนี้อย่างละเอียดและตรงไปตรงมา:
-
-ชุดที่ 1: ${this.spec1}
-ชุดที่ 2: ${this.spec2}
-
-== กฎการเปรียบเทียบ ==
-1. อ้างอิง benchmark จริง เช่น FPS, Cinebench R23, Blender time, DaVinci render time
-2. คำนึงถึงราคาตลาดไทยปัจจุบัน (ปี 2025) ด้วย
-3. บอกชัดเจนว่าในแต่ละ category อันไหนชนะและทำไม
-
-ตอบเป็น JSON เท่านั้น ห้ามมี text นอก JSON:
-{
-  "spec1Name": "ชื่อสรุปสเปค 1 สั้นๆ",
-  "spec2Name": "ชื่อสรุปสเปค 2 สั้นๆ",
-  "winner": "1 หรือ 2 หรือ tie",
-  "verdict": "สรุปว่าอันไหนดีกว่าโดยรวมและทำไม 2–3 ประโยค",
-  "categories": [
-    {"name":"Gaming (1080p)","spec1":"FPS/คะแนน","spec2":"FPS/คะแนน","winner":"1หรือ2หรือtie"},
-    {"name":"Gaming (1440p)","spec1":"...","spec2":"...","winner":"..."},
-    {"name":"Video Editing","spec1":"...","spec2":"...","winner":"..."},
-    {"name":"Multi-core (Cinebench)","spec1":"...","spec2":"...","winner":"..."},
-    {"name":"ราคา/ความคุ้มค่า","spec1":"...","spec2":"...","winner":"..."},
-    {"name":"การอัปเกรดในอนาคต","spec1":"...","spec2":"...","winner":"..."},
-    {"name":"ความร้อน/เสียง/ไฟ","spec1":"...","spec2":"...","winner":"..."}
-  ],
-  "spec1Pros": ["ข้อดี1","ข้อดี2","ข้อดี3"],
-  "spec2Pros": ["ข้อดี1","ข้อดี2","ข้อดี3"],
-  "recommendation": "แนะนำชุดไหนสำหรับใคร บอกกรณีที่ควรเลือกแต่ละชุด"
-}
-`;
-
+    if (this.spec1.trim() && this.spec2.trim()) await this.runPrompt(`Compare spec 1: ${this.spec1} with spec 2: ${this.spec2}`);
+  }
+  async handleCompat() { if (this.compatText.trim()) await this.runPrompt(this.compatText); }
+  async sendFollowUp() {
+    if (!this.followUp.trim() || this.step === 2) return;
+    await this.runPrompt(this.followUp);
+    if (this.resultType !== 'error') this.followUp = '';
+  }
+  private async runPrompt(prompt: string) {
+    if (this.step === 2) return;
+    this.errorMessage = ''; this.step = 2; this.startLoadingAnimation();
     try {
-      const raw = await this.callGemini(prompt);
-      this.compareData = this.parseJson(raw);
-      this.resultType  = 'compare';
-      this.stopLoadingAnimation();
-      this.step = 3;
-      this.cdr.detectChanges();
-
-      this.saveHistory({
-        type:         'ai',
-        mode:         'compare',
-        title:        `${this.compareData!.spec1Name} vs ${this.compareData!.spec2Name}`,
-        inputSummary: `${this.spec1} | ${this.spec2}`,
-        compareData:  this.compareData!,
-      });
-
-    } catch (e) {
-      console.error(e);
-      this.stopLoadingAnimation();
-      this.resultType = 'error';
-      this.step = 3;
-      this.cdr.detectChanges();
-    }
+      const parsed = this.parseJson(await this.callGemini(prompt));
+      this.resultType = this.mode;
+      if (this.mode === 'recommend') { this.recommendData = parsed; this.visibleCards = Array(parsed.parts?.length || 0).fill(true); }
+      else if (this.mode === 'compare') this.compareData = parsed;
+      else this.compatData = parsed;
+      this.saveHistory({type: 'ai', mode: this.mode, title: prompt.slice(0, 60), inputSummary: prompt,
+        ...(this.mode === 'recommend' ? {recommendData: parsed} : this.mode === 'compare' ? {compareData: parsed} : {compatData: parsed})});
+    } catch (e: any) { this.errorMessage = e.message || 'AI request failed'; this.resultType = 'error'; }
+    finally { this.stopLoadingAnimation(); this.step = 3; this.cdr.detectChanges(); }
   }
 
-  async handleCompat() {
-    if (!this.compatText.trim()) return;
-    this.step = 2;
-    this.loadingText = '🔍 ตรวจสอบความเข้ากันได้...';
-    this.startLoadingAnimation();
-
-    const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-
-    const prompt = `
-วันนี้คือ ${today}
-
-คุณคือผู้เชี่ยวชาญด้านฮาร์ดแวร์คอมพิวเตอร์ในไทย ตรวจสอบความเข้ากันได้อย่างละเอียด:
-
-${this.compatText}
-
-== สิ่งที่ต้องตรวจสอบ ==
-1. CPU Socket ↔ Mainboard Socket (ต้องตรงกัน)
-2. RAM Type/Gen ↔ Mainboard รองรับ (DDR4/DDR5)
-3. PSU วัตต์ ≥ TDP รวม CPU+GPU + 20% headroom
-4. GPU Length ↔ Case clearance (ถ้าทราบ)
-5. CPU TDP ↔ Cooler TDP Rating
-6. Storage Interface (NVMe M.2 / SATA) ↔ Mainboard slot
-7. ATX Form Factor ↔ Case รองรับ (ถ้าทราบ)
-
-ตอบเป็น JSON เท่านั้น ห้ามมี text นอก JSON:
-{
-  "overall": "ok หรือ warning หรือ error",
-  "summary": "สรุปผลการตรวจสอบโดยรวม 1–2 ประโยค",
-  "checks": [
-    {"item":"CPU ↔ Mainboard Socket","ok":true,"detail":"อธิบายว่า socket ตรงกันไหม"},
-    {"item":"RAM Compatibility","ok":true,"detail":"DDR gen และความเร็วรองรับไหม"},
-    {"item":"PSU Wattage","ok":true,"detail":"วัตต์รวมประมาณเท่าไร PSU เพียงพอไหม"},
-    {"item":"GPU Clearance","ok":true,"detail":"GPU ยาวเท่าไร case รองรับไหม"},
-    {"item":"CPU Cooler TDP","ok":true,"detail":"Cooler รองรับ TDP ของ CPU ไหม"},
-    {"item":"Storage Interface","ok":true,"detail":"ช่อง M.2 หรือ SATA มีไหม"},
-    {"item":"Motherboard Form Factor","ok":true,"detail":"ATX/mATX/ITX ตรงกับ case ไหม"}
-  ],
-  "warnings": ["คำเตือนสำคัญ ถ้ามี"],
-  "suggestions": ["คำแนะนำเพื่อปรับปรุง เช่น upgrade PSU หรือเปลี่ยน cooler"]
-}
-`;
-
-    try {
-      const raw = await this.callGemini(prompt);
-      this.compatData = this.parseJson(raw);
-      this.resultType  = 'compat';
-      this.stopLoadingAnimation();
-      this.step = 3;
-      this.cdr.detectChanges();
-
-      this.saveHistory({
-        type:         'ai',
-        mode:         'compat',
-        title:        `ตรวจสอบชิ้นส่วน ${this.compatData!.overall === 'ok' ? '✅' : '⚠️'}`,
-        inputSummary: this.compatText.substring(0, 100),
-        compatData:   this.compatData!,
-      });
-
-    } catch (e) {
-      console.error(e);
-      this.stopLoadingAnimation();
-      this.resultType = 'error';
-      this.step = 3;
-      this.cdr.detectChanges();
-    }
-  }
-
-  // ─── Card Animation ───────────────────────────────────────────────────────────
+  isBadDetail(detail: string): boolean { return !detail || /unknown|not available|\?{3}/i.test(detail); }
+  breakdownList(alt: AltBuild) { return Object.entries(alt.breakdown).map(([key, value]) => ({key, label: key, value, score: value, weight: alt.weights?.[key] || 0})); }
   private animateCards(count: number) {
     for (let i = 0; i < count; i++) {
       setTimeout(() => {

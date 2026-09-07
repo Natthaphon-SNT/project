@@ -39,6 +39,8 @@ export interface CompatibilityCheckItem {
   item: string;
   ok: boolean;
   detail: string;
+  severity?: 'PASS' | 'WARNING' | 'ERROR' | 'UNKNOWN';
+  sources?: {url: string; title: string; field: string; value: number; unit: string; checked_at?: string}[];
 }
 
 export interface CompatibilityResult {
@@ -75,6 +77,7 @@ export class PcBuilderComponent implements OnInit {
   private toastTimer: any;
 
   compatResult: CompatibilityResult | null = null;
+  private compatRequestId = 0;
   isCheckingCompat = false;
   isSaving = false;
 
@@ -166,14 +169,18 @@ export class PcBuilderComponent implements OnInit {
 
   // ─── Real-time Compatibility Check ───
   checkCompatibility() {
+    const requestId = ++this.compatRequestId;
+    this.compatResult = null;
     const selected = this.slots.filter(s => s.selected);
     if (selected.length < 2) {
       this.compatResult = null;
+      this.isCheckingCompat = false;
       return;
     }
 
     this.isCheckingCompat = true;
     const parts = selected.map(s => ({
+      product_id: s.selected!.product_id,
       category: s.label.includes('CPU') && !s.label.includes('Cooler') ? 'CPU' :
                 s.label.includes('Mainboard') ? 'Mainboard' :
                 s.label.includes('GPU') ? 'GPU' :
@@ -188,6 +195,7 @@ export class PcBuilderComponent implements OnInit {
 
     this.http.post<any>(`${API}/api/compatibility/check-parts`, { parts }).subscribe({
       next: (res) => {
+        if (requestId !== this.compatRequestId) return;
         this.isCheckingCompat = false;
         if (res.status === 'success' && res.data) {
           this.compatResult = res.data;
@@ -195,7 +203,9 @@ export class PcBuilderComponent implements OnInit {
         this.cdr.detectChanges();
       },
       error: () => {
+        if (requestId !== this.compatRequestId) return;
         this.isCheckingCompat = false;
+        this.compatResult = {overall: 'warning', summary: 'ตรวจสอบสเปกไม่สำเร็จ กรุณาลองใหม่', checks: [], warnings: [], suggestions: []};
         this.cdr.detectChanges();
       }
     });

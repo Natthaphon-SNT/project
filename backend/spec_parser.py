@@ -106,10 +106,21 @@ def parse_mainboard(name: str) -> dict:
                 socket = soc; break
 
     ram_support = set()
-    if "DDR5" in u: ram_support.add("DDR5")
-    if "DDR4" in u and "DDR5" not in u: ram_support.add("DDR4")
-    if not ram_support and socket in ("AM5", "LGA1851"):
-        ram_support = {"DDR5"}
+    if "DDR5" in u and "DDR4" in u:
+        # Board supports both (e.g. B660 with dual-gen slots)
+        ram_support = {"DDR4", "DDR5"}
+    elif "DDR5" in u:
+        ram_support.add("DDR5")
+    elif "DDR4" in u:
+        ram_support.add("DDR4")
+
+    # Fallback: infer from socket / chipset when name has no explicit DDR token
+    if not ram_support:
+        if socket in ("AM5", "LGA1851"):
+            ram_support = {"DDR5"}          # AM5 / Intel 800-series = DDR5 only
+        elif socket in ("AM4", "LGA1700", "LGA1200"):
+            ram_support = {"DDR4"}          # AM4 / Intel 10-14th = DDR4 only
+        # else: truly unknown (e.g. very old or no chipset found)
 
     ff = "mATX"
     if re.search(r"\bMINI[- ]?ITX\b|\(ITX\)|\bITX\b", u): ff = "ITX"
@@ -144,8 +155,20 @@ def parse_gpu(name: str) -> dict:
             gpu_tdp = watt
             break
     vram_m = re.search(r"(\d{1,2})GB\s*(GDDR\d)?", u)
-    return {"category": "GPU", "chipset": chipset, "tdp": gpu_tdp,
-            "vram_gb": int(vram_m.group(1)) if vram_m else None}
+    result = {"category": "GPU", "chipset": chipset, "tdp": gpu_tdp,
+              "tdp_estimated": gpu_tdp is not None,
+              "vram_gb": int(vram_m.group(1)) if vram_m else None}
+    from gpu_power_reference import lookup_gpu_power, evidence
+    reference = lookup_gpu_power(name)
+    if reference:
+        result["chipset"] = reference["model"]
+        result["power_sources"] = []
+        for field in ("tdp", "recommended_psu_watt"):
+            if field in reference:
+                result[field] = reference[field]
+                result["power_sources"].append(evidence(reference, field))
+        result["tdp_estimated"] = False
+    return result
 
 
 def parse_psu(name: str) -> dict:
@@ -228,12 +251,134 @@ def normalize_label(label: str) -> str:
     return LABEL_ALIASES.get(label.strip().upper(), label.strip())
 
 
-def parse_part(category: str, name: str) -> dict:
+def _parse_specs_text(specs: str) -> dict:
+    """
+    Parse the 'Key: Value' specs text extracted from product pages.
+    Returns a flat dict of compat-relevant fields.
+    """
+    if not specs:
+        return {}
+    result = {}
+    for line in specs.splitlines():
+        line = line.strip()
+        parts = re.split(r":\s*", line, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        key, val = parts[0].strip().lower(), parts[1].strip().upper()
+
+        # Socket
+        if any(k in key for k in ("socket", "platform", "cpu socket")):
+            m = re.search(r"\b(AM4|AM5|LGA\d{3,4})\b", val)
+            if m:
+                result["socket"] = m.group(1)
+
+        # DDR generation
+        if any(k in key for k in ("memory type", "memory standard", "max memory type",
+                                   "supported memory", "ddr")):
+            if "DDR5" in val and "DDR4" in val:
+                result["ram_support"] = ["DDR4", "DDR5"]
+            elif "DDR5" in val:
+                result["ram_support"] = ["DDR5"]
+            elif "DDR4" in val:
+                result["ram_support"] = ["DDR4"]
+            elif "DDR3" in val:
+                result["ram_support"] = ["DDR3"]
+            # RAM ddr_gen
+            if "DDR5" in val and "DDR4" not in val:
+                result["ddr_gen"] = "DDR5"
+            elif "DDR4" in val and "DDR5" not in val:
+                result["ddr_gen"] = "DDR4"
+
+        # System PSU requirement must never become GPU consumption or PSU output.
+        if any(k in key for k in ("recommended psu", "recommended power supply",
+                                   "required system power", "minimum system power",
+                                   "minimum psu", "psu requirement", "suggested psu")):
+            m = re.search(r"\b(\d{3,4})\s*(?:W(?:ATTS?)?)?\b", val)
+            if m:
+                result["recommended_psu_watt"] = max(result.get("recommended_psu_watt", 0), int(m.group(1)))
+            continue
+
+        # TDP / graphics board power (not system PSU recommendation)
+        if any(k in key for k in ("tdp", "thermal design power", "power consumption",
+                                   "rated tdp", "processor tdp", "total graphics power", "total board power", "maximum turbo power")):
+            m = re.search(r"\b(\d{2,4})\s*(?:W(?:ATTS?)?)?\b", val)
+            if m:
+                result["tdp"] = max(result.get("tdp", 0), int(m.group(1)))
+
+        # Form factor
+        if any(k in key for k in ("form factor", "form-factor", "supported motherboard")):
+            if "MINI-ITX" in val or "MINI ITX" in val or "ITX" in val:
+                result["form_factor"] = "ITX"
+            elif "E-ATX" in val or "EATX" in val:
+                result["form_factor"] = "ATX"
+            elif "ATX" in val and "MATX" not in val and "MICRO" not in val:
+                result["form_factor"] = "ATX"
+            elif "MATX" in val or "MICRO-ATX" in val or "MICRO ATX" in val:
+                result["form_factor"] = "mATX"
+
+        # PSU Wattage
+        if key in ("wattage", "watt", "total power", "total output", "power output", "rated power", "continuous power", "output wattage"):
+            m = re.search(r"\b(\d{3,4})\s*(?:W(?:ATTS?)?)?\b", val)
+            if m:
+                result["watt"] = int(m.group(1))
+
+        # Cooler TDP rating
+        if any(k in key for k in ("cooler tdp", "rated tdp", "socket support",
+                                   "compatible socket", "max cooler height", "height")):
+            if "tdp" in key or "rated" in key:
+                m = re.search(r"(\d{2,3})\s*W", val)
+                if m:
+                    result["rating_watt"] = int(m.group(1))
+            if "height" in key:
+                m = re.search(r"(\d{2,3})\s*MM", val)
+                if m:
+                    result["height_mm"] = int(m.group(1))
+
+    return result
+
+
+def parse_part(category: str, name: str, specs: str = "") -> dict:
+    """
+    Parse a product into compat-relevant fields.
+    specs: optional 'Key: Value' text extracted from the product page (from DB).
+           Fields from specs override name-based regex when both exist.
+    """
     parser = PARSERS.get(category)
     base = {"category": category, "name": name}
     if parser:
         base.update(parser(name))
+
+    # Overlay with richer data from DB specs column
+    if specs:
+        spec_data = _parse_specs_text(specs)
+        for k, v in spec_data.items():
+            if v is not None:
+                if k == "watt" and category != "PSU":
+                    continue
+                if k == "recommended_psu_watt" and category != "GPU":
+                    continue
+                if k in ("tdp", "recommended_psu_watt") and base.get(k):
+                    # Keep the stricter known requirement when sources disagree.
+                    v = max(v, base[k])
+                base[k] = v
+        # Attribution covers only the explicitly sourced block, not earlier legacy fields.
+        block = re.search(r"\[Verified GPU power\](.*?)\[/Verified GPU power\]", specs, re.S)
+        sourced_text = block[1] if block else specs
+        source = re.search(r"^Source URL:\s*(https?://\S+)\s*$", sourced_text, re.M)
+        checked = re.search(r"^Source checked at:\s*(.+)$", sourced_text, re.M)
+        if source:
+            sourced_data = _parse_specs_text(sourced_text)
+            sources = list(base.get("power_sources", []))
+            for field in ("tdp", "recommended_psu_watt"):
+                if field in sourced_data:
+                    sources = [e for e in sources if not (e["url"] == source[1] and e["field"] == field)]
+                    sources.append({"url": source[1], "title": "Product power specifications",
+                                    "field": field, "value": sourced_data[field], "unit": "W",
+                                    "checked_at": checked[1] if checked else None})
+            base["power_sources"] = sources
+
     return base
+
 
 
 def parse_free_text_line(line: str) -> Optional[dict]:

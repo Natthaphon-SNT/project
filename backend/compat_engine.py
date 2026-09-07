@@ -4,6 +4,7 @@ Enforces rules defined in rules/*.md. The LLM NEVER decides compatibility.
 All checks return ok / severity / detail so the UI can display ✓/✗ per rule.
 """
 import os
+import math
 from typing import Optional
 import spec_parser as sp
 
@@ -68,39 +69,62 @@ def check_ram_gen(parts) -> Optional[dict]:
     if not ram or not mb:
         return None
     gen, support = ram.get("ddr_gen"), mb.get("ram_support")
-    if not gen or not support:
+    if not gen:
         return {"rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": True, "severity": "UNKNOWN",
-                "detail": "ข้ามการตรวจ (ไม่ทราบ DDR generation)"}
+                "detail": "ข้ามการตรวจ (ไม่พบ DDR generation ใน RAM)"}
+    if not support:
+        return {"rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": True, "severity": "UNKNOWN",
+                "detail": f"ข้ามการตรวจ (ไม่ทราบ DDR ที่ Mainboard รองรับ, RAM = {gen})"}
     ok = gen in support
     return {
         "rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": ok,
         "severity": "ERROR" if not ok else "PASS",
-        "detail": f"RAM = {gen} / Mainboard รองรับ {', '.join(support)}" + ("" if ok else " → ใส่เข้ากันไม่ได้ทางกายภาพ"),
+        "detail": f"RAM = {gen} / Mainboard รองรับ {', '.join(sorted(support))}" + ("" if ok else " → ใส่เข้ากันไม่ได้ทางกายภาพ"),
     }
 
 
 def check_psu_watt(parts) -> Optional[dict]:
     psu = _get(parts, "PSU")
-    if not psu or not psu.get("watt"):
+    if not psu:
+        if _get(parts, "CPU") or _get(parts, "GPU"):
+            return {"rule": "R3 PSU Wattage", "ok": False, "severity": "UNKNOWN",
+                    "detail": "ยังยืนยันกำลังไฟไม่ได้: ยังไม่ได้เลือก PSU"}
         return None
-    total_draw = 80
+    sources = []
     known = []
     cpu, gpu = _get(parts, "CPU"), _get(parts, "GPU")
-    if cpu and cpu.get("tdp"):
-        total_draw += cpu["tdp"]; known.append(f"CPU {cpu['tdp']}W")
-    if gpu and gpu.get("tdp"):
-        total_draw += gpu["tdp"]; known.append(f"GPU {gpu['tdp']}W")
-    watt = psu["watt"]
-    required = int(total_draw * 1.0)
-    recommended = int(total_draw * 1.25)
+    missing = []
+    if not cpu:
+        missing.append("ยังไม่เลือก CPU")
+    total_draw = 80  # Explicit allowance for motherboard, storage and fans.
+    for label, part in (("CPU", cpu), ("GPU", gpu)):
+        if part:
+            sources.extend(part.get("power_sources", []))
+            if part.get("tdp"):
+                total_draw += part["tdp"]
+                known.append(f"{label} {part['tdp']}W")
+            else:
+                missing.append(f"ไม่ทราบกำลังไฟ {label}")
+    manufacturer_min = (gpu or {}).get("recommended_psu_watt") or 0
+    estimated_min = math.ceil(total_draw * 1.25)
+    required = max(manufacturer_min, estimated_min)
+    result = {"rule": "R3 PSU Wattage", "ok": False, "severity": "UNKNOWN",
+              "sources": sources, "required_watt": required,
+              "manufacturer_min_watt": manufacturer_min or None,
+              "estimated_min_watt": estimated_min, "estimated_draw_watt": total_draw}
+    watt = psu.get("watt")
+    if not watt:
+        return result | {"detail": "ยังยืนยันไม่ได้: ไม่ทราบกำลังจ่าย PSU"}
+    basis = (f"สเปก GPU กำหนด PSU ระบบ ≥{manufacturer_min}W; " if manufacturer_min else "")
+    basis += f"ประมาณการระบบ ({', '.join(known)}, อุปกรณ์อื่น 80W) ×1.25 = {estimated_min}W"
     if watt < required:
-        return {"rule": "R3 PSU Wattage", "ok": False, "severity": "ERROR",
-                "detail": f"PSU {watt}W < กำลังกินขั้นต่ำ ~{required}W ({', '.join(known) or 'ประมาณการ'}) → เครื่องจะดับ under load"}
-    if watt < recommended:
-        return {"rule": "R3 PSU Wattage", "ok": True, "severity": "WARNING",
-                "detail": f"PSU {watt}W พอใช้ (ต้องการ ≥{required}W) แต่ควรมี headroom ≥{recommended}W"}
-    return {"rule": "R3 PSU Wattage", "ok": True, "severity": "PASS",
-            "detail": f"PSU {watt}W เพียงพอ (draw ~{required}W, headroom แนะนำ {recommended}W)"}
+        return result | {"severity": "ERROR", "detail": f"PSU {watt}W ต่ำกว่าเกณฑ์ ≥{required}W — {basis}"}
+    if gpu and not manufacturer_min:
+        missing.append("ไม่พบค่า PSU ระบบที่ผู้ผลิต GPU แนะนำ")
+    if missing:
+        return result | {"detail": f"PSU {watt}W: ยังยืนยันว่าเพียงพอไม่ได้ — {'; '.join(missing)}. {basis}"}
+    return result | {"ok": True, "severity": "PASS",
+                     "detail": f"PSU {watt}W ผ่านเกณฑ์กำลังวัตต์ ≥{required}W — {basis}. ต้องตรวจหัวต่อและกำลังจ่ายจริงของ PSU เพิ่มเติม"}
 
 
 def check_high_gpu_psu(parts) -> Optional[dict]:
@@ -155,7 +179,7 @@ def check_budget(parts_with_price, budget) -> Optional[dict]:
             "detail": f"ราคารวมจริง {total:,.0f}฿ vs งบ {budget:,.0f}฿ (เพดาน+10% = {limit:,.0f}฿)"}
 
 
-ALL_CHECKS = [check_socket, check_ram_gen, check_psu_watt, check_high_gpu_psu,
+ALL_CHECKS = [check_socket, check_ram_gen, check_psu_watt,
               check_cooler_tdp, check_case_ff]
 
 _SEV_ORDER = {"ERROR": 3, "WARNING": 2, "UNKNOWN": 1, "PASS": 0}
@@ -186,8 +210,10 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
         sev = c.get("severity", "PASS")
         if sev == "ERROR":
             worst = "error"; break
-        if sev == "WARNING":
+        if sev in ("WARNING", "UNKNOWN"):
             worst = "warning"
+    if not checks:
+        worst = "warning"
 
     errors = [c for c in checks if c.get("severity") == "ERROR"]
     warnings = [c for c in checks if c.get("severity") == "WARNING"]
@@ -197,7 +223,7 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
     if worst == "error":
         summary = f"❌ พบปัญหาความเข้ากันได้ {len(errors)} จุด ที่ต้องแก้ก่อนใช้งาน"
     elif worst == "warning":
-        summary = f"⚠️ ใช้งานได้ แต่มีจุดควรระวัง {len(warnings)} จุด"
+        summary = f"⚠️ ยังยืนยันความเข้ากันได้ครบไม่ได้: ควรตรวจเพิ่ม {len(warnings)} จุด / ข้อมูลไม่พอ {len(unknowns)} จุด"
     else:
         summary = f"✅ ผ่านการตรวจ compatibility {passed}/{len(checks)} ข้อ"
 
@@ -208,18 +234,19 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
         elif e["rule"].startswith("R2"):
             suggestions.append("เปลี่ยน RAM ให้ตรง generation ที่ mainboard รองรับ")
         elif e["rule"].startswith("R3") or e["rule"].startswith("R6"):
-            suggestions.append(f"อัปเกรด PSU เป็นอย่างน้อย 750W")
+            if e.get("required_watt"):
+                suggestions.append(f"เลือก PSU อย่างน้อย {e['required_watt']}W และตรวจหัวต่อจากสเปกสินค้าจริง")
         elif e["rule"].startswith("R4"):
             suggestions.append("ใช้ CPU cooler ที่ rated TDP สูงกว่า CPU")
 
     # Frontend shape: item/ok/detail
-    fe_checks = [{"item": c["rule"], "ok": bool(c["ok"]), "detail": c["detail"]} for c in checks]
+    fe_checks = [{**c, "item": c["rule"], "ok": c.get("severity") == "PASS"} for c in checks]
 
     return {
         "overall": worst,
         "summary": summary,
         "checks": fe_checks,
-        "warnings": [c["detail"] for c in warnings],
+        "warnings": [c["detail"] for c in warnings + unknowns],
         "suggestions": list(dict.fromkeys(suggestions)),
         "_engine": {
             "rules_enforced": len(checks),

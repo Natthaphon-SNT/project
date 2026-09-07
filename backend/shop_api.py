@@ -4,7 +4,7 @@
 """
 import os, re, json, shutil, asyncio, httpx
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, F
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, ForeignKey, func, text
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship
 import bcrypt
@@ -30,12 +30,14 @@ DB_URL = "sqlite:///./shop.db"
 UPLOAD_DIR = Path("uploads/profile")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# OpenCode Zen AI gateway (OpenAI-compatible)
-ZEN_BASE_URL  = os.getenv("ZEN_BASE_URL", "https://opencode.ai/zen/v1")
-OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "")
-ZEN_MODEL     = os.getenv("ZEN_MODEL", "x-preview-f-free")
 
-engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
+engine = create_engine(DB_URL, connect_args={"check_same_thread": False, "timeout": 60})
+with engine.connect() as _c:
+    try:
+        _c.execute(text("PRAGMA journal_mode=WAL;"))
+        _c.commit()
+    except Exception:
+        pass
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 security = HTTPBearer(auto_error=False)
@@ -137,7 +139,8 @@ class OrderItem(Base):
 class SpecHistory(Base):
     __tablename__ = "spec_history"
     id           = Column(Integer, primary_key=True, autoincrement=True)
-    uid          = Column(String, default="")
+    uid          = Column(String, default="", index=True)
+    email        = Column(String, default="", index=True)
     username     = Column(String, default="")
     type         = Column(String, default="ai")
     mode         = Column(String, default="recommend")
@@ -145,6 +148,31 @@ class SpecHistory(Base):
     inputSummary = Column(Text, default="")
     result_data  = Column(Text, default="{}")
     createdAt    = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+class UserAiSettings(Base):
+    """Per-user AI provider configuration (API keys, model choice) linked to user and email."""
+    __tablename__ = "user_ai_settings"
+    uid          = Column(String, ForeignKey("users.uid"), primary_key=True, index=True)  # FK → users.uid
+    email        = Column(String, default="", index=True)
+    provider     = Column(String, default="google")   # google | openai | openrouter
+    model        = Column(String, default="gemini-2.0-flash")
+    api_key      = Column(Text, default="")        # stored plaintext (project scope)
+    custom_model = Column(String, default="")      # user-typed custom model id
+    updated_at   = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+class AiChatSession(Base):
+    """One chat session per conversation thread linked to user and email."""
+    __tablename__ = "ai_chat_sessions"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    uid        = Column(String, ForeignKey("users.uid"), index=True, nullable=False)
+    email      = Column(String, index=True, default="")
+    title      = Column(String, default="New Chat")
+    mode       = Column(String, default="recommend")  # recommend | compare | compat
+    provider   = Column(String, default="google")
+    model      = Column(String, default="")
+    messages   = Column(Text, default="[]")  # JSON array of {role, content, ts}
+    created_at = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    updated_at = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 # ─────────────────────────────────────────
 # DB Migration – เพิ่ม columns ใหม่ถ้ายังไม่มี
@@ -169,17 +197,86 @@ def run_migrations(db_engine):
                 pass  # column มีอยู่แล้ว
 
         # Price history table (freshness / trend)
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS price_history (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id  TEXT NOT NULL,
-                store       TEXT NOT NULL,
-                price       REAL NOT NULL,
-                captured_at TEXT NOT NULL
-            )
-        """))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ph_product ON price_history(product_id, captured_at)"))
-        conn.commit()
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS price_history (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id  TEXT NOT NULL,
+                    store       TEXT NOT NULL,
+                    price       REAL NOT NULL,
+                    captured_at TEXT NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ph_product ON price_history(product_id, captured_at)"))
+            conn.commit()
+        except Exception as e:
+            print(f"[Migration Warning] price_history: {e}")
+
+        # AI settings per user
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_ai_settings (
+                    uid          TEXT PRIMARY KEY REFERENCES users(uid),
+                    email        TEXT DEFAULT '',
+                    provider     TEXT DEFAULT 'google',
+                    model        TEXT DEFAULT 'gemini-2.0-flash',
+                    api_key      TEXT DEFAULT '',
+                    custom_model TEXT DEFAULT '',
+                    updated_at   TEXT DEFAULT ''
+                )
+            """))
+            conn.commit()
+        except Exception as e:
+            print(f"[Migration Warning] user_ai_settings: {e}")
+
+        # AI chat sessions
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uid        TEXT NOT NULL REFERENCES users(uid),
+                    email      TEXT DEFAULT '',
+                    title      TEXT DEFAULT 'New Chat',
+                    mode       TEXT DEFAULT 'recommend',
+                    provider   TEXT DEFAULT 'google',
+                    model      TEXT DEFAULT '',
+                    messages   TEXT DEFAULT '[]',
+                    created_at TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT ''
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_acs_uid ON ai_chat_sessions(uid, updated_at)"))
+            conn.commit()
+        except Exception as e:
+            print(f"[Migration Warning] ai_chat_sessions: {e}")
+
+        # Add email columns if they don't exist yet & backfill
+        for tbl in ["user_ai_settings", "ai_chat_sessions", "spec_history"]:
+            try:
+                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN email TEXT DEFAULT ''"))
+                conn.commit()
+            except Exception:
+                pass
+
+        try:
+            conn.execute(text("""
+                UPDATE spec_history
+                SET email = (SELECT u_email FROM users WHERE users.uid = spec_history.uid)
+                WHERE (email = '' OR email IS NULL) AND uid != '' AND uid IS NOT NULL
+            """))
+            conn.execute(text("""
+                UPDATE user_ai_settings
+                SET email = (SELECT u_email FROM users WHERE users.uid = user_ai_settings.uid)
+                WHERE (email = '' OR email IS NULL) AND uid != '' AND uid IS NOT NULL
+            """))
+            conn.execute(text("""
+                UPDATE ai_chat_sessions
+                SET email = (SELECT u_email FROM users WHERE users.uid = ai_chat_sessions.uid)
+                WHERE (email = '' OR email IS NULL) AND uid != '' AND uid IS NOT NULL
+            """))
+            conn.commit()
+        except Exception:
+            pass
 
         # เพิ่ม categories ใหม่ (Gaming Gear + Furniture + PC Set)
         new_cats = [
@@ -203,7 +300,35 @@ def run_migrations(db_engine):
                 print(f"[Migration] Category {cid}: {e}")
 
 
+def migrate_ai_foreign_keys(db_engine):
+    """Preserve legacy AI rows, indexes and triggers while adding owner FKs."""
+    with db_engine.begin() as conn:
+        for table in ("user_ai_settings", "ai_chat_sessions"):
+            if conn.execute(text(f"PRAGMA foreign_key_list({table})")).fetchall():
+                continue
+            ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:name"), {"name": table}).scalar()
+            if not ddl:
+                continue
+            columns = [row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))]
+            quoted = ", ".join('"' + c.replace('"', '""') + '"' for c in columns)
+            objects = conn.execute(text("SELECT sql FROM sqlite_master WHERE tbl_name=:name AND type IN ('index','trigger') AND sql IS NOT NULL"), {"name": table}).scalars().all()
+            temporary = table + "_fk_migration"
+            new_ddl = re.sub(r"CREATE TABLE\s+(?:IF NOT EXISTS\s+)?[\w\"]+", f'CREATE TABLE "{temporary}"', ddl, count=1, flags=re.I)
+            closing = new_ddl.rfind(")")
+            new_ddl = new_ddl[:closing] + ", FOREIGN KEY(uid) REFERENCES users(uid)" + new_ddl[closing:]
+            conn.execute(text(new_ddl))
+            conn.execute(text(f'INSERT INTO "{temporary}" ({quoted}) SELECT {quoted} FROM "{table}"'))
+            conn.execute(text(f'DROP TABLE "{table}"'))
+            conn.execute(text(f'ALTER TABLE "{temporary}" RENAME TO "{table}"'))
+            for ddl_object in objects:
+                conn.execute(text(ddl_object))
+
+
 run_migrations(engine)
+migrate_ai_foreign_keys(engine)
+# Retire the provider configuration without changing historical conversations.
+with engine.begin() as conn:
+    conn.execute(text("UPDATE user_ai_settings SET provider='google', model='gemini-2.0-flash', custom_model='', api_key='', updated_at=:now WHERE provider='zen'"), {"now": datetime.now().isoformat()})
 
 # ─────────────────────────────────────────
 # Helpers
@@ -246,6 +371,19 @@ def require_admin(user: User = Depends(get_current_user)):
     if user.u_role != "admin":
         raise HTTPException(status_code=403, detail="ต้องมีสิทธิ์ Admin")
     return user
+
+def get_optional_user(
+    creds: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Like get_current_user but returns None instead of raising 401."""
+    if not creds:
+        return None
+    try:
+        payload = decode_token(creds.credentials)
+        return db.query(User).filter(User.uid == payload["uid"]).first()
+    except Exception:
+        return None
 
 def product_to_dict(p: Product) -> dict:
     """แปลง Product object เป็น dict ที่มีทุก field"""
@@ -934,49 +1072,263 @@ def admin_get_user_orders(uid: str, admin=Depends(require_admin), db: Session = 
     ]}
 
 # ─────────────────────────────────────────
-# AI Recommend – Hybrid RAG + Compatibility Engine (OpenCode Zen)
+# AI Recommend – Hybrid RAG + Compatibility Engine (Multi-provider)
 # ─────────────────────────────────────────
 
+# ─────────────────────────────────────────
+# AI Provider Settings (per user)
+# ─────────────────────────────────────────
+class AiSettingsBody(BaseModel):
+    provider:     Literal["google", "openai", "openrouter"] = "google"
+    model:        str = "gemini-2.0-flash"
+    api_key:      str = ""
+    custom_model: str = ""
+
+@app.get("/api/ai/settings")
+def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first()
+    if not row:
+        return {"status": "success", "data": {
+            "uid": user.uid, "email": user.u_email,
+            "provider": "google", "model": "gemini-2.0-flash", "api_key": "", "custom_model": ""
+        }}
+    return {"status": "success", "data": {
+        "uid":          row.uid,
+        "email":        row.email or user.u_email,
+        "provider":     row.provider,
+        "model":        row.model,
+        "api_key":      row.api_key,
+        "custom_model": row.custom_model,
+        "updated_at":   row.updated_at,
+    }}
+
+@app.put("/api/ai/settings")
+def save_ai_settings(body: AiSettingsBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if row:
+        row.email        = user.u_email
+        row.provider     = body.provider
+        row.model        = body.model
+        row.api_key      = body.api_key
+        row.custom_model = body.custom_model
+        row.updated_at   = now
+    else:
+        row = UserAiSettings(
+            uid=user.uid, email=user.u_email, provider=body.provider, model=body.model,
+            api_key=body.api_key, custom_model=body.custom_model, updated_at=now
+        )
+        db.add(row)
+    db.commit()
+    return {"status": "success", "message": "บันทึก AI settings สำเร็จ"}
+
+
+# ─────────────────────────────────────────
+# AI Chat Sessions
+# ─────────────────────────────────────────
+class ChatSessionCreate(BaseModel):
+    title:    str = "New Chat"
+    mode:     Literal["recommend", "compare", "compat"] = "recommend"
+    provider: Literal["google", "openai", "openrouter"] = "google"
+    model:    str = ""
+
+class ChatSessionUpdate(BaseModel):
+    title:    Optional[str] = None
+    messages: Optional[str] = None  # JSON string
+
+    @field_validator("messages")
+    @classmethod
+    def valid_messages(cls, value):
+        if value is None: return value
+        try:
+            messages = json.loads(value)
+        except (ValueError, TypeError):
+            raise ValueError("messages must contain a JSON array")
+        if not isinstance(messages, list) or any(not isinstance(m, dict) or m.get("role") not in ("user", "assistant") or not isinstance(m.get("content"), str) for m in messages):
+            raise ValueError("Invalid chat messages")
+        return value
+
+    provider: Optional[Literal["google", "openai", "openrouter"]] = None
+    model:    Optional[str] = None
+
+def _session_dict(s: AiChatSession) -> dict:
+    return {
+        "id": s.id, "uid": s.uid, "email": getattr(s, "email", "") or "", "title": s.title,
+        "mode": s.mode, "provider": s.provider, "model": s.model,
+        "messages": s.messages, "created_at": s.created_at, "updated_at": s.updated_at,
+    }
+
+@app.get("/api/ai/sessions")
+def list_sessions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    sessions = db.query(AiChatSession).filter(
+        AiChatSession.uid == user.uid
+    ).order_by(AiChatSession.updated_at.desc(), AiChatSession.id.desc()).limit(100).all()
+    return {"status": "success", "data": [_session_dict(s) for s in sessions]}
+
+@app.post("/api/ai/sessions")
+def create_session(body: ChatSessionCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    s = AiChatSession(
+        uid=user.uid, email=user.u_email, title=body.title, mode=body.mode,
+        provider=body.provider, model=body.model,
+        messages="[]", created_at=now, updated_at=now
+    )
+    db.add(s); db.commit(); db.refresh(s)
+    return {"status": "success", "data": _session_dict(s)}
+
+@app.get("/api/ai/sessions/{session_id}")
+def get_session(session_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    s = db.query(AiChatSession).filter(
+        AiChatSession.id == session_id, AiChatSession.uid == user.uid
+    ).first()
+    if not s: raise HTTPException(404, "ไม่พบ session")
+    return {"status": "success", "data": _session_dict(s)}
+
+@app.put("/api/ai/sessions/{session_id}")
+def update_session(session_id: int, body: ChatSessionUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    s = db.query(AiChatSession).filter(
+        AiChatSession.id == session_id, AiChatSession.uid == user.uid
+    ).first()
+    if not s: raise HTTPException(404, "ไม่พบ session")
+    if body.title    is not None: s.title    = body.title
+    if body.messages is not None: s.messages = body.messages
+    if body.provider is not None: s.provider = body.provider
+    if body.model    is not None: s.model    = body.model
+    s.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.commit()
+    return {"status": "success", "data": _session_dict(s)}
+
+@app.delete("/api/ai/sessions/{session_id}")
+def delete_session(session_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    s = db.query(AiChatSession).filter(
+        AiChatSession.id == session_id, AiChatSession.uid == user.uid
+    ).first()
+    if not s: raise HTTPException(404, "ไม่พบ session")
+    db.delete(s); db.commit()
+    return {"status": "success", "message": "ลบ session สำเร็จ"}
+
+
+# ─────────────────────────────────────────
+# AI Recommend — optional auth, per-user provider/key
+# ─────────────────────────────────────────
+class AIRecommendBody(BaseModel):
+    spec1: Optional[str] = None
+    spec2: Optional[str] = None
+    prompt:     str
+    mode:       Literal["recommend", "compare", "compat"] = "recommend"  # recommend | compare | compat
+    provider:   Optional[Literal["google", "openai", "openrouter"]] = None  # override: google|openai|openrouter
+    model:      Optional[str] = None  # override model id
+    api_key:    Optional[str] = None  # override api key
+    session_id: Optional[int] = None  # append to existing session
+
+def get_ai_optional_user(creds: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    return get_current_user(creds, db) if creds else None
+
 @app.post("/api/ai/recommend")
-async def ai_recommend(body: AIRecommendBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def ai_recommend(
+    body: AIRecommendBody,
+    user: Optional[User] = Depends(get_ai_optional_user),
+    db: Session = Depends(get_db)
+):
     """
-    Hybrid recommendation pipeline:
-      mode=recommend → RAG candidates from Product DB + LLM selection + deterministic validation
-      mode=compat    → deterministic compatibility engine (+ optional LLM suggestions)
-      mode=compare   → LLM comparison via OpenCode Zen
-    Response shape unchanged for the frontend: {"status": "success", "data": "<json text>"}
+    Hybrid recommendation pipeline (no login required).
+    If logged in, uses user's stored AI settings and saves to session.
+    Provider priority: body override > DB settings > env defaults
     """
     import recommender as rec
 
+    # ── Resolve provider / model / api_key ──────────────────────────────
+    db_settings = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first() if user else None
+    provider = body.provider if body.provider is not None else (db_settings.provider if db_settings else "google")
+    same_provider = db_settings is not None and db_settings.provider == provider
+    model = body.model if body.model is not None else ((db_settings.custom_model or db_settings.model) if same_provider else "")
+    model = model.strip() or rec.DEFAULT_MODELS[provider]
+    api_key = body.api_key if body.api_key is not None else (db_settings.api_key if same_provider else "")
+    if not api_key.strip():
+        raise HTTPException(400, "Please configure an API key for the selected provider")
+    session = None
+    if body.session_id is not None:
+        if not user:
+            raise HTTPException(401, "Login required to use a saved session")
+        session = db.query(AiChatSession).filter(AiChatSession.id == body.session_id, AiChatSession.uid == user.uid).first()
+        if session is None:
+            raise HTTPException(404, "Session not found")
+        if session.mode != body.mode:
+            raise HTTPException(400, "Start a new session to change mode")
+    if not body.prompt.strip():
+        raise HTTPException(422, "Prompt cannot be empty")
+
+    previous = json.loads(session.messages or "[]") if session else []
+    context = "\n".join(f"{m['role']}: {m['content']}" for m in previous[-12:])
+    contextual_prompt = f"Previous conversation:\n{context}\n\nCurrent request:\n{body.prompt}" if context else body.prompt
+    if body.mode == "compare" and previous and (not body.spec1 or not body.spec2):
+        source = next((m for m in reversed(previous) if m.get("spec1") and m.get("spec2")), {})
+        body.spec1 = body.spec1 or source.get("spec1")
+        body.spec2 = body.spec2 or source.get("spec2")
     try:
         if body.mode == "compat":
-            result = await rec.compat_check_hybrid(body.prompt)
-            return {"status": "success", "data": json.dumps(result, ensure_ascii=False)}
+            result = await rec.compat_check_hybrid(contextual_prompt, provider=provider, model=model, api_key=api_key)
+            raw = json.dumps(result, ensure_ascii=False)
+        elif body.mode == "compare":
+            if not body.spec1 or not body.spec2:
+                match = re.search(r"(?:spec|\u0e2a\u0e40\u0e1b\u0e04|\u0e2a\u0e40\u0e1b\u0e01)\s*1\s*[:?]\s*(.+?)\s*(?:\n|\|)\s*(?:spec|\u0e2a\u0e40\u0e1b\u0e04|\u0e2a\u0e40\u0e1b\u0e01)\s*2\s*[:?]\s*(.+)", body.prompt, re.I | re.S)
+                if not match:
+                    raise HTTPException(400, "Both specs are required")
+                body.spec1, body.spec2 = match.group(1).strip(), match.group(2).strip()
+            raw = await rec.compare_specs(body.spec1, body.spec2, context=contextual_prompt,
+                                          provider=provider, model=model, api_key=api_key)
+        else:
+            result = await rec.recommend_with_alternatives(db, contextual_prompt,
+                                                           provider=provider, model=model, api_key=api_key)
+            raw = json.dumps(result, ensure_ascii=False)
 
-        if body.mode == "compare":
-            m = re.search(r"ชุดที่ 1[:：]\s*(.+?)\s*\|?\s*ชุดที่ 2[:：]\s*(.+)", body.prompt, re.DOTALL)
-            if not m:
-                # frontend sends spec1 | spec2 inside its own prompt; fallback: split by newline pairs
-                lines = [l for l in body.prompt.splitlines() if l.strip()]
-                m = re.search(r"ชุดที่ 1[:：](.+?)\n.*?ชุดที่ 2[:：](.+)", body.prompt, re.DOTALL)
-            if not m:
-                raise HTTPException(400, "รูปแบบข้อมูลเปรียบเทียบไม่ถูกต้อง")
-            text = await rec.compare_specs(m.group(1).strip(), m.group(2).strip())
-            return {"status": "success", "data": text}
+        # ── Save to chat session if logged in ───────────────────────────
+        if user:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session = None
+            if body.session_id:
+                session = db.query(AiChatSession).filter(
+                    AiChatSession.id == body.session_id, AiChatSession.uid == user.uid
+                ).first()
+            if not session:
+                # สร้าง session ใหม่อัตโนมัติ (title = 40 ตัวแรกของ prompt)
+                title = body.prompt[:40].replace("\n", " ").strip() or "New Chat"
+                session = AiChatSession(
+                    uid=user.uid, email=user.u_email, title=title, mode=body.mode,
+                    provider=provider, model=model,
+                    messages="[]", created_at=now, updated_at=now
+                )
+                db.add(session); db.flush()
+            else:
+                if not getattr(session, "email", ""):
+                    session.email = user.u_email
 
-        # default: recommend (primary build + Top-3 scored alternatives)
-        result = await rec.recommend_with_alternatives(db, body.prompt)
-        return {"status": "success", "data": json.dumps(result, ensure_ascii=False)}
+            # Append messages
+            try:
+                msgs = json.loads(session.messages or "[]")
+            except Exception:
+                msgs = []
+            msgs.append({"role": "user",      "content": body.prompt, "ts": now, "spec1": body.spec1, "spec2": body.spec2})
+            msgs.append({"role": "assistant", "content": raw,         "ts": now})
+            session.messages   = json.dumps(msgs, ensure_ascii=False)
+            session.provider = provider
+            session.model = model
+            if session.title == "New Chat": session.title = body.prompt[:40].replace("\n", " ")
+            session.updated_at = now
+            db.commit()
+
+        return {"status": "success", "data": raw,
+                "session_id": session.id if user and session else None}
 
     except RuntimeError as e:
         msg = str(e)
         if msg == "rate_limit":
             return {"status": "rate_limit", "message": "คนใช้งานเยอะ กรุณาลองใหม่อีกครั้ง"}
-        raise HTTPException(502, f"AI Provider Error: {msg}")
+        raise HTTPException(502, "AI provider request failed. Check the selected model, API key and quota.")
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"AI Error: {str(e)}")
+        raise HTTPException(500, "Unable to complete AI request")
 
 
 class CompatCheckBody(BaseModel):
@@ -996,26 +1348,43 @@ class CompatibilityPartsBody(BaseModel):
 
 @app.post("/api/compatibility/check-parts")
 @app.post("/api/compatibility/check")
-def check_compatibility_parts(body: CompatibilityPartsBody):
+def check_compatibility_parts(body: CompatibilityPartsBody, db: Session = Depends(get_db)):
     """Real-time deterministic compatibility check for structured parts from PC Builder."""
     import spec_parser as sp
     import compat_engine as ce
-    
+
     parsed = []
     for p in body.parts:
-        cat = p.get("category") or ""
-        name = p.get("name") or p.get("p_name") or ""
+        cat   = p.get("category") or ""
+        name  = p.get("name") or p.get("p_name") or ""
         price = p.get("price") or p.get("p_price") or 0
-        part_info = sp.parse_part(cat, name)
+        pid   = p.get("product_id") or p.get("id") or ""
+
+        # ดึง specs จาก DB ถ้ามี product_id — ใช้ข้อมูลจากหน้าสินค้าจริง (แม่นกว่า regex)
+        specs_text = ""
+        if pid:
+            row = db.execute(
+                text("SELECT specs, p_name, category FROM products WHERE product_id = :pid"),
+                {"pid": pid}
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, "Product not found: " + str(pid))
+            specs_text = row[0] or ""
+            name = row[1]
+            cat = row[2]
+
+        part_info = sp.parse_part(cat, name, specs=specs_text)
+        part_info["product_id"] = pid
         part_info["price"] = price
         parsed.append(part_info)
-        
+
     result = ce.check_build(parsed, body.budget)
     return {"status": "success", "data": result}
 
 
 class SpecHistoryCreate(BaseModel):
     uid: str
+    email: Optional[str] = ""
     username: Optional[str] = ""
     type: Optional[str] = "manual"
     mode: Optional[str] = "manual"
@@ -1024,14 +1393,16 @@ class SpecHistoryCreate(BaseModel):
     result_data: object
 
 @app.get("/api/spec-history")
-def get_spec_history(uid: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):
+def get_spec_history(uid: Optional[str] = None, email: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):
     q = db.query(SpecHistory)
     if uid:
         q = q.filter(SpecHistory.uid == uid)
+    if email:
+        q = q.filter(SpecHistory.email == email)
     items = q.order_by(SpecHistory.createdAt.desc()).limit(limit).all()
     return {"status": "success", "data": [
         {
-            "id": s.id, "uid": s.uid, "username": s.username,
+            "id": s.id, "uid": s.uid, "email": s.email or "", "username": s.username,
             "type": s.type, "mode": s.mode, "title": s.title,
             "inputSummary": s.inputSummary, "result_data": s.result_data,
             "createdAt": s.createdAt
@@ -1039,11 +1410,22 @@ def get_spec_history(uid: Optional[str] = None, limit: int = 50, db: Session = D
     ]}
 
 @app.post("/api/spec-history")
-def create_spec_history(body: SpecHistoryCreate, db: Session = Depends(get_db)):
+def create_spec_history(body: SpecHistoryCreate, user: Optional[User] = Depends(get_optional_user), db: Session = Depends(get_db)):
     res_str = json.dumps(body.result_data, ensure_ascii=False) if not isinstance(body.result_data, str) else body.result_data
+    user_email = ""
+    if user:
+        user_email = user.u_email
+    elif body.email:
+        user_email = body.email
+    elif body.uid:
+        u = db.query(User).filter(User.uid == body.uid).first()
+        if u:
+            user_email = u.u_email
+
     item = SpecHistory(
         uid=body.uid,
-        username=body.username or "",
+        email=user_email,
+        username=body.username or (user.u_name if user else ""),
         type=body.type or "manual",
         mode=body.mode or "manual",
         title=body.title or "จัดสเปกเอง",
@@ -1058,7 +1440,7 @@ def create_spec_history(body: SpecHistoryCreate, db: Session = Depends(get_db)):
         "status": "success",
         "message": "บันทึกประวัติการจัดสเปคสำเร็จ",
         "data": {
-            "id": item.id, "uid": item.uid, "username": item.username,
+            "id": item.id, "uid": item.uid, "email": item.email, "username": item.username,
             "type": item.type, "mode": item.mode, "title": item.title,
             "inputSummary": item.inputSummary, "result_data": item.result_data,
             "createdAt": item.createdAt
