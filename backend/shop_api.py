@@ -4,7 +4,7 @@
 """
 import os, re, json, shutil, asyncio, httpx
 from datetime import datetime, timedelta
-from typing import Optional, List, Literal
+from typing import Any, Optional, List, Literal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -387,6 +387,13 @@ def get_optional_user(
 
 def product_to_dict(p: Product) -> dict:
     """แปลง Product object เป็น dict ที่มีทุก field"""
+    try:
+        import spec_parser as _spec_parser
+        compatibility = _spec_parser.parse_part(
+            p.category or "", p.p_name or "", specs=p.specs or ""
+        )
+    except Exception:
+        compatibility = {}
     # เลือก description ที่ดีที่สุด (fallback chain)
     best_desc = (
         getattr(p, 'desc_advice', '')  or
@@ -413,6 +420,7 @@ def product_to_dict(p: Product) -> dict:
         "category":       p.category,
         "cid":            p.cid,
         "specs":          p.specs,
+        "compatibility":  compatibility,
         "updated_at":     getattr(p, 'updated_at', '') or ""
     }
 
@@ -863,7 +871,7 @@ class SpecHistoryCreate(BaseModel):
     mode: str = "recommend"
     title: str = ""
     inputSummary: str = ""
-    result_data: str = "{}"
+    result_data: Any = "{}"
 
 @app.get("/api/spec-history")
 def get_spec_history(uid: str = "", limit: int = 20, db: Session = Depends(get_db)):
@@ -891,7 +899,10 @@ def get_all_spec_history(admin=Depends(require_admin), limit: int = 100, db: Ses
 
 @app.post("/api/spec-history")
 def save_spec_history(body: SpecHistoryCreate, db: Session = Depends(get_db)):
-    item = SpecHistory(**body.dict())
+    values = body.model_dump()
+    if not isinstance(values["result_data"], str):
+        values["result_data"] = json.dumps(values["result_data"], ensure_ascii=False)
+    item = SpecHistory(**values)
     db.add(item); db.commit()
     return {"status": "success", "message": "บันทึกประวัติสำเร็จ", "id": item.id}
 
@@ -1084,13 +1095,42 @@ class AiSettingsBody(BaseModel):
     api_key:      str = ""
     custom_model: str = ""
 
+
+def server_ai_credentials(provider: str) -> tuple[str, str]:
+    """Use server-configured credentials as a private fallback for the AI page."""
+    provider = (provider or "").lower()
+    if provider == "google":
+        return os.getenv("GOOGLE_API_KEY", "") or os.getenv("GEMINI_API_KEY", ""), os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
+    if provider == "openai":
+        return os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
+    return "", ""
+
+
+def default_ai_provider() -> tuple[str, str]:
+    for provider in ("openai", "google", "openrouter"):
+        key, model = server_ai_credentials(provider)
+        if key:
+            return provider, model
+    return "openai", "gpt-4o-mini"
+
 @app.get("/api/ai/settings")
 def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first()
     if not row:
+        provider, model = default_ai_provider()
         return {"status": "success", "data": {
             "uid": user.uid, "email": user.u_email,
-            "provider": "google", "model": "gemini-2.0-flash", "api_key": "", "custom_model": ""
+            "provider": provider, "model": model, "api_key": "", "custom_model": ""
+        }}
+    # Migrate the effective default for old rows created with Google but no key.
+    row_key, _ = server_ai_credentials(row.provider)
+    if not row.api_key and not row_key:
+        provider, model = default_ai_provider()
+        return {"status": "success", "data": {
+            "uid": user.uid, "email": row.email or user.u_email,
+            "provider": provider, "model": model, "api_key": "", "custom_model": ""
         }}
     return {"status": "success", "data": {
         "uid":          row.uid,
@@ -1239,13 +1279,15 @@ async def ai_recommend(
 
     # ── Resolve provider / model / api_key ──────────────────────────────
     db_settings = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first() if user else None
-    provider = body.provider if body.provider is not None else (db_settings.provider if db_settings else "google")
+    fallback_provider, fallback_model = default_ai_provider()
+    provider = body.provider if body.provider is not None else (db_settings.provider if db_settings else fallback_provider)
     same_provider = db_settings is not None and db_settings.provider == provider
     model = body.model if body.model is not None else ((db_settings.custom_model or db_settings.model) if same_provider else "")
-    model = model.strip() or rec.DEFAULT_MODELS[provider]
-    api_key = body.api_key if body.api_key is not None else (db_settings.api_key if same_provider else "")
+    model = model.strip() or (fallback_model if provider == fallback_provider else rec.DEFAULT_MODELS[provider])
+    configured_key, _ = server_ai_credentials(provider)
+    api_key = body.api_key if body.api_key is not None and body.api_key.strip() else (db_settings.api_key if same_provider and db_settings.api_key else configured_key)
     if not api_key.strip():
-        raise HTTPException(400, "Please configure an API key for the selected provider")
+        raise HTTPException(400, f"ยังไม่ได้ตั้งค่า API Key สำหรับ {provider} กรุณาเปิด Settings หรือกำหนด key ฝั่งเซิร์ฟเวอร์")
     session = None
     if body.session_id is not None:
         if not user:
@@ -1390,7 +1432,9 @@ class SpecHistoryCreate(BaseModel):
     mode: Optional[str] = "manual"
     title: Optional[str] = "จัดสเปกเอง"
     inputSummary: Optional[str] = ""
-    result_data: object
+    # The database stores this field as JSON text. Accept objects as well as
+    # the JSON string used by the AI page so all save clients share one API.
+    result_data: Any = "{}"
 
 @app.get("/api/spec-history")
 def get_spec_history(uid: Optional[str] = None, email: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):

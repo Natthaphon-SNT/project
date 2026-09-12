@@ -15,6 +15,11 @@ export interface SpecHistoryItem {
   result_data: any;
 }
 
+interface HistoryShop {
+  key: 'advice' | 'jib' | 'ihavecpu';
+  label: string;
+}
+
 @Component({
   selector: 'app-history',
   standalone: true,
@@ -27,6 +32,12 @@ export class HistoryComponent implements OnInit {
   isLoading = true;
   expandedId: number | null = null;
   filterMode: 'all' | 'manual' | 'recommend' | 'compare' | 'compat' = 'all';
+
+  readonly shops: HistoryShop[] = [
+    { key: 'advice', label: 'Advice' },
+    { key: 'jib', label: 'JIB' },
+    { key: 'ihavecpu', label: 'iHaveCPU' },
+  ];
 
   private readonly API = 'http://localhost:3000';
 
@@ -158,6 +169,14 @@ export class HistoryComponent implements OnInit {
       return item.result_data.parts;
     }
     return [];
+  }
+
+  getPartShopUrl(part: any, shop: HistoryShop): string {
+    return part.shop_urls?.[shop.key] || '';
+  }
+
+  getPartShopPrice(part: any, shopKey: string): number {
+    return Number(part.shop_prices?.[shopKey] || 0);
   }
 
   getCategories(item: SpecHistoryItem): any[] {

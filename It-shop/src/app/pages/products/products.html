@@ -58,7 +58,6 @@
         <!-- ปุ่มลูกค้าทั่วไป -->
         <div class="product-actions" *ngIf="!isAdmin">
           <button [routerLink]="['/product', p.product_id]" class="btn-detail">รายละเอียด</button>
-          <button (click)="addToCart(p)" class="btn-add">เพิ่มลงสเปค</button>
         </div>
 
         <!-- ปุ่ม Admin -->

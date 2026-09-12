@@ -158,6 +158,9 @@ def parse_gpu(name: str) -> dict:
     result = {"category": "GPU", "chipset": chipset, "tdp": gpu_tdp,
               "tdp_estimated": gpu_tdp is not None,
               "vram_gb": int(vram_m.group(1)) if vram_m else None}
+    connectors = _parse_power_connectors(u)
+    if connectors:
+        result["power_connectors_required"] = connectors
     from gpu_power_reference import lookup_gpu_power, evidence
     reference = lookup_gpu_power(name)
     if reference:
@@ -167,6 +170,8 @@ def parse_gpu(name: str) -> dict:
             if field in reference:
                 result[field] = reference[field]
                 result["power_sources"].append(evidence(reference, field))
+        if "power_connectors_required" in reference:
+            result["power_connectors_required"] = dict(reference["power_connectors_required"])
         result["tdp_estimated"] = False
     return result
 
@@ -179,7 +184,11 @@ def parse_psu(name: str) -> dict:
     grade = None
     gm = re.search(r"80\+\s*(GOLD|SILVER|BRONZE|WHITE)", u)
     if gm: grade = gm.group(1)
-    return {"category": "PSU", "watt": watt, "efficiency": grade}
+    result = {"category": "PSU", "watt": watt, "efficiency": grade}
+    connectors = _parse_power_connectors(u)
+    if connectors:
+        result["power_connectors"] = connectors
+    return result
 
 
 def parse_case(name: str) -> dict:
@@ -251,7 +260,126 @@ def normalize_label(label: str) -> str:
     return LABEL_ALIASES.get(label.strip().upper(), label.strip())
 
 
-def _parse_specs_text(specs: str) -> dict:
+def _parse_power_connectors(value: str) -> dict:
+    """Normalize common GPU/PSU connector descriptions into connector counts."""
+    text = re.sub(r"\s+", " ", value.upper().replace("×", "X")).strip()
+    found = {}
+    patterns = [
+        ("12V-2x6", r"12V\s*[- ]?2X6|12V2X6"),
+        ("12VHPWR", r"12VHPWR|12V\s*HIGH\s*POWER|(?<!\d)16\s*[- ]?PIN"),
+        ("PCIe 8-pin", r"(?:PCI[ -]?E|PCIE)?\s*(?<!\d)8\s*[- ]?PIN|(?<!\d)6\s*\+\s*2\s*PIN|(?<!\d)8\s*\+\s*2\s*PIN"),
+        ("PCIe 6-pin", r"(?:PCI[ -]?E|PCIE)?\s*(?<!\d)6\s*[- ]?PIN"),
+    ]
+    for label, pattern in patterns:
+        match = re.search(r"(\d+)\s*[X ]\s*(?:" + pattern + r")", text)
+        if match:
+            found[label] = max(found.get(label, 0), int(match.group(1)))
+        elif re.search(pattern, text):
+            found[label] = max(found.get(label, 0), 1)
+    return found
+
+
+_DETAIL_LABELS = {
+    "socket": (
+        "socket", "cpu socket", "processor socket", "platform", "ซ็อกเก็ต",
+    ),
+    "ram": (
+        "memory type", "memory standard", "max memory type", "supported memory",
+        "ram type", "ddr", "ประเภทหน่วยความจำ", "หน่วยความจำที่รองรับ",
+    ),
+    "recommended_psu": (
+        "recommended psu", "recommended power supply", "required system power",
+        "minimum system power", "minimum psu", "psu requirement",
+        "power supply requirement", "power requirement", "need power supply", "suggested psu",
+        "พาวเวอร์ซัพพลายที่แนะนำ", "กำลังเพาเวอร์ซัพพลายที่แนะนำ",
+    ),
+    "tdp": (
+        "tdp", "thermal design power", "power consumption", "rated tdp",
+        "processor tdp", "total graphics power", "total board power",
+        "maximum turbo power", "อัตราการกินไฟ", "การใช้พลังงาน",
+    ),
+    "connector": (
+        "power connector", "power connectors", "power input", "pci-e connector",
+        "pcie connector", "pci ex connector", "pci express connector",
+        "vga connector", "gpu connector", "external power",
+        "supplementary power", "ขั้วต่อไฟ", "หัวต่อไฟ",
+    ),
+    "form_factor": (
+        "form factor", "form-factor", "supported motherboard", "รองรับเมนบอร์ด",
+    ),
+    "psu_watt": (
+        "wattage", "watt", "total power", "total output", "power output",
+        "rated power", "continuous power", "output wattage", "กำลังไฟสูงสุด",
+        "กำลังจ่ายสูงสุด",
+    ),
+    "cooler": (
+        "cooler tdp", "socket support", "compatible socket", "max cooler height",
+        "cooler clearance", "height", "ความสูงฮีตซิงก์",
+    ),
+}
+
+
+def _detail_label_kind(label: str) -> Optional[str]:
+    """Map a retail-page label to one compatibility field family."""
+    key = re.sub(r"\s+", " ", label.strip().lower().rstrip(":")).strip()
+    if not key:
+        return None
+    if "source url" in key or "source store" in key:
+        return None
+    for kind, aliases in _DETAIL_LABELS.items():
+        if key in aliases:
+            return kind
+        if any(len(alias) >= 8 and alias in key for alias in aliases):
+            return kind
+    return None
+
+
+def _looks_like_detail_value(kind: str, value: str) -> bool:
+    u = value.upper()
+    if kind == "socket":
+        return bool(re.search(r"\b(?:AM[45]|LGA\s*\d{3,4})\b", u))
+    if kind == "ram":
+        return bool(re.search(r"\bDDR[345]\b", u))
+    if kind in ("recommended_psu", "tdp", "psu_watt"):
+        return bool(re.search(r"(?:≈|~)?\s*\d{2,4}\s*(?:W|WATT)", u))
+    if kind == "connector":
+        return bool(re.search(r"PIN|6\s*\+\s*2|12VHPWR|12V\s*[- ]?2X6", u))
+    if kind == "form_factor":
+        return bool(re.search(r"(?:E[- ]?)?ATX|M[- ]?ATX|MICRO[- ]?ATX|MINI[- ]?ITX", u))
+    if kind == "cooler":
+        return bool(re.search(r"\d{2,3}\s*(?:W|MM)|\b(?:AM[45]|LGA\s*\d{3,4})\b", u))
+    return False
+
+
+def _iter_detail_pairs(specs: str):
+    """Yield facts from Key: Value and stacked retail table layouts."""
+    # Keep tabs because iHaveCPU renders detail tables as ``label<TAB>value``.
+    # Collapsing all whitespace first would erase that delimiter.
+    lines = [re.sub(r"[ \r\f\v]+", " ", line).strip() for line in specs.splitlines()]
+    lines = [line for line in lines if line]
+    for index, line in enumerate(lines):
+        inline = re.split(r"\s*:\s*|\t+", line, maxsplit=1)
+        if len(inline) == 2:
+            kind = _detail_label_kind(inline[0])
+            if kind and _looks_like_detail_value(kind, inline[1]):
+                yield kind, inline[0], inline[1]
+                continue
+        kind = _detail_label_kind(line)
+        if not kind:
+            continue
+        values = []
+        for candidate in lines[index + 1:index + 5]:
+            if _detail_label_kind(candidate):
+                break
+            if _looks_like_detail_value(kind, candidate):
+                values.append(candidate)
+                if kind != "connector":
+                    break
+        if values:
+            yield kind, line, " ".join(values)
+
+
+def _parse_specs_text(specs: str, category: str = "") -> dict:
     """
     Parse the 'Key: Value' specs text extracted from product pages.
     Returns a flat dict of compat-relevant fields.
@@ -265,6 +393,8 @@ def _parse_specs_text(specs: str) -> dict:
         if len(parts) != 2:
             continue
         key, val = parts[0].strip().lower(), parts[1].strip().upper()
+        if "source url" in key or "source store" in key:
+            continue
 
         # Socket
         if any(k in key for k in ("socket", "platform", "cpu socket")):
@@ -292,16 +422,29 @@ def _parse_specs_text(specs: str) -> dict:
         # System PSU requirement must never become GPU consumption or PSU output.
         if any(k in key for k in ("recommended psu", "recommended power supply",
                                    "required system power", "minimum system power",
-                                   "minimum psu", "psu requirement", "suggested psu")):
-            m = re.search(r"\b(\d{3,4})\s*(?:W(?:ATTS?)?)?\b", val)
+                                   "minimum psu", "psu requirement", "power requirement",
+                                   "suggested psu")):
+            m = re.search(r"\b(\d{3,4})\s*(?:W(?:ATTS?)?)\b", val)
             if m:
-                result["recommended_psu_watt"] = max(result.get("recommended_psu_watt", 0), int(m.group(1)))
+                target = "watt" if category == "PSU" and key == "power requirement" else "recommended_psu_watt"
+                result[target] = max(result.get(target, 0), int(m.group(1)))
+            continue
+
+        # GPU/PSU external power connectors. Keep this separate from wattage.
+        if any(k in key for k in ("power connector", "power connectors", "pci-e connector",
+                                   "pcie connector", "pci express connector", "vga connector",
+                                   "gpu connector", "external power", "supplementary power")):
+            connectors = _parse_power_connectors(val)
+            if connectors:
+                # Keep this generic until parse_part knows whether the row
+                # belongs to a GPU (required inputs) or a PSU (available outputs).
+                result["power_connectors"] = connectors
             continue
 
         # TDP / graphics board power (not system PSU recommendation)
         if any(k in key for k in ("tdp", "thermal design power", "power consumption",
                                    "rated tdp", "processor tdp", "total graphics power", "total board power", "maximum turbo power")):
-            m = re.search(r"\b(\d{2,4})\s*(?:W(?:ATTS?)?)?\b", val)
+            m = re.search(r"\b(\d{2,4})\s*(?:W(?:ATTS?)?)\b", val)
             if m:
                 result["tdp"] = max(result.get("tdp", 0), int(m.group(1)))
 
@@ -334,7 +477,67 @@ def _parse_specs_text(specs: str) -> dict:
                 if m:
                     result["height_mm"] = int(m.group(1))
 
+    # Retail tables are commonly scraped as a label on one line and the value
+    # on a following line. Overlay those facts after ordinary Key: Value rows.
+    for kind, label, raw_value in _iter_detail_pairs(specs):
+        val = raw_value.upper()
+        if kind == "socket":
+            m = re.search(r"\b(AM4|AM5|LGA\s*\d{3,4})\b", val)
+            if m:
+                result["socket"] = m.group(1).replace(" ", "")
+        elif kind == "ram":
+            generations = [g for g in ("DDR3", "DDR4", "DDR5") if g in val]
+            if generations:
+                result["ram_support"] = generations
+                if len(generations) == 1:
+                    result["ddr_gen"] = generations[0]
+        elif kind == "recommended_psu":
+            m = re.search(r"\b(\d{3,4})\s*(?:W|WATT)", val)
+            if m:
+                target = "watt" if category == "PSU" and label.strip().lower() == "power requirement" else "recommended_psu_watt"
+                result[target] = max(result.get(target, 0), int(m.group(1)))
+        elif kind == "tdp":
+            m = re.search(r"(?:≈|~)?\s*(\d{2,4})\s*(?:W|WATT)", val)
+            if m:
+                result["tdp"] = max(result.get("tdp", 0), int(m.group(1)))
+        elif kind == "connector":
+            connectors = _parse_power_connectors(val)
+            if connectors:
+                current = result.setdefault("power_connectors", {})
+                for connector, count in connectors.items():
+                    current[connector] = max(current.get(connector, 0), count)
+        elif kind == "form_factor":
+            supported = []
+            for token, normalized in (
+                (r"E[- ]?ATX", "ATX"), (r"MICRO[- ]?ATX|M[- ]?ATX", "mATX"),
+                (r"MINI[- ]?ITX|\bITX\b", "ITX"), (r"\bATX\b", "ATX"),
+            ):
+                if re.search(token, val) and normalized not in supported:
+                    supported.append(normalized)
+            if category == "Case" and supported:
+                result["supports_ff"] = supported
+            elif supported:
+                result["form_factor"] = supported[0]
+        elif kind == "psu_watt" and category == "PSU":
+            m = re.search(r"\b(\d{3,4})\s*(?:W|WATT)", val)
+            if m:
+                result["watt"] = int(m.group(1))
+        elif kind == "cooler":
+            if "TDP" in label.upper():
+                m = re.search(r"(\d{2,3})\s*W", val)
+                if m:
+                    result["rating_watt"] = int(m.group(1))
+            if "HEIGHT" in label.upper() or "ความสูง" in label:
+                m = re.search(r"(\d{2,3})\s*MM", val)
+                if m:
+                    result["height_mm"] = int(m.group(1))
+
     return result
+
+
+def extract_detail_facts(category: str, details: str) -> dict:
+    """Public deterministic extractor used by the offline knowledge builder."""
+    return _parse_specs_text(details, category)
 
 
 def parse_part(category: str, name: str, specs: str = "") -> dict:
@@ -350,13 +553,18 @@ def parse_part(category: str, name: str, specs: str = "") -> dict:
 
     # Overlay with richer data from DB specs column
     if specs:
-        spec_data = _parse_specs_text(specs)
+        spec_data = _parse_specs_text(specs, category)
         for k, v in spec_data.items():
             if v is not None:
                 if k == "watt" and category != "PSU":
                     continue
                 if k == "recommended_psu_watt" and category != "GPU":
                     continue
+                if k == "power_connectors":
+                    if category == "GPU":
+                        k = "power_connectors_required"
+                    elif category != "PSU":
+                        continue
                 if k in ("tdp", "recommended_psu_watt") and base.get(k):
                     # Keep the stricter known requirement when sources disagree.
                     v = max(v, base[k])
@@ -367,7 +575,7 @@ def parse_part(category: str, name: str, specs: str = "") -> dict:
         source = re.search(r"^Source URL:\s*(https?://\S+)\s*$", sourced_text, re.M)
         checked = re.search(r"^Source checked at:\s*(.+)$", sourced_text, re.M)
         if source:
-            sourced_data = _parse_specs_text(sourced_text)
+            sourced_data = _parse_specs_text(sourced_text, category)
             sources = list(base.get("power_sources", []))
             for field in ("tdp", "recommended_psu_watt"):
                 if field in sourced_data:
@@ -375,6 +583,39 @@ def parse_part(category: str, name: str, specs: str = "") -> dict:
                     sources.append({"url": source[1], "title": "Product power specifications",
                                     "field": field, "value": sourced_data[field], "unit": "W",
                                     "checked_at": checked[1] if checked else None})
+            base["power_sources"] = sources
+
+        # The offline knowledge builder stores provenance per field because
+        # two values on the same product may come from different shop pages.
+        sources = list(base.get("power_sources", []))
+        source_labels = {
+            "tdp": "TDP",
+            "recommended_psu_watt": "Recommended PSU",
+        }
+        for field, label in source_labels.items():
+            if field not in base:
+                continue
+            field_url = re.search(
+                rf"^{re.escape(label)} Source URL:\s*(https?://\S+)\s*$", specs, re.M
+            )
+            field_store = re.search(
+                rf"^{re.escape(label)} Source Store:\s*(.+?)\s*$", specs, re.M
+            )
+            if not field_url:
+                continue
+            sources = [
+                item for item in sources
+                if not (item.get("url") == field_url[1] and item.get("field") == field)
+            ]
+            sources.append({
+                "url": field_url[1],
+                "title": f"{field_store[1] if field_store else 'Retailer'} product specifications",
+                "field": field,
+                "value": base[field],
+                "unit": "W",
+                "checked_at": None,
+            })
+        if sources:
             base["power_sources"] = sources
 
     return base

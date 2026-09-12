@@ -85,7 +85,8 @@ class AiSessionTests(unittest.TestCase):
             self.assertEqual(call.await_count,count)
             self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'guest','provider':'openai','api_key':'override-key'}).json()['session_id'],None)
             self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','session_id':sid,'api_key':'guest-key'}).status_code,401)
-            self.assertEqual(c.post('/api/ai/recommend',headers=h,json={'prompt':'x','provider':'openai'}).status_code,400)
+            with patch.dict(os.environ, {'GOOGLE_API_KEY': '', 'GEMINI_API_KEY': ''}, clear=False):
+                self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','provider':'google'}).status_code,400)
 
     def test_legacy_fk_migration_preserves_rows(self):
         from sqlalchemy import create_engine, text

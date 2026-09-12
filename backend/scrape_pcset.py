@@ -5,10 +5,10 @@ scrape_pcset.py – ดึงชุดคอมประกอบสำเร็
 รัน: python -X utf8 scrape_pcset.py [store] [pages]
      python -X utf8 scrape_pcset.py all 3
 """
-import asyncio, hashlib, re, sqlite3, sys
+import asyncio, hashlib, os, re, sqlite3, sys
 from playwright.async_api import async_playwright
 
-DB_PATH = "shop.db"
+DB_PATH = os.path.join(os.path.dirname(__file__), "shop.db")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 ANTI_BOT = ("Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
@@ -41,6 +41,11 @@ def log(msg):
 def should_skip(name: str) -> bool:
     n = name.upper()
     return any(kw in n for kw in SKIP_KEYWORDS)
+
+
+def looks_like_pcset(name: str) -> bool:
+    n = (name or "").upper().strip()
+    return bool(re.search(r"COMPUTER\s*SET|PC\s*SET|\u0e04\u0e2d\u0e21\u0e1b\u0e23\u0e30\u0e01\u0e2d\u0e1a|^AUG\d", n))
 
 def parse_price(text) -> int:
     if not text:
@@ -168,13 +173,16 @@ async def scrape_jib_pcsets(page, max_pages: int = 3) -> list[dict]:
             products = await page.evaluate("""
                 () => {
                     const cards = document.querySelectorAll(
-                        '.div_product, .product_list_item, .box_product, [class*="product_box"]'
+                        'div.divboxpro, .div_product, .product_list_item, .box_product, [class*="product_box"]'
                     );
                     return Array.from(cards).map(card => {
-                        const nameEl  = card.querySelector('.proname, .product-name, .title, h3, a[title]');
-                        const priceEl = card.querySelector('.price, .product-price, [class*="price"]');
+                        const nameEl  = card.querySelector('span.promo_name')
+                                      || card.querySelector('.proname, .product-name, .title, h3, a[title]');
+                        const priceEl = card.querySelector('p.price_total')
+                                      || card.querySelector('.price, .product-price, [class*="price"]');
                         const imgEl   = card.querySelector('img');
-                        const linkEl  = card.querySelector('a');
+                        const links   = Array.from(card.querySelectorAll('a[href]'));
+                        const linkEl  = links.find(a => (a.href || '').includes('/web/product/readProduct/')) || links[0];
                         return {
                             name:  nameEl  ? (nameEl.getAttribute('title') || nameEl.innerText.trim()) : '',
                             price: priceEl ? priceEl.innerText.trim() : '',
@@ -191,7 +199,7 @@ async def scrape_jib_pcsets(page, max_pages: int = 3) -> list[dict]:
 
             for p in products:
                 name = p.get("name", "")
-                if not name or should_skip(name):
+                if not name or should_skip(name) or not looks_like_pcset(name):
                     continue
                 price = parse_price(p.get("price", ""))
                 if price < 500:

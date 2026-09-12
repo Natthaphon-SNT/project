@@ -102,6 +102,7 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
                 "prices": {"advice": int(r.price_advice or 0),
                            "jib": int(r.price_jib or 0),
                            "ihavecpu": int(r.price_ihavecpu or 0)},
+                "urls": {"advice": r.url_advice or "", "jib": r.url_jib or "", "ihavecpu": r.url_ihavecpu or ""},
                 "url": r.url_advice or r.url_jib or r.url_ihavecpu or "",
             })
 
@@ -122,13 +123,14 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
                     "prices": {"advice": int(r.price_advice or 0),
                                "jib": int(r.price_jib or 0),
                                "ihavecpu": int(r.price_ihavecpu or 0)},
+                    "urls": {"advice": r.url_advice or "", "jib": r.url_jib or "", "ihavecpu": r.url_ihavecpu or ""},
                     "url": r.url_advice or r.url_jib or r.url_ihavecpu or "",
                 })
 
     # ── Compatibility coverage guarantee ─────────────────────────────
     # Ensure the pool contains a mainboard matching every CPU socket present
     # in the candidate set, and RAM matching every supported DDR gen.
-    cpu_sockets = {sp.parse_part("CPU", c["name"]).get("socket")
+    cpu_sockets = {sp.parse_part("CPU", c["name"], specs=c.get("specs", "")).get("socket")
                    for c in candidates if c["category"] == "CPU"}
     cpu_sockets.discard(None)
 
@@ -150,6 +152,7 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
                     "prices": {"advice": int(r.price_advice or 0),
                                "jib": int(r.price_jib or 0),
                                "ihavecpu": int(r.price_ihavecpu or 0)},
+                    "urls": {"advice": r.url_advice or "", "jib": r.url_jib or "", "ihavecpu": r.url_ihavecpu or ""},
                     "url": r.url_advice or r.url_jib or r.url_ihavecpu or "",
                 })
 
@@ -157,13 +160,17 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
     ram_target = max(800, int(budget * alloc["RAM"]))
     for soc in sorted(cpu_sockets):
         add_extra("Mainboard",
-                  lambda r, s=soc: sp.parse_part("Mainboard", r.p_name or "").get("socket") == s,
+                  lambda r, s=soc: sp.parse_part(
+                      "Mainboard", r.p_name or "", specs=r.specs or ""
+                  ).get("socket") == s,
                   mb_target)
         ddr = {"AM4": ["DDR4"], "LGA1200": ["DDR4"], "LGA1700": ["DDR4", "DDR5"],
                "LGA1851": ["DDR5"], "AM5": ["DDR5"]}.get(soc, [])
         for gen in ddr:
             add_extra("RAM",
-                      lambda r, g=gen: sp.parse_part("RAM", r.p_name or "").get("ddr_gen") == g,
+                      lambda r, g=gen: sp.parse_part(
+                          "RAM", r.p_name or "", specs=r.specs or ""
+                      ).get("ddr_gen") == g,
                       ram_target)
 
     return candidates
@@ -172,7 +179,36 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
 def candidates_to_text(candidates: list) -> str:
     lines = []
     for i, c in enumerate(candidates):
-        lines.append(f"[{c['product_id']}] ({c['category']}) {c['name']} — {c['price']:,} THB")
+        parsed = sp.parse_part(c["category"], c["name"], specs=c.get("specs", ""))
+        facts = []
+        for field, label, unit in (
+            ("socket", "socket", ""), ("ram_support", "RAM", ""),
+            ("ddr_gen", "DDR", ""), ("form_factor", "form factor", ""),
+            ("vram_gb", "VRAM", "GB"), ("tdp", "board power", "W"),
+            ("recommended_psu_watt", "minimum system PSU", "W"),
+            ("watt", "PSU output", "W"),
+            ("power_connectors_required", "GPU power input", ""),
+            ("power_connectors", "PSU connectors", ""),
+            ("supports_ff", "case supports", ""),
+        ):
+            value = parsed.get(field)
+            if value in (None, "", [], {}):
+                continue
+            if isinstance(value, list):
+                value = "/".join(value)
+            elif isinstance(value, dict):
+                value = ", ".join(f"{name} x{count}" for name, count in value.items())
+            facts.append(f"{label}={value}{unit}")
+        fact_text = f" | FACTS: {'; '.join(facts)}" if facts else " | FACTS: insufficient"
+        sources = list(dict.fromkeys(
+            source.get("url", "") for source in parsed.get("power_sources", [])
+            if source.get("url")
+        ))
+        source_text = f" | power source: {sources[0]}" if sources else ""
+        lines.append(
+            f"[{c['product_id']}] ({c['category']}) {c['name']} — {c['price']:,} THB"
+            f"{fact_text}{source_text}"
+        )
     return "\n".join(lines)
 
 
@@ -352,6 +388,7 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
                 "product_id": cand["product_id"],
                 "real_price": cand["price"],
                 "shop_prices": cand["prices"],
+                "shop_urls": cand.get("urls", {}),
                 "url": cand["url"],
                 "matched_real_product": True,
             })
@@ -422,20 +459,22 @@ def assemble_build(candidates: list, budget: Optional[int], use_case: str,
     total_draw, need_watt = 80, 0
     if cpu:
         picked["CPU"] = cpu
-        cpu_spec = sp.parse_part("CPU", cpu["name"])
+        cpu_spec = sp.parse_part("CPU", cpu["name"], specs=cpu.get("specs", ""))
         total_draw += cpu_spec.get("tdp") or 65
 
         mbs = by_cat.get("Mainboard", [])
         mbs_match = [c for c in mbs
-                     if sp.parse_part("Mainboard", c["name"]).get("socket") == cpu_spec.get("socket")]
+                     if sp.parse_part("Mainboard", c["name"], specs=c.get("specs", "")).get("socket") == cpu_spec.get("socket")]
         mb = _nearest(mbs_match or mbs, int(budget * base["Mainboard"]))
         if mb:
             picked["Mainboard"] = mb
 
         rams = by_cat.get("RAM", [])
-        supported = sp.parse_part("Mainboard", mb["name"]).get("ram_support") if mb else None
+        supported = sp.parse_part(
+            "Mainboard", mb["name"], specs=mb.get("specs", "")
+        ).get("ram_support") if mb else None
         rams_match = [c for c in rams
-                      if sp.parse_part("RAM", c["name"]).get("ddr_gen") in (supported or [])]
+                      if sp.parse_part("RAM", c["name"], specs=c.get("specs", "")).get("ddr_gen") in (supported or [])]
         ram = _nearest(rams_match, int(budget * base["RAM"])) if rams_match else (
             _nearest(rams, int(budget * base["RAM"])) if not supported else None)
         if ram:
@@ -461,10 +500,14 @@ def assemble_build(candidates: list, budget: Optional[int], use_case: str,
         picked["SSD"] = ssd
 
     cases = by_cat.get("Case", [])
-    mb_ff = sp.parse_part("Mainboard", picked["Mainboard"]["name"]).get("form_factor") \
+    mb_ff = sp.parse_part(
+        "Mainboard", picked["Mainboard"]["name"], specs=picked["Mainboard"].get("specs", "")
+    ).get("form_factor") \
         if picked.get("Mainboard") else None
     cases_fit = [c for c in cases
-                 if not mb_ff or mb_ff in (sp.parse_part("Case", c["name"]).get("supports_ff") or [])]
+                 if not mb_ff or mb_ff in (sp.parse_part(
+                     "Case", c["name"], specs=c.get("specs", "")
+                 ).get("supports_ff") or [])]
     case = _nearest(cases_fit or cases, int(budget * base["Case"]))
     if case:
         picked["Case"] = case
@@ -508,9 +551,17 @@ SYSTEM_PROMPT_TEMPLATE = """คุณคือ IT-RECOMMEND AI ผู้เช�
 4. ต้องเข้ากันได้จริง: socket CPU ↔ Mainboard, DDR gen ↔ Mainboard, PSU watt ≥ ระบบ, form factor ↔ case
 5. ราคารวมต้องไม่เกินงบที่ผู้ใช้กำหนดเกิน ~10%
 6. ตอบเป็น JSON เท่านั้น ห้ามมี text อื่นนอก JSON
+7. FACTS ใน candidate มาจากรายละเอียดสินค้าที่ระบบแปลงเป็นข้อมูลมาตรฐานแล้ว ต้องใช้ค่านี้ก่อนข้อมูลจากความจำของโมเดล
+8. ถ้า FACTS ระบุ insufficient ห้ามเดาว่าผ่าน ให้บอกว่าต้องตรวจเพิ่ม และห้ามเขียนคำอธิบายที่ขัดกับ compatibility engine
 
 == Domain Rules ของระบบ (enforced โดย compatibility engine หลังจากนี้) ==
 {rules}
+
+== Power validation reminder ==
+- Treat GPU board power and the manufacturer's minimum system PSU as separate values.
+- RTX 5050 reference data is 130W board power with a 550W minimum system PSU; never call a 450W PSU sufficient for that reference.
+- High-tier GPUs (about 240W+ board power or a 750W+ manufacturer recommendation) need at least a 750W PSU.
+- When GPU/PSU connector data is present, match connector type and count. Missing connector data is UNKNOWN, not PASS.
 
 == รูปแบบ JSON ==
 {{
@@ -660,6 +711,7 @@ def _format_variant(built: dict, use_case: str, candidates: list) -> dict:
             "type": cat, "product_id": c["product_id"], "name": c["name"],
             "price": c["price"], "reason": reason_map.get(cat, ""),
             "shop_prices": full.get("prices", {}),
+            "shop_urls": full.get("urls", {}),
             "url": full.get("url", ""),
             "matched_real_product": True,
         })

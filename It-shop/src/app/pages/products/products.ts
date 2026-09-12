@@ -5,7 +5,6 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { combineLatest, Subscription } from 'rxjs';
 import { ApiService } from '../../services/api';
-import { CartService } from '../../services/cart';
 import { AuthService } from '../../services/auth';
 
 interface Product {
@@ -74,7 +73,6 @@ export class ProductsComponent implements OnInit, OnDestroy {
   constructor(
     private route: ActivatedRoute,
     private api: ApiService,
-    private cart: CartService,
     private auth: AuthService,
     private http: HttpClient,
     private cdr: ChangeDetectorRef
@@ -149,11 +147,6 @@ export class ProductsComponent implements OnInit, OnDestroy {
   onSearch() {
     // ไม่ clear category เพื่อให้ค้นหาภายในหมวดหมู่ปัจจุบันได้
     this.loadProducts();
-  }
-
-  addToCart(product: any) {
-    const result = this.cart.addToCart(product);
-    this.showToast(result.message, result.success ? 'success' : 'error');
   }
 
   showToast(msg: string, type: 'success' | 'error') {

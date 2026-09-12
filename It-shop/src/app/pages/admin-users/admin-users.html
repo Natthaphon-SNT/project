@@ -60,7 +60,7 @@
           <div class="user-email">{{ user.u_email }}</div>
           <div class="user-meta">
             <span class="user-role" [class]="getRoleClass(user.u_role)">{{ user.u_role }}</span>
-            <span class="user-stats">📦 {{ user.order_count }} | 🤖 {{ user.spec_count }}</span>
+            <span class="user-stats">🤖 {{ user.spec_count }} สเปก</span>
           </div>
         </div>
         <div class="user-actions" (click)="$event.stopPropagation()">
@@ -91,7 +91,6 @@
       <div class="detail-tabs">
         <button [class.active]="activeDetailTab === 'info'"   (click)="activeDetailTab = 'info'">📋 ข้อมูล</button>
         <button [class.active]="activeDetailTab === 'specs'"  (click)="activeDetailTab = 'specs'">🤖 สเปค ({{ userSpecs.length }})</button>
-        <button [class.active]="activeDetailTab === 'orders'" (click)="activeDetailTab = 'orders'">📦 ออเดอร์ ({{ userOrders.length }})</button>
       </div>
 
       <!-- Tab: Info -->
@@ -136,23 +135,6 @@
         </div>
       </div>
 
-      <!-- Tab: Orders -->
-      <div class="detail-content" *ngIf="activeDetailTab === 'orders'">
-        <div *ngIf="userOrders.length === 0" class="empty-detail">ไม่มีประวัติการสั่งซื้อ</div>
-        <div *ngFor="let order of userOrders" class="order-item">
-          <div class="order-header-row">
-            <span class="order-id">#{{ order.order_id }}</span>
-            <span class="order-date">{{ order.order_date | slice:0:10 }}</span>
-            <span class="order-status-badge">{{ getOrderStatusLabel(order.status) }}</span>
-            <span class="order-price">{{ order.total_price | number }} ฿</span>
-          </div>
-          <div class="order-items-mini" *ngIf="order.items?.length">
-            <span *ngFor="let item of order.items; let last = last">
-              {{ item.p_name }} x{{ item.quantity }}{{ !last ? ', ' : '' }}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Placeholder when no user selected -->

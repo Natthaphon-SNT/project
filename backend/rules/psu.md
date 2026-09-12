@@ -23,3 +23,6 @@ https://www.leadtek.com/eng/products/workstation_graphics(2)/nvidia_rtx_pro_5000
 - Cite manufacturer values separately from the system/headroom estimate.
 - Verify exact desktop model and board; exclude laptop variants and mismatched store URLs.
 - Wattage alone does not validate connectors, PSU quality, or full-load CPU turbo consumption.
+- Check the PSU's available connector count against the GPU requirement. Treat
+  PCIe 6+2-pin as PCIe 8-pin, but require an explicit 12VHPWR/12V-2x6 entry for
+  those newer GPU connectors.

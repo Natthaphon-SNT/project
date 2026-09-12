@@ -144,36 +144,6 @@
         </div>
       </div>
 
-      <!-- ประวัติการสั่งซื้อ -->
-      <div class="profile-section">
-        <h3 class="section-title">ประวัติการสั่งซื้อ</h3>
-
-        <div *ngIf="myOrders.length === 0" class="empty-orders">
-          <p>ยังไม่มีประวัติการสั่งซื้อ</p>
-        </div>
-
-        <div *ngFor="let order of myOrders" class="order-card">
-          <div class="order-header">
-            <span class="order-id">ออเดอร์ #{{ order.order_id }}</span>
-            <span class="order-date">{{ order.order_date | slice:0:10 }}</span>
-            <span class="order-status" [class]="getStatusClass(order.status)">
-              {{ getStatusLabel(order.status) }}
-            </span>
-          </div>
-          <div class="order-items" *ngIf="order.items?.length">
-            <div *ngFor="let item of order.items" class="order-item-row">
-              <span class="item-name">{{ item.p_name }}</span>
-              <span class="item-qty">x{{ item.quantity }}</span>
-              <span class="item-price">{{ item.price | number }} ฿</span>
-            </div>
-          </div>
-          <div class="order-footer">
-            <span class="payment-method">{{ order.payment_method === 'cod' ? 'เก็บเงินปลายทาง' : order.payment_method }}</span>
-            <span class="order-total">รวม: <strong>{{ order.total_price | number }} ฿</strong></span>
-          </div>
-        </div>
-      </div>
-
     </div>
   </div>
 </div>

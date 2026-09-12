@@ -61,23 +61,6 @@ export class ApiService {
     return this.http.delete(`${this.baseUrl}/api/promotions/${id}`, { headers: this.authHeaders() });
   }
 
-  // Orders
-  placeOrder(data: any): Observable<any> {
-    return this.http.post(`${this.baseUrl}/api/orders`, data);
-  }
-  getAllOrders(): Observable<any> {
-    return this.http.get(`${this.baseUrl}/api/orders`, { headers: this.authHeaders() });
-  }
-  getMyOrders(): Observable<any> {
-    return this.http.get(`${this.baseUrl}/api/orders/my`, { headers: this.authHeaders() });
-  }
-  getOrderDetail(id: number): Observable<any> {
-    return this.http.get(`${this.baseUrl}/api/orders/${id}`);
-  }
-  updateOrderStatus(id: number, status: string): Observable<any> {
-    return this.http.put(`${this.baseUrl}/api/orders/${id}/status`, { status }, { headers: this.authHeaders() });
-  }
-
   // Admin: User Management
   getAdminUsers(): Observable<any> {
     return this.http.get(`${this.baseUrl}/api/admin/users`, { headers: this.authHeaders() });
@@ -97,10 +80,6 @@ export class ApiService {
   getUserSpecs(uid: string): Observable<any> {
     return this.http.get(`${this.baseUrl}/api/admin/users/${uid}/specs`, { headers: this.authHeaders() });
   }
-  getUserOrders(uid: string): Observable<any> {
-    return this.http.get(`${this.baseUrl}/api/admin/users/${uid}/orders`, { headers: this.authHeaders() });
-  }
-
   // AI Recommend
   aiRecommend(prompt: string, mode: string = 'recommend'): Observable<any> {
     return this.http.post(`${this.baseUrl}/api/ai/recommend`, { prompt, mode }, { headers: this.authHeaders() });

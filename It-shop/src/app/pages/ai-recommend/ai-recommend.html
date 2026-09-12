@@ -215,10 +215,14 @@
           </div>
           <div class="part-reason" *ngIf="part.reason">{{ part.reason }}</div>
           <div class="shop-links">
-            <a *ngFor="let shop of shops" [href]="shop.getUrl(part.name)"
+            <a *ngFor="let shop of shops" [hidden]="!getPartShopUrl(part, shop)" [href]="getPartShopUrl(part, shop)"
               target="_blank" rel="noopener noreferrer" class="shop-link">
-              {{ shop.label }} →
+              {{ shop.label }}<span *ngIf="getPartShopPrice(part, shop.key) > 0"> {{ getPartShopPrice(part, shop.key) | number }} ฿</span> →
             </a>
+            <span *ngFor="let shop of shops" class="shop-link shop-link-empty" [hidden]="!!getPartShopUrl(part, shop)">
+              {{ shop.label }}<span *ngIf="getPartShopPrice(part, shop.key) > 0"> {{ getPartShopPrice(part, shop.key) | number }} ฿</span> —
+              {{ getPartShopPrice(part, shop.key) > 0 ? 'ไม่มีลิงก์ตรง' : 'ไม่มีสินค้า/ข้อมูล' }}
+            </span>
           </div>
         </div>
       </div>

@@ -126,11 +126,35 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.slot-meta, .picker-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 7px;
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+  margin: -2px 0 5px;
+}
+.slot-meta span + span::before, .picker-meta span + span::before {
+  content: '·';
+  color: #52525b;
+  margin-right: 7px;
+}
 .slot-prices {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 4px;
+}
+.slot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  a { color: #93c5fd; text-decoration: none; }
+  a:hover { color: #fff; text-decoration: underline; }
 }
 .slot-min-price {
   color: #a1a1aa;
@@ -281,6 +305,7 @@
   color: #f4f4f5; font-size: 13px; font-weight: 600; margin: 0 0 5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.picker-meta { margin-top: -2px; margin-bottom: 5px; }
 .picker-prices { display: flex; flex-wrap: wrap; gap: 3px; }
 .picker-min {
   color: #22c55e; font-weight: 700; font-size: 14px;
@@ -350,24 +375,6 @@
 
 .summary-actions {
   display: flex; flex-direction: column; gap: 8px;
-}
-
-.btn-add-all {
-  width: 100%;
-  padding: 12px;
-  background: linear-gradient(to right, #b91c1c, #dc2626);
-  border: none; border-radius: 10px;
-  color: #fff; font-size: 14px; font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 0 16px rgba(220,38,38,0.25);
-
-  &:hover:not(:disabled) {
-    background: linear-gradient(to right, #dc2626, #ef4444);
-    transform: translateY(-1px);
-    box-shadow: 0 0 24px rgba(220,38,38,0.4);
-  }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .btn-clear {

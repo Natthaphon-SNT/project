@@ -4,7 +4,7 @@
   <div class="page-header">
     <div>
       <h1>📜 ประวัติการจัดสเปค</h1>
-      <p class="header-sub">ดูสเปกที่เคยจัด เปรียบเทียบราคาทั้ง 3 ร้าน และลิงก์สั่งซื้อสินค้า</p>
+      <p class="header-sub">ดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน</p>
     </div>
     <div class="header-actions">
       <button routerLink="/pc-builder" class="btn-new btn-builder">🛠️ จัดสเปกเองใหม่</button>
@@ -122,7 +122,7 @@
                 {{ (item.result_data.totals.min || item.result_data.totals.best_total) | number }} ฿
               </div>
               <div class="store-card-sub">
-                {{ item.result_data.totals.best_store || 'ซื้อแยกชิ้นถูกสุด' }}
+                {{ item.result_data.totals.best_store || 'แยกชิ้นราคาต่ำสุด' }}
               </div>
             </div>
           </div>
@@ -161,21 +161,21 @@
                 <td>
                   <div *ngIf="p.price_advice > 0" class="store-link-cell">
                     <span class="p-price-val advice">{{ p.price_advice | number }}฿</span>
-                    <a *ngIf="p.url_advice" [href]="p.url_advice" target="_blank" class="store-btn advice">ซื้อ Advice ↗</a>
+                    <a *ngIf="p.url_advice" [href]="p.url_advice" target="_blank" rel="noopener noreferrer" class="store-btn advice">ดูสินค้า Advice ↗</a>
                   </div>
                   <span *ngIf="!p.price_advice || p.price_advice === 0" class="no-item">—</span>
                 </td>
                 <td>
                   <div *ngIf="p.price_jib > 0" class="store-link-cell">
                     <span class="p-price-val jib">{{ p.price_jib | number }}฿</span>
-                    <a *ngIf="p.url_jib" [href]="p.url_jib" target="_blank" class="store-btn jib">ซื้อ JIB ↗</a>
+                    <a *ngIf="p.url_jib" [href]="p.url_jib" target="_blank" rel="noopener noreferrer" class="store-btn jib">ดูสินค้า JIB ↗</a>
                   </div>
                   <span *ngIf="!p.price_jib || p.price_jib === 0" class="no-item">—</span>
                 </td>
                 <td>
                   <div *ngIf="p.price_ihavecpu > 0" class="store-link-cell">
                     <span class="p-price-val ihc">{{ p.price_ihavecpu | number }}฿</span>
-                    <a *ngIf="p.url_ihavecpu" [href]="p.url_ihavecpu" target="_blank" class="store-btn ihc">ซื้อ iHaveCPU ↗</a>
+                    <a *ngIf="p.url_ihavecpu" [href]="p.url_ihavecpu" target="_blank" rel="noopener noreferrer" class="store-btn ihc">ดูสินค้า iHaveCPU ↗</a>
                   </div>
                   <span *ngIf="!p.price_ihavecpu || p.price_ihavecpu === 0" class="no-item">—</span>
                 </td>
@@ -201,6 +201,7 @@
                 <th>รุ่น / รายละเอียด</th>
                 <th>ราคาประเมิน</th>
                 <th>เหตุผล</th>
+                <th>แหล่งสินค้า</th>
               </tr>
             </thead>
             <tbody>
@@ -209,6 +210,17 @@
                 <td class="part-name">{{ part.name }}</td>
                 <td class="part-price">{{ part.price }}</td>
                 <td class="part-reason">{{ part.reason }}</td>
+                <td>
+                  <div class="store-link-cell" *ngFor="let shop of shops">
+                    <a *ngIf="getPartShopUrl(part, shop)" [href]="getPartShopUrl(part, shop)" target="_blank" rel="noopener noreferrer" [ngClass]="['store-btn', shop.key]">
+                      {{ shop.label }}<span *ngIf="getPartShopPrice(part, shop.key) > 0"> {{ getPartShopPrice(part, shop.key) | number }}฿</span> ↗
+                    </a>
+                    <span *ngIf="!getPartShopUrl(part, shop)" class="no-item">
+                      {{ shop.label }}<span *ngIf="getPartShopPrice(part, shop.key) > 0"> {{ getPartShopPrice(part, shop.key) | number }}฿</span>
+                      — {{ getPartShopPrice(part, shop.key) > 0 ? 'ไม่มีลิงก์ตรง' : 'ไม่มีข้อมูล' }}
+                    </span>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>

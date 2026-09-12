@@ -11,6 +11,7 @@ REFERENCES = [
         "model": "GeForce RTX 5050 desktop (NVIDIA reference)",
         "tdp": 130,
         "recommended_psu_watt": 550,
+        "power_connectors_required": {"PCIe 8-pin": 1},
         "url": "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5050/",
         "title": "NVIDIA RTX 5050 specifications",
         "checked_at": "2026-09-07",

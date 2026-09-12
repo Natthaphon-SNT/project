@@ -15,3 +15,10 @@
 ## Guidance
 - Gaming builds: allocate 35–45% of total budget to GPU
 - Avoid pairing entry CPU with high GPU (bottleneck) and vice versa
+
+## Power connector evidence
+- Record the exact external connector required by the desktop card when the
+  manufacturer/product specification provides it (`PCIe 8-pin`, `12VHPWR`,
+  or `12V-2x6`). A 6+2-pin lead is treated as one PCIe 8-pin lead.
+- Do not infer a connector from wattage alone. Missing connector evidence is
+  `UNKNOWN`; it must not be shown as a confirmed PASS for high-tier GPUs.

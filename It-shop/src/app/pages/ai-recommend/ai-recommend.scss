@@ -392,6 +392,7 @@ $text-dim:   #9ca3af;
   transition: all 0.2s;
   &:hover { background: rgba(220,20,60,0.3); color: #fff; }
 }
+.shop-link-empty { color: #71717a; border-color: #3f3f46; }
 .pros-cons-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

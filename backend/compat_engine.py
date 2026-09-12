@@ -103,7 +103,10 @@ def check_psu_watt(parts) -> Optional[dict]:
             if part.get("tdp"):
                 total_draw += part["tdp"]
                 known.append(f"{label} {part['tdp']}W")
-            else:
+            elif label != "GPU" or not part.get("recommended_psu_watt"):
+                # A product-page system PSU recommendation already provides a
+                # complete system threshold. Missing board power must not turn
+                # that sourced threshold into UNKNOWN.
                 missing.append(f"ไม่ทราบกำลังไฟ {label}")
     manufacturer_min = (gpu or {}).get("recommended_psu_watt") or 0
     estimated_min = math.ceil(total_draw * 1.25)
@@ -127,14 +130,88 @@ def check_psu_watt(parts) -> Optional[dict]:
                      "detail": f"PSU {watt}W ผ่านเกณฑ์กำลังวัตต์ ≥{required}W — {basis}. ต้องตรวจหัวต่อและกำลังจ่ายจริงของ PSU เพิ่มเติม"}
 
 
-def check_high_gpu_psu(parts) -> Optional[dict]:
+def check_gpu_tier_psu(parts) -> Optional[dict]:
+    """Apply the high-tier GPU headroom rule independently of the wattage estimate.
+
+    R3 is the calculated minimum. R6 is a conservative tier rule for cards with
+    board power around 240W+ or a manufacturer recommendation of 750W+.
+    Missing PSU data remains UNKNOWN; it must never be presented as compatible.
+    """
     gpu, psu = _get(parts, "GPU"), _get(parts, "PSU")
-    if not gpu or not gpu.get("tdp") or not psu or not psu.get("watt"):
+    if not gpu:
         return None
-    if gpu["tdp"] >= 240 and psu["watt"] < 750:
+    tdp = gpu.get("tdp")
+    manufacturer_min = gpu.get("recommended_psu_watt")
+    high_tier = (tdp is not None and tdp >= 240) or (manufacturer_min is not None and manufacturer_min >= 750)
+    if not high_tier:
+        return None
+    required = max(750, manufacturer_min or 0)
+    if not psu or not psu.get("watt"):
+        return {"rule": "R6 High-tier GPU PSU", "ok": False, "severity": "UNKNOWN",
+                "required_watt": required,
+                "detail": f"GPU ระดับสูงต้องยืนยัน PSU อย่างน้อย {required}W (ยังไม่ทราบกำลังจ่าย PSU)"}
+    watt = psu["watt"]
+    if watt < required:
         return {"rule": "R6 High-tier GPU PSU", "ok": False, "severity": "WARNING",
-                "detail": f"GPU ระดับสูง (~{gpu['tdp']}W) ควรใช้ PSU ≥750W (ปัจจุบัน {psu['watt']}W)"}
-    return None
+                "required_watt": required,
+                "detail": f"GPU ระดับสูง (~{tdp or '?'}W) ควรใช้ PSU ≥{required}W (ปัจจุบัน {watt}W)"}
+    return {"rule": "R6 High-tier GPU PSU", "ok": True, "severity": "PASS",
+            "required_watt": required,
+            "detail": f"GPU ระดับสูงผ่านเกณฑ์ PSU tier: {watt}W ≥ {required}W"}
+
+
+# Backward-compatible helper for callers that imported the old check directly:
+# the original helper only returned a finding when the tier rule was not met.
+def check_high_gpu_psu(parts) -> Optional[dict]:
+    result = check_gpu_tier_psu(parts)
+    return result if result and result.get("severity") != "PASS" else None
+
+
+def _connector_count(connectors: dict, label: str) -> int:
+    """Return available count, accepting the common 6+2-pin spelling."""
+    if not connectors:
+        return 0
+    if label == "PCIe 8-pin":
+        return (connectors.get("PCIe 8-pin", 0)
+                + connectors.get("PCIe 6+2-pin", 0))
+    if label in ("12VHPWR", "12V-2x6"):
+        return connectors.get("12VHPWR", 0) + connectors.get("12V-2x6", 0)
+    return connectors.get(label, 0)
+
+
+def check_gpu_power_connectors(parts) -> Optional[dict]:
+    """Check GPU-required external power plugs against PSU connector data."""
+    gpu, psu = _get(parts, "GPU"), _get(parts, "PSU")
+    if not gpu:
+        return None
+    required = gpu.get("power_connectors_required")
+    # For old catalog rows without connector data, only high-tier GPUs are
+    # strong enough to require an explicit source-backed connector check.
+    if not required:
+        if gpu.get("tdp") is not None and gpu["tdp"] >= 240:
+            return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "UNKNOWN",
+                    "detail": "ไม่พบข้อมูลหัวต่อไฟ GPU จากสเปกอ้างอิง จึงยืนยันความเข้ากันไม่ได้"}
+        return None
+    if not psu:
+        return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "UNKNOWN",
+                "detail": "ยังไม่ทราบหัวต่อ PSU ที่มี จึงยืนยันหัวต่อไฟ GPU ไม่ได้",
+                "required_connectors": required}
+    available = psu.get("power_connectors")
+    if not available:
+        return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "UNKNOWN",
+                "detail": "ไม่พบข้อมูลหัวต่อไฟจากสเปก PSU จึงยืนยันความเข้ากันไม่ได้",
+                "required_connectors": required}
+    missing = []
+    for label, count in required.items():
+        if _connector_count(available, label) < count:
+            missing.append(f"{label} x{count}")
+    if missing:
+        return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "ERROR",
+                "detail": f"PSU ไม่มีหัวต่อที่ GPU ต้องใช้: {', '.join(missing)}",
+                "required_connectors": required, "available_connectors": available}
+    return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": True, "severity": "PASS",
+            "detail": "หัวต่อไฟ GPU และ PSU ตรงกันตามข้อมูลสเปก",
+            "required_connectors": required, "available_connectors": available}
 
 
 def check_cooler_tdp(parts) -> Optional[dict]:
@@ -180,6 +257,7 @@ def check_budget(parts_with_price, budget) -> Optional[dict]:
 
 
 ALL_CHECKS = [check_socket, check_ram_gen, check_psu_watt,
+              check_gpu_tier_psu, check_gpu_power_connectors,
               check_cooler_tdp, check_case_ff]
 
 _SEV_ORDER = {"ERROR": 3, "WARNING": 2, "UNKNOWN": 1, "PASS": 0}
@@ -236,6 +314,8 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
         elif e["rule"].startswith("R3") or e["rule"].startswith("R6"):
             if e.get("required_watt"):
                 suggestions.append(f"เลือก PSU อย่างน้อย {e['required_watt']}W และตรวจหัวต่อจากสเปกสินค้าจริง")
+        elif e["rule"].startswith("R8"):
+            suggestions.append("ตรวจหัวต่อไฟ GPU กับ PSU จากสเปกสินค้าจริง (PCIe 8-pin, 12VHPWR หรือ 12V-2x6)")
         elif e["rule"].startswith("R4"):
             suggestions.append("ใช้ CPU cooler ที่ rated TDP สูงกว่า CPU")
 

@@ -15,7 +15,6 @@ import { Router } from '@angular/router';
 export class ProfileComponent implements OnInit {
   currentUser: any = null;
   profileData: any = null;
-  myOrders: any[] = [];
   isLoading = true;
   isEditMode = false;
   isSaving = false;
@@ -56,7 +55,6 @@ export class ProfileComponent implements OnInit {
       return;
     }
     this.loadProfile();
-    this.loadMyOrders();
   }
 
   private getHeaders(): HttpHeaders {
@@ -83,18 +81,6 @@ export class ProfileComponent implements OnInit {
         this.isLoading = false;
         this.cdr.detectChanges();
       }
-    });
-  }
-
-  loadMyOrders() {
-    this.http.get<any>(`${this.API}/api/orders/my`, { headers: this.getHeaders() }).subscribe({
-      next: (res) => {
-        if (res.status === 'success') {
-          this.myOrders = res.data;
-          this.cdr.detectChanges();
-        }
-      },
-      error: () => {}
     });
   }
 

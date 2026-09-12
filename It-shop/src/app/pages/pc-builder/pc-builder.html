@@ -35,6 +35,9 @@
           <img [src]="getProductImage(slot.selected)" [alt]="slot.selected.p_name" class="slot-img" (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
           <div class="slot-info">
             <p class="slot-product-name" [title]="slot.selected.p_name">{{ slot.selected.p_name }}</p>
+            <div class="slot-meta" *ngIf="getProductMetadata(slot.selected, slot).length">
+              <span *ngFor="let meta of getProductMetadata(slot.selected, slot)">{{ meta }}</span>
+            </div>
 
             <!-- Price comparison per item -->
             <div class="slot-prices">
@@ -47,6 +50,12 @@
               <span class="price-tag ihc" *ngIf="slot.selected.price_ihavecpu > 0">
                 iHaveCPU: {{ slot.selected.price_ihavecpu | number }}฿
               </span>
+            </div>
+
+            <div class="slot-links">
+              <a *ngIf="slot.selected.url_advice" [href]="slot.selected.url_advice" target="_blank" rel="noopener noreferrer">ดูสินค้า Advice ↗</a>
+              <a *ngIf="slot.selected.url_jib" [href]="slot.selected.url_jib" target="_blank" rel="noopener noreferrer">ดูสินค้า JIB ↗</a>
+              <a *ngIf="slot.selected.url_ihavecpu" [href]="slot.selected.url_ihavecpu" target="_blank" rel="noopener noreferrer">ดูสินค้า iHaveCPU ↗</a>
             </div>
 
             <p class="slot-min-price">ราคาต่ำสุด: <strong>{{ getMinPrice(slot.selected) | number }} ฿</strong></p>
@@ -88,6 +97,9 @@
                      (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
                 <div class="picker-item-info">
                   <p class="picker-item-name">{{ p.p_name }}</p>
+                  <div class="picker-meta" *ngIf="getProductMetadata(p, slot).length">
+                    <span *ngFor="let meta of getProductMetadata(p, slot)">{{ meta }}</span>
+                  </div>
                   <div class="picker-prices">
                     <span *ngIf="p.price_advice > 0" class="price-tag advice">Advice: {{ p.price_advice | number }}฿</span>
                     <span *ngIf="p.price_jib > 0" class="price-tag jib">JIB: {{ p.price_jib | number }}฿</span>
@@ -195,9 +207,6 @@
         <div class="summary-actions">
           <button class="btn-save-spec" (click)="saveAndNavigateToHistory()" [disabled]="getSelectedCount() === 0 || isSaving">
             💾 {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกและดูสรุปสเปก (แยก 3 ร้าน)' }}
-          </button>
-          <button class="btn-add-all" (click)="addAllToCart()" [disabled]="getSelectedCount() === 0">
-            🛒 เพิ่มทั้งหมดลงตะกร้า
           </button>
           <button class="btn-clear" (click)="clearAll()" [disabled]="getSelectedCount() === 0">
             ล้างทั้งหมด

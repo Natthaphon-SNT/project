@@ -2,7 +2,6 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule, Location } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ApiService } from '../../services/api';
-import { CartService } from '../../services/cart';
 
 @Component({
   selector: 'app-product-detail',
@@ -24,7 +23,6 @@ export class ProductDetail implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private api: ApiService,
-    private cart: CartService,
     private location: Location,
     private cdr: ChangeDetectorRef
   ) {}
@@ -164,13 +162,6 @@ export class ProductDetail implements OnInit {
     }
     img.style.padding = '20px';
     img.style.objectFit = 'contain';
-  }
-
-  addToCart() {
-    if (this.product) {
-      const result = this.cart.addToCart(this.product);
-      alert(result.message);
-    }
   }
 
   goBack() {

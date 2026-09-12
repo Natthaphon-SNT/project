@@ -11,6 +11,11 @@ interface Part {
   name: string;
   price: string;
   reason: string;
+  product_id?: string;
+  real_price?: number;
+  shop_prices?: Record<string, number>;
+  shop_urls?: Record<string, string>;
+  matched_real_product?: boolean;
 }
 
 interface RecommendResult {
@@ -161,9 +166,9 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── AI Provider Settings ─────────────────────────────────────────────────────
   showSettingsPanel = false;
-  settingsTab: 'google' | 'openai' | 'openrouter' = 'google';
+  settingsTab: 'google' | 'openai' | 'openrouter' = 'openai';
   aiSettings: AiProviderSettings = {
-    provider: 'google', model: 'gemini-2.0-flash', api_key: '', custom_model: ''
+    provider: 'openai', model: 'gpt-4o-mini', api_key: '', custom_model: ''
   };
   settingsSaving = false;
   settingsSaved  = false;
@@ -277,11 +282,18 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   ];
 
   shops = [
-    { label: 'Advice',    getUrl: (q: string) => `https://www.advice.co.th/search?keyword=${encodeURIComponent(q)}` },
-    { label: 'JIB',       getUrl: (q: string) => `https://www.jib.co.th/web/product/product_search/0?q=${encodeURIComponent(q)}` },
-    { label: 'iHaveCPU',  getUrl: (q: string) => `https://www.google.com/search?q=site:ihavecpu.com+${encodeURIComponent(q)}` },
-    { label: 'Banana IT', getUrl: (q: string) => `https://www.google.com/search?q=site:bnn.in.th+${encodeURIComponent(q)}` },
+    { key: 'advice',   label: 'Advice' },
+    { key: 'jib',      label: 'JIB' },
+    { key: 'ihavecpu', label: 'iHaveCPU' },
   ];
+
+  getPartShopUrl(part: Part, shop: { key: string }): string {
+    return part.shop_urls?.[shop.key] || '';
+  }
+
+  getPartShopPrice(part: Part, shopKey: string): number {
+    return Number(part.shop_prices?.[shopKey] || 0);
+  }
 
   loadingSteps = [
     '🔍 วิเคราะห์ความต้องการ...',
@@ -355,7 +367,6 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
   saveAiSettings() {
     this.settingsError = ''; this.settingsSaved = false;
-    if (!this.aiSettings.api_key.trim()) { this.settingsError = 'API Key is required'; return; }
     const token = localStorage.getItem('lt_token');
     if (!token || this.currentUser.uid === 'guest') { this.settingsSaved = true; return; }
     this.settingsSaving = true;
@@ -716,10 +727,6 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
   private async callGemini(prompt: string): Promise<string> {
     if (this.authError) throw new Error(this.authError);
-    if (!this.aiSettings.api_key.trim()) {
-      this.showSettingsPanel = true;
-      throw new Error('กรุณาเปิด Settings และใส่ API Key ของ Provider ที่เลือก');
-    }
     const token = localStorage.getItem('lt_token') || '';
     const res = await fetch('http://localhost:3000/api/ai/recommend', {
       method: 'POST', headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {})},
@@ -732,7 +739,10 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       this.authError = 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่';
       throw new Error(this.authError);
     }
-    if (!res.ok || data.status !== 'success') throw new Error(data.detail || data.message || 'AI request failed');
+    if (!res.ok || data.status !== 'success') {
+      if (res.status === 400 && (data.detail || '').includes('API Key')) this.showSettingsPanel = true;
+      throw new Error(data.detail || data.message || 'AI request failed');
+    }
     this.activeSessionId = data.session_id;
     this.chatMessages = [...this.chatMessages, {role: 'user', content: prompt}, {role: 'assistant', content: data.data}];
     this.loadSessions();

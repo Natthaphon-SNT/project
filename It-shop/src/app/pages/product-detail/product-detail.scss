@@ -292,19 +292,6 @@
     border: none;
   }
 
-  .btn-add-cart {
-    background: linear-gradient(to right, #b91c1c, #dc2626);
-    color: white;
-    &:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(220,38,38,0.35); }
-  }
-
-  .btn-view-cart {
-    background: #27272a;
-    color: #e4e4e7;
-    border: 1px solid #3f3f46;
-    &:hover { background: #3f3f46; }
-  }
-
   .btn-back-list {
     background: transparent;
     color: #71717a;

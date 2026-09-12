@@ -93,13 +93,31 @@ Deterministic
 ## R6: GPU ↔ PSU Power Connectors / Tier
 
 ### Rule
-High-tier GPUs (RTX 4070 Ti+, RX 7900 XT+) require PSU >= 750W.
+High-tier GPUs (approximately 240W+ board power or a manufacturer PSU
+recommendation of 750W+) require PSU >= 750W. The GPU's explicit connector
+requirements must also be present on the PSU.
 
 ### Severity
 WARNING
 
 ### Validation
 Deterministic (tier table)
+
+---
+
+## R8: GPU <-> PSU Power Connector
+
+### Rule
+For every known GPU connector requirement, the PSU must expose at least the
+same connector count. PCIe 6+2-pin satisfies PCIe 8-pin. A missing connector
+specification is `UNKNOWN`, never PASS.
+
+### Severity
+- Known mismatch: ERROR
+- Missing connector evidence: UNKNOWN
+
+### Validation
+Deterministic (manufacturer/product specs)
 
 ---
 

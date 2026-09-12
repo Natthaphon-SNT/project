@@ -21,8 +21,7 @@ export class AdminUsersComponent implements OnInit {
   // Selected user detail panel
   selectedUser: any = null;
   userSpecs: any[] = [];
-  userOrders: any[] = [];
-  activeDetailTab: 'info' | 'specs' | 'orders' = 'info';
+  activeDetailTab: 'info' | 'specs' = 'info';
   isLoadingDetail = false;
 
   // Edit modal
@@ -92,24 +91,13 @@ export class AdminUsersComponent implements OnInit {
     this.selectedUser = user;
     this.activeDetailTab = 'info';
     this.userSpecs = [];
-    this.userOrders = [];
     this.loadUserSpecs(user.uid);
-    this.loadUserOrders(user.uid);
   }
 
   loadUserSpecs(uid: string) {
     this.http.get<any>(`${this.API}/api/admin/users/${uid}/specs`, { headers: this.getHeaders() }).subscribe({
       next: (res) => {
         if (res.status === 'success') this.userSpecs = res.data;
-        this.cdr.detectChanges();
-      }
-    });
-  }
-
-  loadUserOrders(uid: string) {
-    this.http.get<any>(`${this.API}/api/admin/users/${uid}/orders`, { headers: this.getHeaders() }).subscribe({
-      next: (res) => {
-        if (res.status === 'success') this.userOrders = res.data;
         this.cdr.detectChanges();
       }
     });
@@ -222,11 +210,6 @@ export class AdminUsersComponent implements OnInit {
   getModeIcon(mode: string): string {
     const map: Record<string, string> = { recommend: '🤖', compare: '⚖️', compat: '🔗' };
     return map[mode] || '📋';
-  }
-
-  getOrderStatusLabel(s: string): string {
-    const map: Record<string, string> = { pending: '⏳ รอ', shipping: '🚚 จัดส่ง', completed: '✅ สำเร็จ', cancelled: '❌ ยกเลิก' };
-    return map[s] || s;
   }
 
   private showMessage(msg: string, type: 'success' | 'error') {

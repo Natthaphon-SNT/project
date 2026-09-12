@@ -3,7 +3,6 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { CartService } from '../../services/cart';
 import { AuthService } from '../../services/auth';
 
 export interface Product {
@@ -18,6 +17,23 @@ export interface Product {
   url_ihavecpu?: string;
   img_url: string;
   p_description: string;
+  specs?: string;
+  compatibility?: {
+    socket?: string;
+    ram_support?: string[];
+    ddr_gen?: string;
+    form_factor?: string;
+    supports_ff?: string[];
+    interface?: string;
+    capacity_gb?: number;
+    speed_mhz?: number;
+    vram_gb?: number;
+    watt?: number;
+    tdp?: number;
+    recommended_psu_watt?: number;
+    power_connectors?: Record<string, number>;
+    power_connectors_required?: Record<string, number>;
+  };
   category: string;
   cid?: string;
 }
@@ -83,7 +99,6 @@ export class PcBuilderComponent implements OnInit {
 
   constructor(
     private http: HttpClient,
-    private cart: CartService,
     public auth: AuthService,
     private router: Router,
     private cdr: ChangeDetectorRef
@@ -141,7 +156,70 @@ export class PcBuilderComponent implements OnInit {
   filteredProducts(slot: BuildSlot): Product[] {
     const q = slot.search.trim().toLowerCase();
     if (!q) return slot.products;
-    return slot.products.filter(p => p.p_name.toLowerCase().includes(q));
+    return slot.products.filter(p => {
+      const searchable = [p.p_name, ...this.getProductMetadata(p, slot)]
+        .join(' ')
+        .toLowerCase();
+      return searchable.includes(q);
+    });
+  }
+
+  /** Small, searchable facts shown below a product name in the picker. */
+  getProductMetadata(product: Product, slot: BuildSlot): string[] {
+    const facts = product.compatibility || {};
+    const name = (product.p_name || '').toUpperCase();
+    const result: string[] = [];
+    const add = (value: string | number | undefined | null) => {
+      if (value !== undefined && value !== null && String(value).trim()) {
+        result.push(String(value));
+      }
+    };
+    const list = (value?: string[]) => value?.filter(Boolean).join('/') || '';
+
+    switch (slot.key) {
+      case 'cpu':
+        add(facts.socket ? `Socket ${facts.socket}` : undefined);
+        break;
+      case 'mb':
+        add(facts.socket ? `Socket ${facts.socket}` : undefined);
+        add(list(facts.ram_support) ? `RAM ${list(facts.ram_support)}` : undefined);
+        add(facts.form_factor);
+        break;
+      case 'ram':
+        add(facts.ddr_gen);
+        add(facts.capacity_gb ? `${facts.capacity_gb}GB` : undefined);
+        add(facts.speed_mhz ? `${facts.speed_mhz}MHz` : undefined);
+        break;
+      case 'ssd': {
+        const storage = (facts.interface || '').toUpperCase();
+        const isHdd = /\bHDD\b|HARD\s*DISK/.test(name);
+        const isM2 = /M\.2|NVME|M2/.test(name) || storage === 'NVME';
+        if (isHdd) add('HDD');
+        else if (isM2) add(`M.2${storage ? ` ${storage}` : ''}`);
+        else if (storage) add(storage === 'SATA' ? 'SSD SATA' : storage);
+        else if (/\bSSD\b|SOLID\s*STATE/.test(name)) add('SSD');
+        if (facts.capacity_gb) {
+          const capacity = facts.capacity_gb >= 1024
+            ? `${Math.round(facts.capacity_gb / 1024)}TB`
+            : `${facts.capacity_gb}GB`;
+          add(capacity);
+        }
+        break;
+      }
+      case 'psu':
+        add(facts.watt ? `${facts.watt}W` : undefined);
+        break;
+      case 'gpu':
+        add(facts.vram_gb ? `${facts.vram_gb}GB` : undefined);
+        add(facts.recommended_psu_watt ? `PSU ≥${facts.recommended_psu_watt}W` : undefined);
+        break;
+      case 'case':
+        add(facts.form_factor);
+        break;
+      default:
+        break;
+    }
+    return result;
   }
 
   openPicker(slot: BuildSlot) {
@@ -265,7 +343,7 @@ export class PcBuilderComponent implements OnInit {
       return { bestStore: fullStores[0].name, bestTotal: fullStores[0].total, isSingleStore: true };
     }
 
-    return { bestStore: 'ซื้อแยกชิ้น (Mixed Best)', bestTotal: this.getTotalPrice(), isSingleStore: false };
+    return { bestStore: 'แยกชิ้นราคาต่ำสุด (Mixed Best)', bestTotal: this.getTotalPrice(), isSingleStore: false };
   }
 
   // ─── Save Build & Navigate to History ───
@@ -318,7 +396,7 @@ export class PcBuilderComponent implements OnInit {
       mode: 'manual',
       title: `จัดสเปกเอง (${this.getTotalPrice().toLocaleString()} ฿)`,
       inputSummary: `${selected.length}/${this.slots.length} ชิ้นส่วน | ราคาเริ่มต้น ${this.getTotalPrice().toLocaleString()} ฿`,
-      result_data: {
+      result_data: JSON.stringify({
         parts: partsData,
         totals: {
           min: this.getTotalPrice(),
@@ -332,7 +410,7 @@ export class PcBuilderComponent implements OnInit {
           best_total: bestInfo.bestTotal
         },
         compatibility: this.compatResult
-      }
+      })
     };
 
     this.http.post<any>(`${API}/api/spec-history`, payload).subscribe({
@@ -348,21 +426,6 @@ export class PcBuilderComponent implements OnInit {
         this.showToast('เกิดข้อผิดพลาดในการบันทึกสเปก', 'error');
       }
     });
-  }
-
-  // ─── Add all to cart ───
-  addAllToCart() {
-    const selected = this.slots.filter(s => s.selected);
-    if (selected.length === 0) {
-      this.showToast('ยังไม่ได้เลือกสินค้าเลย', 'error');
-      return;
-    }
-    let added = 0;
-    for (const slot of selected) {
-      const result = this.cart.addToCart(slot.selected!);
-      if (result.success) added++;
-    }
-    this.showToast(`เพิ่ม ${added} ชิ้นลงตะกร้าสำเร็จ ✓`, 'success');
   }
 
   clearAll() {
