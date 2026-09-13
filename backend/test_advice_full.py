@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import unittest
+if __name__ != "__main__":
+    raise unittest.SkipTest("manual live-site diagnostic")
 import asyncio
 import json
 import sys

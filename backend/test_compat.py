@@ -1,4 +1,7 @@
 """Smoke test: spec_parser + compat_engine against real shop.db products."""
+import unittest
+if __name__ != "__main__":
+    raise unittest.SkipTest("manual database smoke diagnostic")
 import sqlite3
 import sys
 sys.stdout.reconfigure(encoding="utf-8")

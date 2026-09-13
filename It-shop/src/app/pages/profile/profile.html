@@ -6,7 +6,12 @@
     <p>กำลังโหลดข้อมูล...</p>
   </div>
 
-  <div *ngIf="!isLoading" class="profile-layout">
+  <div *ngIf="!isLoading && loadError" class="loading-state" role="alert">
+    <p>ไม่สามารถเชื่อมต่อเพื่อโหลดโปรไฟล์ได้</p>
+    <button type="button" class="btn-edit-profile" (click)="loadProfile()">ลองใหม่</button>
+  </div>
+
+  <div *ngIf="!isLoading && !loadError" class="profile-layout">
 
     <!-- Sidebar: Card โปรไฟล์ -->
     <div class="profile-sidebar">

@@ -30,6 +30,7 @@ interface HistoryShop {
 export class HistoryComponent implements OnInit {
   historyList: SpecHistoryItem[] = [];
   isLoading = true;
+  loadError = false;
   expandedId: number | null = null;
   filterMode: 'all' | 'manual' | 'recommend' | 'compare' | 'compat' = 'all';
 
@@ -65,6 +66,7 @@ export class HistoryComponent implements OnInit {
 
   fetchHistory() {
     this.isLoading = true;
+    this.loadError = false;
     const uid = this.getCurrentUid();
     if (!uid) {
       this.isLoading = false;
@@ -72,7 +74,7 @@ export class HistoryComponent implements OnInit {
       return;
     }
 
-    this.http.get<any>(`${this.API}/api/spec-history?uid=${uid}&limit=50`, { headers: this.getHeaders() })
+    this.http.get<any>(`${this.API}/api/spec-history?limit=50`, { headers: this.getHeaders() })
       .subscribe({
         next: (res) => {
           this.isLoading = false;
@@ -105,6 +107,8 @@ export class HistoryComponent implements OnInit {
         },
         error: () => {
           this.isLoading = false;
+          this.loadError = true;
+          this.historyList = [];
           this.cdr.detectChanges();
         }
       });

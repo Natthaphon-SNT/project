@@ -11,6 +11,14 @@
     <p class="builder-subtitle">เลือก Component ที่ต้องการ เปรียบเทียบราคาแยก 3 ร้าน พร้อมระบบตรวจเช็คความเข้ากันได้</p>
   </div>
 
+  <div *ngIf="catalogLoadError" class="compat-banner compat-error" role="alert">
+    <div class="compat-header">
+      <span class="compat-icon">❌</span>
+      <span class="compat-title">ไม่สามารถเชื่อมต่อเพื่อโหลดรายการสินค้าได้</span>
+      <button type="button" class="btn-change" (click)="reloadCatalog()">ลองใหม่</button>
+    </div>
+  </div>
+
   <div class="builder-layout">
 
     <!-- ─── LEFT: Component Slots ─── -->

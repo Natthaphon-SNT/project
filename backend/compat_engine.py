@@ -221,6 +221,9 @@ def check_cooler_tdp(parts) -> Optional[dict]:
     if not cooler.get("is_cpu_cooler"):
         return {"rule": "R4 CPU Cooler TDP", "ok": True, "severity": "UNKNOWN",
                 "detail": "รายการนี้ดูเหมือนพัดลมเคส/อุปกรณ์เสริม ไม่ใช่ CPU cooler — ตรวจสอบว่ามี CPU cooler หรือไม่"}
+    socket_result = check_cooler_socket(parts)
+    if socket_result and socket_result.get("severity") == "ERROR":
+        return socket_result
     rating, tdp = cooler.get("rating_watt"), cpu.get("tdp")
     if rating is None or tdp is None:
         return {"rule": "R4 CPU Cooler TDP", "ok": True, "severity": "UNKNOWN",
@@ -229,6 +232,22 @@ def check_cooler_tdp(parts) -> Optional[dict]:
     return {"rule": "R4 CPU Cooler TDP", "ok": ok,
             "severity": "PASS" if ok else "WARNING",
             "detail": f"Cooler ~{rating}W vs CPU ~{tdp}W" + ("" if ok else " → เสี่ยง thermal throttling")}
+
+
+def check_cooler_socket(parts) -> Optional[dict]:
+    cooler, cpu = _get(parts, "Cooler"), _get(parts, "CPU")
+    if not cooler or not cpu or not cooler.get("is_cpu_cooler"):
+        return None
+    cpu_socket = cpu.get("socket")
+    supported = cooler.get("sockets") or []
+    if not cpu_socket or not supported:
+        return {"rule": "R4S CPU ↔ Cooler Socket", "ok": False, "severity": "UNKNOWN",
+                "detail": "ยังยืนยัน socket ของ CPU cooler ไม่ได้จากข้อมูลสินค้า"}
+    ok = cpu_socket in supported
+    return {"rule": "R4S CPU ↔ Cooler Socket", "ok": ok,
+            "severity": "PASS" if ok else "ERROR",
+            "detail": f"CPU socket = {cpu_socket} / Cooler รองรับ {', '.join(supported)}"
+                      + ("" if ok else " → ติดตั้งร่วมกันไม่ได้")}
 
 
 def check_case_ff(parts) -> Optional[dict]:
@@ -249,16 +268,17 @@ def check_budget(parts_with_price, budget) -> Optional[dict]:
     if not budget:
         return None
     total = sum(p.get("price") or 0 for p in parts_with_price)
-    limit = budget * 1.10
-    ok = total <= limit
+    over = max(0, total - budget)
+    ok = over == 0
     return {"rule": "R7 Budget", "ok": ok,
             "severity": "PASS" if ok else "WARNING",
-            "detail": f"ราคารวมจริง {total:,.0f}฿ vs งบ {budget:,.0f}฿ (เพดาน+10% = {limit:,.0f}฿)"}
+            "detail": (f"ราคารวมจริง {total:,.0f}฿ อยู่ในงบ {budget:,.0f}฿" if ok else
+                       f"ราคารวมจริง {total:,.0f}฿ เกินงบที่ตั้งไว้ {over:,.0f} บาท (งบ {budget:,.0f}฿)")}
 
 
 ALL_CHECKS = [check_socket, check_ram_gen, check_psu_watt,
               check_gpu_tier_psu, check_gpu_power_connectors,
-              check_cooler_tdp, check_case_ff]
+              check_cooler_socket, check_cooler_tdp, check_case_ff]
 
 _SEV_ORDER = {"ERROR": 3, "WARNING": 2, "UNKNOWN": 1, "PASS": 0}
 
@@ -316,6 +336,8 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
                 suggestions.append(f"เลือก PSU อย่างน้อย {e['required_watt']}W และตรวจหัวต่อจากสเปกสินค้าจริง")
         elif e["rule"].startswith("R8"):
             suggestions.append("ตรวจหัวต่อไฟ GPU กับ PSU จากสเปกสินค้าจริง (PCIe 8-pin, 12VHPWR หรือ 12V-2x6)")
+        elif e["rule"].startswith("R4S"):
+            suggestions.append("ใช้ CPU cooler ที่รองรับ socket ของ CPU โดยตรง")
         elif e["rule"].startswith("R4"):
             suggestions.append("ใช้ CPU cooler ที่ rated TDP สูงกว่า CPU")
 

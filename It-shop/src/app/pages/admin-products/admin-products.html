@@ -58,10 +58,19 @@
   <!-- ตารางสินค้า -->
   <div class="table-card">
     <div class="table-header-row">
-      <h2>รายการสินค้าทั้งหมด ({{ products.length }} รายการ)</h2>
+      <h2>รายการสินค้าทั้งหมด ({{ totalProducts }} รายการ)</h2>
+      <div>
+        <input type="search" [(ngModel)]="searchQuery" (keyup.enter)="applySearch()" placeholder="ค้นหาสินค้า">
+        <button type="button" class="btn-edit" (click)="applySearch()">ค้นหา</button>
+      </div>
     </div>
 
-    <div class="table-wrapper">
+    <div *ngIf="loadError" class="empty-state" role="alert">
+      ไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้
+      <button type="button" class="btn-edit" (click)="loadProducts(page)">ลองใหม่</button>
+    </div>
+
+    <div class="table-wrapper" *ngIf="!loadError">
       <table>
         <thead>
           <tr>
@@ -74,7 +83,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let p of products">
+          <tr *ngFor="let p of visibleProducts">
             <td>
               <img [src]="p.img_url || 'assets/default.png'" class="product-thumb" [alt]="p.p_name">
             </td>
@@ -91,8 +100,13 @@
       </table>
     </div>
 
-    <div *ngIf="products.length === 0" class="empty-state">
+    <div *ngIf="!loadError && products.length === 0" class="empty-state">
       ยังไม่มีสินค้าในระบบ
+    </div>
+    <div *ngIf="!loadError && totalProducts > pageSize" class="form-actions">
+      <button type="button" class="btn-cancel" [disabled]="page <= 1" (click)="loadProducts(page - 1)">ก่อนหน้า</button>
+      <span>หน้า {{ page }} / {{ totalPages }}</span>
+      <button type="button" class="btn-save" [disabled]="page >= totalPages" (click)="loadProducts(page + 1)">ถัดไป</button>
     </div>
   </div>
 

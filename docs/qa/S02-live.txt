@@ -1,0 +1,11 @@
+
+============================================================
+  IT-RECOMMEND Full Scraper v3
+  Stores      : advice, jib, ihavecpu
+  Pages       : 2 per category
+  Fetch detail: YES (slow)
+  Started     : 2026-09-13 23:05:52
+============================================================
+
+=== [Advice] ===
+    [url mismatch] advice: คอมประกอบ Advice : Computer Set AMD #A303 RYZEN 7 7800X3D AMD RX 7600  -> คอมประกอบ-advice-computer-set-amd-a303-ryzen-7-7800x3d-amd-rx-7600-8gb-power-color-fighter

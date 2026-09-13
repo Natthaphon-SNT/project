@@ -16,6 +16,7 @@ export class ProfileComponent implements OnInit {
   currentUser: any = null;
   profileData: any = null;
   isLoading = true;
+  loadError = false;
   isEditMode = false;
   isSaving = false;
   isChangingPassword = false;
@@ -64,6 +65,7 @@ export class ProfileComponent implements OnInit {
 
   loadProfile() {
     this.isLoading = true;
+    this.loadError = false;
     this.http.get<any>(`${this.API}/api/profile`, { headers: this.getHeaders() }).subscribe({
       next: (res) => {
         if (res.status === 'success') {
@@ -79,6 +81,8 @@ export class ProfileComponent implements OnInit {
       },
       error: () => {
         this.isLoading = false;
+        this.loadError = true;
+        this.profileData = null;
         this.cdr.detectChanges();
       }
     });

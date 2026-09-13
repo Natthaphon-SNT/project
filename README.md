@@ -1,254 +1,250 @@
-# ⚡ IT-RECOMMEND — ระบบแนะนำและจัดสเปคคอมพิวเตอร์เปรียบเทียบ 3 ร้าน
+﻿# IT-RECOMMEND — ระบบแนะนำและจัดสเปกคอมพิวเตอร์
 
-> **เว็บแอปพลิเคชันจัดสเปคคอมพิวเตอร์อัจฉริยะ เปรียบเทียบราคาจริงแบบ Real-time จาก 3 ร้านค้าไอทีชั้นนำของไทย (Advice, JIB, iHaveCPU) พร้อมระบบ AI แนะนำสเปคแบบ Hybrid RAG และระบบตรวจเช็คความเข้ากันได้แบบ Deterministic 100%**
+เว็บแอปพลิเคชันสำหรับค้นหาอุปกรณ์ เปรียบเทียบราคา Advice, JIB และ iHaveCPU จัดสเปกด้วยตนเอง หรือขอคำแนะนำจาก AI โดยใช้รายการสินค้าและราคาในฐานข้อมูลร่วมกับกฎตรวจสอบฮาร์ดแวร์
 
----
+เอกสารนี้อ้างอิงโค้ดปัจจุบัน ณ วันที่ 12 กันยายน 2026 ระบบหลักคือ `It-shop/` และ `backend/shop_api.py`
 
-## 🌟 จุดเด่นของระบบ (Key Highlights & Value Proposition)
+## ความสามารถปัจจุบัน
 
-1. **Zero-Hallucination Pricing & Links (ราคาและลิงก์จริง 100%):**
-   - ราคาและสินค้าทุกชิ้นมาจาก **ฐานข้อมูลจริงที่ดึงจากหน้าร้านค้าไทย**
-   - ไม่มีปัญหา AI คิดราคาขึ้นมาเอง หรือให้ลิงก์สั่งซื้อปลอม
-2. **Cross-Store 3-Store Matrix & Arbitrage (เปรียบเทียบราคา 3 ร้าน):**
-   - เปรียบเทียบราคาสินค้าชิ้นต่อชิ้นระหว่าง **Advice**, **JIB**, และ **iHaveCPU**
-   - คำนวณราคารวมของแต่ละร้าน และคำนวณราคาแบบ **"Mixed Best" (ซื้อแยกชิ้นที่ถูกที่สุด)** เพื่อประหยัดเงินสูงสุด
-   - มี **ปุ่มลิงก์ตรง (Direct Buy Link)** ไปยังหน้าสินค้าของแต่ละร้านทันที
-3. **Deterministic Compatibility Engine (ตรวจความเข้ากันได้ระดับโค้ด):**
-   - ตรวจสอบความเข้ากันได้ของชิ้นส่วนแบบ Real-time (Socket CPU ↔ Mainboard, RAM DDR Gen, PSU Wattage, Cooler TDP)
-   - แจ้งเตือนข้อผิดพลาดทันทีในหน้าจัดสเปกด้วยแถบเตือนสีแดง/เหลือง/เขียว พร้อมวิธีแก้ไข
-4. **SmartMatcher Deduplication Engine:**
-   - รวมสินค้าตัวเดียวกันที่มีชื่อต่างกันข้าม 3 ร้านค้า ให้เป็น 1 รายการโดยอัตโนมัติ พร้อมสเปกและรูปภาพความละเอียดสูง
-5. **Spec History & Sharing (`/history`):**
-   - บันทึกสเปกที่จัดเองหรือสเปกที่ AI แนะนำ พร้อมตารางสรุป 3 ร้านและลิงก์สั่งซื้อย้อนหลัง
+- ค้นหาและกรองสินค้า ดูรายละเอียด รูปภาพ ราคาและลิงก์ร้านค้า รวมถึงประวัติราคาที่บันทึกไว้
+- จัดสเปกด้วยตนเองผ่าน PC Builder ตรวจความเข้ากันได้ สรุปราคา และบันทึกประวัติสเปก
+- ใช้ AI ใน 3 โหมด: แนะนำสเปก (`recommend`), เปรียบเทียบสเปก (`compare`) และตรวจความเข้ากันได้ (`compat`)
+- เลือกผู้ให้บริการ AI ได้ระหว่าง Google, OpenAI และ OpenRouter พร้อมระบุ model ID เอง
+- ผู้เยี่ยมชมใช้หน้า AI ได้ ส่วนสมาชิกบันทึกการตั้งค่า AI และจัดการหลายบทสนทนาได้
+- สมัครสมาชิก เข้าสู่ระบบด้วย JWT แก้ไขโปรไฟล์ เปลี่ยนรหัสผ่าน และอัปโหลดรูปโปรไฟล์
+- ผู้ดูแลระบบจัดการสินค้า สมาชิก และเรียกอัปเดตข้อมูลผ่าน scraper ได้
 
----
+ราคาที่แสดงเป็นข้อมูลจากการดึงข้อมูลครั้งล่าสุด ไม่ใช่ราคาสดทุกครั้งที่เปิดหน้าเว็บ สินค้าบางรายการอาจมีข้อมูลเพียงบางร้าน ความครบถ้วนของสเปกและข้อมูลต้นทางมีผลต่อผลตรวจความเข้ากันได้ ซึ่งอาจแสดง `UNKNOWN` เมื่อยังยืนยันไม่ได้
 
-## 🏗️ สถาปัตยกรรมระบบ (System Architecture)
+## เทคโนโลยีและโครงสร้าง
 
-```
-                            ┌──────────────────────────────────────────────┐
-                            │               USER INTERFACE                 │
-                            │         Angular 17 / SCSS / TypeScript       │
-                            └──────────────────────┬───────────────────────┘
-                                                   │
-                         ┌─────────────────────────┴─────────────────────────┐
-                         │                                                   │
-                         ▼ (HTTP REST API)                                   ▼
-┌─────────────────────────────────────────────────────────┐   ┌─────────────────────────────────────┐
-│ 1. PC BUILDER & INTERACTIVE CATALOG                    │   │ 2. AI RECOMMENDATION (Hybrid RAG)   │
-│  - เลือก Component 8 ชิ้น                               │   │  - Intent & Budget Extraction       │
-│  - Real-time 3-Store Price Calculation                 │   │  - Candidate Retrieval จาก DB       │
-│  - คำนวณ Best Store / Mixed Savings                     │   │  - OpenCode Zen LLM Reasoning       │
-│  - บันทึกประวัติสเปกลง /api/spec-history                │   │  - Natural Language Explanations    │
-└────────────────────────┬────────────────────────────────┘   └──────────────────┬──────────────────┘
-                         │                                                       │
-                         ▼                                                       ▼
-┌───────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ 3. DETERMINISTIC COMPATIBILITY ENGINE (Backend Validation)                                        │
-│  - spec_parser.py: สกัด Socket, DDR, Form Factor, Wattage ด้วย Rule & Regex                      │
-│  - compat_engine.py: รัน Deterministic Checks (R1 Socket, R2 DDR, R3 PSU Watt, R5 Form Factor)     │
-│  - rules/*.md: Domain Rules Knowledge Base สำหรับตรวจสอบความถูกต้อง                                │
-└────────────────────────────────────────────────┬──────────────────────────────────────────────────┘
-                                                 │
-                                                 ▼
-┌───────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ 4. DATABASE & SCRAPER ENGINE (shop.db SQLite)                                                     │
-│  - full_scraper.py / scraper.py: Playwright Auto-Scraper ดึง Advice, JIB, iHaveCPU                 │
-│  - SmartMatcher: Multi-level Token Matching รวมสินค้าตัวเดียวกันข้าม 3 ร้าน                         │
-│  - Direct URLs, High-Res CDN/S3 Images, Real Specs                                                │
-└───────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 📂 โครงสร้างโปรเจกต์ (Project Directory Structure)
+| ส่วน | เทคโนโลยี / ไฟล์หลัก |
+| --- | --- |
+| Frontend | Angular 21.1, TypeScript 5.9, SCSS, Tailwind CSS 4 |
+| Backend | Python, FastAPI, Uvicorn, SQLAlchemy, Pydantic |
+| ฐานข้อมูล | SQLite (`backend/shop.db`) |
+| Authentication | PyJWT และ bcrypt |
+| AI | HTTP API ผ่าน httpx, retrieval จากฐานข้อมูลและกฎ Markdown |
+| Scraper | httpx และ Playwright Chromium |
+| การทดสอบ | Python unittest และ Angular/Vitest |
 
 ```text
 Project/
-├── backend/                  # FastAPI (Python) Backend & AI Services
-│   ├── shop_api.py           # REST API Server หลัก (Auth, Products, Orders, Builder, History)
-│   ├── recommender.py        # Hybrid RAG pipeline (OpenCode Zen LLM + Post-validation)
-│   ├── compat_engine.py      # Deterministic Compatibility Rule Engine
-│   ├── spec_parser.py        # Regex Hardware Spec Parser (Socket, DDR, Wattage, TDP)
-│   ├── full_scraper.py       # Full Scraper ดึงข้อมูล Advice, JIB, iHaveCPU + SmartMatcher
-│   ├── scraper.py            # Quick Scraper สำหรับอัปเดตราคาสินค้า
-│   ├── rules/                # Markdown Rule Knowledge Base
-│   │   ├── cpu_socket_rules.md
-│   │   ├── ram_rules.md
-│   │   ├── psu_rules.md
-│   │   └── cooler_rules.md
-│   └── shop.db               # ฐานข้อมูล SQLite (สินค้า, ผู้ใช้, ออเดอร์, ประวัติสเปก)
-│
-├── It-shop/                  # Angular 17 Frontend Web Application
-│   ├── src/app/
-│   │   ├── pages/
-│   │   │   ├── home/         # หน้าแรก (Hero, Flash Sale, Featured Specs)
-│   │   │   ├── products/     # หน้ารวมสินค้า ค้นหา และกรองตามหมวดหมู่
-│   │   │   ├── product-detail/# หน้ารายละเอียดสินค้า พร้อมตารางราคา 3 ร้าน
-│   │   │   ├── pc-builder/   # หน้าจัดสเปกเอง + Real-time Compatibility Warning + สรุป 3 ร้าน
-│   │   │   ├── ai-recommend/ # หน้า AI จัดสเปก (แนะนำ / เปรียบเทียบ / เช็คความเข้ากัน)
-│   │   │   ├── history/      # หน้าประวัติการจัดสเปก (แยก 3 ร้าน + ลิงก์ตรงสั่งซื้อ)
-│   │   │   ├── cart/         # ตะกร้าสินค้า
-│   │   │   ├── checkout/     # ยืนยันการสั่งซื้อ
-│   │   │   ├── profile/      # ข้อมูลผู้ใช้และประวัติคำสั่งซื้อ
-│   │   │   └── admin/        # หน้าจัดการสินค้า ออเดอร์ และผู้ใช้สำหรับ Admin
-│   │   ├── services/         # Angular Services (Auth, Cart, API, Spec)
-│   │   └── guards/           # Route Guards (AuthGuard, AdminGuard)
-│
-├── .env                      # Environment Variables (API Keys, Zen LLM)
-├── start_backend.bat         # สคริปต์รัน Backend อย่างรวดเร็ว
-└── README.md                 # เอกสารโปรเจกต์
+├── It-shop/                     # Frontend หลัก
+│   └── src/app/
+│       ├── pages/               # สินค้า, AI, PC Builder, ประวัติ, ผู้ดูแล
+│       ├── services/            # API และ authentication
+│       └── guards/              # ตรวจสิทธิ์หน้าเว็บ
+├── backend/
+│   ├── shop_api.py              # FastAPI และ migration เมื่อเริ่มระบบ
+│   ├── shop.db                  # ฐานข้อมูลที่ระบบหลักใช้
+│   ├── init_db.py               # สร้างฐานข้อมูลเริ่มต้นและนำเข้า CSV
+│   ├── recommender.py           # ดึงตัวเลือกสินค้าและสร้างคำแนะนำ AI
+│   ├── compat_engine.py         # กฎตรวจความเข้ากันได้
+│   ├── spec_parser.py           # แปลงข้อมูลสินค้าเป็นสเปกที่ตรวจสอบได้
+│   ├── gpu_power_reference.py   # ข้อมูลอ้างอิงกำลังไฟ GPU
+│   ├── full_scraper.py          # ดึงสินค้า ราคา และรายละเอียดจาก 3 ร้าน
+│   ├── train_compat_knowledge.py # ปรับข้อมูลต้นทางเป็นข้อเท็จจริงฮาร์ดแวร์
+│   ├── rules/                  # ฐานความรู้ Markdown
+│   └── test_*.py               # ชุดทดสอบและสคริปต์ตรวจสอบ
+├── docs/                       # เอกสารโครงงานและ schema เดิม
+├── pc-recommender/             # Frontend อีกชุด ไม่ได้เรียกโดย run.bat
+├── pc_part/                    # ระบบ PHP เดิม
+├── main.py, main2.py           # จุดเข้าใช้งานรุ่นก่อน
+├── .env                        # การตั้งค่าฝั่งเซิร์ฟเวอร์
+├── run.bat                     # เปิด backend และ frontend บน Windows
+└── start_backend.bat           # ติดตั้ง requirements และเปิด backend
 ```
 
----
+## ติดตั้งและเปิดใช้งานบน Windows
 
-## 🛠️ เทคโนโลยีที่ใช้ (Tech Stack)
+ใช้ Python 3.11 ขึ้นไป และ Node.js ที่ตรงกับ `engines` ของ Angular CLI ในโปรเจกต์ (`^20.19.0 || ^22.12.0 || >=24.0.0`) พร้อม npm
 
-| ส่วนของระบบ | เทคโนโลยีที่ใช้ | เวอร์ชัน / รายละเอียด |
-| :--- | :--- | :--- |
-| **Frontend** | Angular (Standalone Components) | Angular 17+, TypeScript, SCSS, RxJS |
-| **Backend** | Python FastAPI | FastAPI, Uvicorn, SQLite3, SQLAlchemy |
-| **AI Engine** | OpenCode Zen Gateway / Hybrid RAG | `x-preview-f-free` / OpenCode Zen API |
-| **Scraper** | Playwright (Async Python) | Headless Chromium, Anti-bot bypass, CDN/S3 parser |
-| **Security** | JWT + BCrypt | JSON Web Token Authentication, Bcrypt Password Hash |
-| **Ports** | Frontend: `4200` | Backend: `3000` |
+### 1. ติดตั้ง dependencies
 
----
-
-## 🚀 การติดตั้งและเริ่มใช้งาน (Installation & Setup)
-
-### ข้อกำหนดเบื้องต้น (Prerequisites)
-- **Python:** 3.10 ขึ้นไป
-- **Node.js:** 18 ขึ้นไป + npm
-- **Angular CLI:** `npm install -g @angular/cli`
-
----
-
-### 1. ตั้งค่าและรัน Backend (FastAPI)
+เปิด PowerShell ที่โฟลเดอร์รากของโปรเจกต์:
 
 ```powershell
-# 1. เข้าไปที่โฟลเดอร์ Project
-cd "d:\year 4 term 1\Project"
-
-# 2. ติดตั้ง Python Dependencies (หากยังไม่ได้ติดตั้ง)
-.\venv\Scripts\python.exe -m pip install fastapi uvicorn sqlalchemy bcrypt pyjwt httpx python-multipart playwright --no-color
-
-# 3. รัน Backend API Server
-cd backend
-..\venv\Scripts\uvicorn.exe shop_api:app --reload --port 3000 --host 0.0.0.0
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.\venv\Scripts\python.exe -m pip install python-dotenv
+npm --prefix It-shop ci
 ```
 
-> 🌐 **Backend API:** `http://localhost:3000`  
-> 📖 **Interactive API Docs (Swagger):** `http://localhost:3000/docs`
+ปัจจุบัน `shop_api.py` ใช้ `python-dotenv` แต่แพ็กเกจนี้ยังไม่ได้อยู่ใน `backend/requirements.txt` จึงต้องติดตั้งเพิ่มตามคำสั่งข้างต้น
 
----
-
-### 2. ตั้งค่าและรัน Frontend (Angular)
+หากต้องใช้ scraper หรือทดสอบส่วนที่ใช้ Playwright ให้ติดตั้งเพิ่ม:
 
 ```powershell
-# 1. เข้าไปที่โฟลเดอร์ It-shop
-cd "d:\year 4 term 1\Project\It-shop"
-
-# 2. ติดตั้ง Node Dependencies (ครั้งแรก)
-npm install
-
-# 3. รัน Angular Development Server
-ng serve --port 4200 --open
+.\venv\Scripts\python.exe -m pip install playwright
+.\venv\Scripts\python.exe -m playwright install chromium
 ```
 
-> 💻 **Frontend Web App:** `http://localhost:4200`
+### 2. ตั้งค่าเซิร์ฟเวอร์
 
----
+สร้างหรือแก้ไข `.env` ที่รากโปรเจกต์ โดยรักษาค่าที่ตั้งไว้เดิม ตัวอย่างนี้แสดงเฉพาะ placeholder:
 
-### 3. การรัน Scraper เพื่ออัปเดตข้อมูลสินค้าจาก 3 ร้าน (Optional)
+```dotenv
+SECRET_KEY=replace-with-a-long-random-secret
+
+# เลือกตั้งค่าเฉพาะผู้ให้บริการที่ต้องการใช้
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+GOOGLE_API_KEY=
+GOOGLE_MODEL=gemini-2.0-flash
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=openai/gpt-4o-mini
+```
+
+ชื่อโมเดลข้างต้นเป็นค่าเริ่มต้นในโค้ด ต้องเลือกโมเดลที่บัญชีผู้ให้บริการของคุณเรียกใช้งานได้ Google รองรับ `GEMINI_API_KEY` เป็นค่าแทน `GOOGLE_API_KEY` ด้วย
+
+ระบบเลือกผู้ให้บริการเริ่มต้นจาก key ฝั่งเซิร์ฟเวอร์ตามลำดับ OpenAI → Google → OpenRouter หากไม่มี key จะใช้ Google เป็นค่าเริ่มต้น สมาชิกตั้งค่า provider, model, custom model และ key ของตนเองได้ในหน้า AI โดย custom model มีลำดับความสำคัญเหนือโมเดลที่เลือกจากรายการ
+
+เมื่อส่งคำขอ AI ระบบใช้ key ที่ส่งมากับคำขอ ตามด้วย key ที่สมาชิกบันทึกไว้สำหรับ provider เดียวกัน และ key ฝั่งเซิร์ฟเวอร์ หากไม่มี key จะตอบ HTTP 400 การเปลี่ยน `.env` ต้องเริ่ม backend ใหม่
+
+การตั้งค่า key ของสมาชิกถูกเก็บเป็นข้อความธรรมดาใน SQLite ตาม implementation ปัจจุบัน ส่วน browser ไม่เก็บ AI key ใน localStorage การตั้งค่าของผู้เยี่ยมชมอยู่ใน component ชั่วคราว จึงควรเก็บ `.env` และฐานข้อมูลที่มี key เป็นข้อมูลส่วนตัว
+
+### 3. เตรียมฐานข้อมูล
+
+หากมี `backend/shop.db` ที่ใช้งานอยู่แล้ว ให้ใช้ไฟล์เดิมและข้ามการสร้างฐานข้อมูล
+
+สำหรับฐานข้อมูลใหม่เท่านั้น ให้รันจากโฟลเดอร์ `backend`:
 
 ```powershell
-cd "d:\year 4 term 1\Project\backend"
-
-# รัน Full Scraper ครอบคลุม 3 ร้าน (Advice, JIB, iHaveCPU)
-python full_scraper.py --pages 3
-
-# หรือรันดึงแบบละเอียดพร้อมคำอธิบาย (Fetch Details)
-python full_scraper.py --pages 2 --details
+Set-Location backend
+..\venv\Scripts\python.exe init_db.py
+Set-Location ..
 ```
 
----
+คำสั่งนี้สร้างตารางและหมวดหมู่ พร้อมนำเข้าสินค้าจาก `hardware_updated.csv` ถ้ามีไฟล์ จากนั้น backend จะเพิ่มคอลัมน์และตารางเพิ่มเติม เช่น ประวัติราคา การตั้งค่า AI และบทสนทนา เมื่อเริ่มทำงาน
 
-## 🔑 บัญชีทดสอบระบบ (Test Accounts)
+`init_db.py` ไม่ได้สร้างบัญชีผู้ดูแลเริ่มต้น สมัครสมาชิกผ่าน `/register` ได้ และให้ผู้ดูแลที่มีอยู่กำหนดสิทธิ์ผ่านหน้าจัดการสมาชิก กรณีฐานข้อมูลใหม่ที่ยังไม่มีผู้ดูแล ต้องกำหนด `users.u_role` เป็น `admin` ให้บัญชีที่ต้องการในฐานข้อมูลโดยตรง
 
-| บทบาท (Role) | Email | Password | สิทธิ์การใช้งาน |
-| :--- | :--- | :--- | :--- |
-| **Admin** | `admin@itrecommend.com` | `admin1234` | จัดการสินค้า, ออเดอร์, เปลี่ยนสถานะ, จัดการสมาชิก |
-| **User ทั่วไป** | สมัครใหม่ผ่านหน้า `/register` | ตามที่ตั้ง | จัดสเปก, ใช้งาน AI, บันทึกประวัติ, สั่งซื้อสินค้า |
+### 4. เปิด backend และ frontend
 
----
+เปิด PowerShell สองหน้าต่างจากรากโปรเจกต์
 
-## 🧭 แผนผังหน้าเว็บไซต์ (Route Map)
+หน้าต่างแรก:
 
-| เส้นทาง (URL) | หน้าเว็บ | ฟังก์ชันการทำงาน |
-| :--- | :--- | :--- |
-| `/` | หน้าแรก (Home) | แบนเนอร์, สินค้าราคาพิเศษ, สเปกแนะนำยอดนิยม |
-| `/products` | สินค้าทั้งหมด | ค้นหา, กรองราคา, เลือกดูเปรียบเทียบ 3 ร้าน |
-| `/category/:type` | สินค้าแยกตามหมวด | แยกหมวด CPU, GPU, Mainboard, RAM, SSD, PSU, Case, Cooler ฯลฯ |
-| `/product/:id` | หน้ารายละเอียดสินค้า | สเปกละเอียด, รูปภาพ High-Res, ตารางเปรียบเทียบราคา Advice / JIB / iHaveCPU พร้อมปุ่มกดซื้อ |
-| `/pc-builder` | **🛠️ จัดสเปกเอง** | เลือก 8 ชิ้นส่วน, **ตรวจ Compatibility แบบ Real-time**, กล่องสรุป 3 ร้าน, บันทึกลงประวัติ |
-| `/ai-recommend` | **🤖 AI จัดสเปก** | แนะนำสเปกตามงบ, เปรียบเทียบสเปก 2 ชุด, เช็คความเข้ากันได้ด้วย AI |
-| `/history` | **📜 ประวัติการจัดสเปก** | ดูสเปกที่เคยจัด, ดูสรุปราคารวม 3 ร้าน, ลิงก์ตรงสั่งซื้อแต่ละชิ้น |
-| `/cart` | ตะกร้าสินค้า | สรุปสินค้าที่เลือกสั่งซื้อ |
-| `/checkout` | สั่งซื้อสินค้า | กรอกที่อยู่จัดส่ง และเลือกวิธีชำระเงิน |
-| `/profile` | โปรไฟล์ของฉัน | แก้ไขข้อมูลส่วนตัว, ดูประวัติคำสั่งซื้อ |
-| `/admin/products` | จัดการสินค้า (Admin) | เพิ่ม, แก้ไข, ลบรายการสินค้า |
-| `/admin/orders` | จัดการออเดอร์ (Admin) | ดูรายการสั่งซื้อ, เปลี่ยนสถานะ (รอดำเนินการ → จัดส่งแล้ว → สำเร็จ) |
-| `/admin/users` | จัดการผู้ใช้ (Admin) | ดูรายชื่อสมาชิก, กำหนดสิทธิ์ Admin |
+```powershell
+Set-Location backend
+..\venv\Scripts\python.exe -m uvicorn shop_api:app --reload --host 127.0.0.1 --port 3000
+```
 
----
+หน้าต่างที่สอง:
 
-## 📡 REST API Reference
+```powershell
+npm --prefix It-shop start -- --port 4200
+```
 
-### 1. Authentication & Users
-- `POST /api/register` — สมัครสมาชิกใหม่
-- `POST /api/login` — เข้าสู่ระบบ รับ JWT Token
-- `GET /api/profile` — ข้อมูลโปรไฟล์ผู้ใช้
-- `PUT /api/profile` — แก้ไขข้อมูลส่วนตัว
-- `PUT /api/profile/password` — เปลี่ยนรหัสผ่าน
+- หน้าเว็บ: http://localhost:4200
+- API และสถานะพื้นฐาน: http://localhost:3000
+- Swagger UI: http://localhost:3000/docs
+- OpenAPI schema: http://localhost:3000/openapi.json
 
-### 2. Products & Pricing
-- `GET /api/products` — ดึงรายการสินค้าทั้งหมด (รองรับ `category`, `search`, `page`, `limit`)
-- `GET /api/products/{id}` — รายละเอียดสินค้า พร้อมราคา 3 ร้านและลิงก์ตรง
-- `POST /api/products` — เพิ่มสินค้าใหม่ (Admin)
-- `PUT /api/products/{id}` — แก้ไขสินค้า (Admin)
-- `DELETE /api/products/{id}` — ลบสินค้า (Admin)
+หลังติดตั้งครบแล้ว ใช้ `.\run.bat` จากรากโปรเจกต์เพื่อเปิดทั้งสองส่วนได้ โดยสคริปต์นี้ใช้ `venv` ที่รากโปรเจกต์และเปิด backend ที่ `0.0.0.0:3000`
 
-### 3. PC Builder & Compatibility
-- `POST /api/compatibility/check` — ตรวจสอบความเข้ากันได้ของชิ้นส่วน (Deterministic Engine)
-- `POST /api/compatibility/check-parts` — ตรวจสอบชิ้นส่วนจากหน้า PC Builder แบบ Real-time
-- `GET /api/spec-history` — ดึงประวัติการจัดสเปกของผู้ใช้
-- `POST /api/spec-history` — บันทึกสเปกที่จัดเองหรือสเปกจาก AI
-- `DELETE /api/spec-history/{id}` — ลบประวัติสเปก
+**ต้องเริ่ม backend จากโฟลเดอร์ `backend`** เนื่องจาก `shop_api.py` ใช้เส้นทางฐานข้อมูล `sqlite:///./shop.db` และโฟลเดอร์ `uploads/profile` อิง working directory การรันผิดโฟลเดอร์อาจไปใช้ `shop.db` คนละไฟล์ หากเปลี่ยน URL ของ backend ต้องปรับทั้ง `It-shop/src/app/services/api.ts` และ `It-shop/src/app/services/auth.ts` ซึ่งตั้งไว้เป็น `http://localhost:3000`
 
-### 4. AI Recommend & Chat
-- `POST /api/ai/recommend` — ส่ง prompt จัดสเปก / เปรียบเทียบ / ตรวจสอบความเข้ากันได้ผ่าน OpenCode Zen
+## หน้าที่มีใน Frontend
 
-### 5. Orders
-- `POST /api/orders` — สร้างคำสั่งซื้อ
-- `GET /api/orders/my` — ดึงออเดอร์ของผู้ใช้ปัจจุบัน
-- `GET /api/orders` — ดึงออเดอร์ทั้งหมด (Admin)
-- `PUT /api/orders/{id}/status` — เปลี่ยนสถานะออเดอร์ (Admin)
+| เส้นทาง | การใช้งาน | สิทธิ์ |
+| --- | --- | --- |
+| `/` | หน้าแรก | สาธารณะ |
+| `/login`, `/register` | เข้าสู่ระบบและสมัครสมาชิก | สาธารณะ |
+| `/ai-recommend` | AI และการตั้งค่าบทสนทนา | เปิดหน้าได้โดยไม่ล็อกอิน; การบันทึกต้องเป็นสมาชิก |
+| `/products`, `/category/:type` | ค้นหาและดูสินค้าตามหมวด | สมาชิก |
+| `/product/:id` | รายละเอียดและเปรียบเทียบราคา | สมาชิก |
+| `/pc-builder` | จัดสเปกด้วยตนเอง | สมาชิก |
+| `/history` | ประวัติสเปก | สมาชิก |
+| `/profile` | โปรไฟล์ | สมาชิก |
+| `/admin/products` | จัดการสินค้า | ผู้ดูแล |
+| `/admin/users` | จัดการสมาชิก | ผู้ดูแล |
 
----
+Backend ยังมี API คำสั่งซื้อและโปรโมชั่น แต่ router ของ `It-shop` ปัจจุบันไม่มีหน้า `/cart`, `/checkout` หรือ `/admin/orders`
 
-## 🛡️ กฎความเข้ากันได้ของฮาร์ดแวร์ (Hardware Compatibility Rules)
+## API หลัก
 
-ระบบใช้ **Deterministic Rule Engine** ร่วมกับไฟล์ Markdown Rule Knowledge Base:
-- **R1 (CPU ↔ Mainboard Socket):** ตรวจสอบ Socket ตรงกัน 100% (เช่น Intel LGA1700, LGA1851, AMD AM4, AM5)
-- **R2 (RAM ↔ Mainboard DDR Generation):** ตรวจสอบ DDR4 / DDR5 ให้ตรงกับที่เมนบอร์ดรองรับ
-- **R3 (PSU Wattage Calculation):** คำนวณ Total System TDP (CPU TDP + GPU TDP + 100W Base System) × 1.25 Headroom และเทียบกับขนาดกำลังวัตต์ของพาวเวอร์ซัพพลาย
-- **R4 (Cooler TDP & Socket Support):** ตรวจสอบว่าพัดลม/ชุดน้ำรองรับ Socket ของ CPU และระบายความร้อนได้เพียงพอ
-- **R5 (Case & Motherboard Form Factor):** ตรวจสอบขนาดเคส (ATX, Micro-ATX, Mini-ITX) ว่าใส่เมนบอร์ดได้
+รายละเอียด request/response ดูจาก Swagger UI ของ backend ที่กำลังรัน Endpoint ที่ต้องยืนยันตัวตนใช้ `Authorization: Bearer <token>`
 
----
+| กลุ่ม | Endpoint |
+| --- | --- |
+| Authentication | `POST /api/register`, `POST /api/login` |
+| โปรไฟล์ | `GET/PUT /api/profile`, `PUT /api/profile/password`, `POST /api/profile/upload-image` |
+| สินค้า | `GET /api/products`, `GET /api/products/{product_id}`, `GET /api/products/{product_id}/compare` |
+| จัดการสินค้า | `POST /api/products`, `PUT/DELETE /api/products/{product_id}` |
+| หมวดหมู่และราคา | `GET /api/categories`, `GET /api/price-history/{product_id}` |
+| AI | `POST /api/ai/recommend`, `GET/PUT /api/ai/settings` |
+| บทสนทนา AI | `GET/POST /api/ai/sessions`, `GET/PUT/DELETE /api/ai/sessions/{session_id}` |
+| ความเข้ากันได้ | `POST /api/compat/check`, `POST /api/compatibility/check`, `POST /api/compatibility/check-parts` |
+| ประวัติสเปก | `GET/POST /api/spec-history`, `DELETE /api/spec-history/{id}`, `GET /api/spec-history/all` |
+| ผู้ดูแลสมาชิก | `GET /api/admin/users`, `GET/PUT/DELETE /api/admin/users/{uid}`, `PUT /api/admin/users/{uid}/role` |
+| Scraper | `POST /api/scrape` (ผู้ดูแล), `GET /api/scrape/status` |
+| โปรโมชั่น | `GET/POST /api/promotions`, `PUT/DELETE /api/promotions/{promo_id}` |
+| คำสั่งซื้อ | `GET/POST /api/orders`, `GET /api/orders/my`, `GET /api/orders/{order_id}`, `PUT /api/orders/{order_id}/status` |
 
-## 👥 ผู้พัฒนา (Developers)
+`GET /api/products` รองรับ `category`, `cid`, `search` และ `name` ปัจจุบันยังไม่มี pagination parameters
 
-- **โครงงานระบบแนะนำและจัดสเปคคอมพิวเตอร์เปรียบเทียบ 3 ร้าน (IT-RECOMMEND)**
-- ภาควิชาวิทยาการคอมพิวเตอร์ / วิศวกรรมคอมพิวเตอร์ (Year 4 Project)
+## การทำงานของ AI และการตรวจสเปก
+
+`recommender.py` วิเคราะห์งบและลักษณะงาน ดึงรายการสินค้าจากฐานข้อมูลเป็นตัวเลือก แล้วให้โมเดลช่วยเลือกและอธิบายผล ระบบนำผลกลับมาจับคู่กับสินค้า คำนวณราคา และตรวจสอบด้วย `compat_engine.py` ร่วมกับ `spec_parser.py` และความรู้ใน `backend/rules/`
+
+กฎตรวจสอบครอบคลุม socket CPU/เมนบอร์ด, DDR ของ RAM, กำลังไฟ PSU, เงื่อนไข GPU ระดับสูงและหัวต่อไฟ, กำลังระบายความร้อน, ขนาดเมนบอร์ดกับเคส และงบประมาณ โดยเกณฑ์ PSU พิจารณาทั้งค่าที่ผู้ผลิต GPU แนะนำและค่าประมาณ `(CPU + GPU + 80W) × 1.25` ผลลัพธ์อาศัยข้อมูลสเปกที่มีและอาจยังยืนยันไม่ได้เมื่อข้อมูลไม่ครบ
+
+บทสนทนาของสมาชิกผูกกับผู้ใช้และตรวจสิทธิ์ก่อนเข้าถึง สามารถสร้าง เปิด เปลี่ยนชื่อ และลบได้ รายการบทสนทนาคืนล่าสุดไม่เกิน 100 รายการ ระบบเลิกใช้ Zen แล้ว และ migration เปลี่ยนการตั้งค่า Zen เดิมเป็น Google พร้อมล้าง key และ custom model โดยยังอ่านบทสนทนาเก่าได้
+
+## อัปเดตข้อมูลสินค้า
+
+ติดตั้ง Playwright และ Chromium ตามขั้นตอนด้านบน แล้วรันจาก `backend`:
+
+```powershell
+# ดึง listing จากทั้ง 3 ร้าน จำกัดจำนวนหน้าต่อหมวด
+..\venv\Scripts\python.exe full_scraper.py --stores all --pages 3
+
+# ดึงรายละเอียดสินค้าจากร้านที่เลือกด้วย
+..\venv\Scripts\python.exe full_scraper.py --stores jib ihavecpu --pages 3 --details
+
+# เติมรายละเอียดที่ขาดจาก URL ที่มีในฐานข้อมูล
+..\venv\Scripts\python.exe full_scraper.py --backfill-only
+```
+
+คำสั่งเหล่านี้เขียนข้อมูลลง `backend/shop.db` ควรสำรองฐานข้อมูลก่อนรันงานปรับข้อมูลจำนวนมาก จำนวนสินค้าที่ดึงได้ขึ้นอยู่กับหน้าเว็บต้นทาง การแบ่งหน้า และการตอบสนองของแต่ละร้าน
+
+เมื่อใช้ `--details` หรือ `--backfill-only` scraper จะเรียก `train_compat_knowledge.py --apply` ต่อเพื่อปรับข้อมูลเป็นข้อเท็จจริงสำหรับตรวจสเปก เว้นแต่ระบุ `--skip-compat-training` ชื่อสคริปต์นี้หมายถึงการปรับข้อมูลความรู้ในฐานข้อมูล ไม่ใช่การฝึกน้ำหนักโมเดล AI
+
+## คำสั่งตรวจสอบสำหรับนักพัฒนา
+
+รันจากรากโปรเจกต์:
+
+```powershell
+# ตรวจสอบการ build ของ frontend
+npm --prefix It-shop run build -- --configuration development
+
+# ทดสอบ Angular
+npm --prefix It-shop test -- --watch=false
+
+# ทดสอบ AI settings, sessions และการแยกข้อมูลผู้ใช้
+.\venv\Scripts\python.exe -B backend\test_ai_sessions.py
+
+# ทดสอบกฎกำลังไฟและความรู้สำหรับคำแนะนำ
+.\venv\Scripts\python.exe -B backend\test_power_compatibility.py
+.\venv\Scripts\python.exe -B backend\test_recommender_knowledge.py
+
+# ทดสอบการจับคู่สินค้าและข้อมูลต้นทางของ scraper
+.\venv\Scripts\python.exe -B backend\test_product_matching.py
+.\venv\Scripts\python.exe -B backend\test_scraper_source_data.py
+```
+
+ชุดทดสอบ AI sessions ใช้ฐานข้อมูลชั่วคราวและ mock การเรียกผู้ให้บริการ ส่วนไฟล์ `test_*.py` อื่นบางไฟล์เป็นสคริปต์ตรวจเว็บจริง จึงควรอ่านก่อนรัน ไม่ควรรันทุกไฟล์รวมกันโดยสมมติว่าเป็น unit test ทั้งหมด
+
+## แก้ปัญหาเบื้องต้น
+
+| อาการ | จุดที่ควรตรวจ |
+| --- | --- |
+| `No module named dotenv` | ติดตั้ง `python-dotenv` ด้วย Python ใน `venv` |
+| Playwright หา browser ไม่พบ | รัน `python -m playwright install chromium` ด้วย Python ใน `venv` |
+| `no such table` หรือสินค้าไม่ตรงกับที่เคยมี | ตรวจว่าเปิด backend จาก `backend/` และใช้ฐานข้อมูลถูกไฟล์; ฐานข้อมูลใหม่ต้องรัน `init_db.py` ก่อน |
+| Frontend ติดต่อ API ไม่ได้ | ตรวจพอร์ต 3000 และ `baseUrl` ในทั้งสอง service |
+| AI ตอบ HTTP 400 เรื่อง key | ตั้ง key ของ provider ที่เลือกในหน้า AI หรือ `.env` |
+| AI ตอบ HTTP 502 | ตรวจ model ID, API key และโควตาของผู้ให้บริการ |
+| เข้า `/admin/products` หรือ `/admin/users` ไม่ได้ | ตรวจ role ของบัญชีและเข้าสู่ระบบใหม่หลังเปลี่ยนสิทธิ์ |

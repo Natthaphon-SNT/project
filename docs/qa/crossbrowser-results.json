@@ -1,0 +1,122 @@
+[
+  {
+    "id": "CB-firefox-pc-builder-390",
+    "group": 9,
+    "steps": "firefox: pc-builder viewport 390; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 390,
+      "document": 390,
+      "body": 390
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-firefox-pc-builder-768",
+    "group": 9,
+    "steps": "firefox: pc-builder viewport 768; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 768,
+      "document": 768,
+      "body": 768
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-firefox-ai-recommend-390",
+    "group": 9,
+    "steps": "firefox: ai-recommend viewport 390; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 390,
+      "document": 390,
+      "body": 390
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-firefox-ai-recommend-768",
+    "group": 9,
+    "steps": "firefox: ai-recommend viewport 768; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 768,
+      "document": 768,
+      "body": 768
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-webkit-pc-builder-390",
+    "group": 9,
+    "steps": "webkit: pc-builder viewport 390; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 390,
+      "document": 390,
+      "body": 390
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-webkit-pc-builder-768",
+    "group": 9,
+    "steps": "webkit: pc-builder viewport 768; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 768,
+      "document": 768,
+      "body": 768
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-webkit-ai-recommend-390",
+    "group": 9,
+    "steps": "webkit: ai-recommend viewport 390; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 390,
+      "document": 390,
+      "body": 390
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "CB-webkit-ai-recommend-768",
+    "group": 9,
+    "steps": "webkit: ai-recommend viewport 768; fixture empty catalog",
+    "expected": "page ไม่ล้นแนวนอน",
+    "actual": {
+      "width": 768,
+      "document": 768,
+      "body": 768
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar สำหรับมือถือ",
+    "severity": ""
+  }
+]

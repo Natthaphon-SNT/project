@@ -330,7 +330,6 @@ def upsert_product(cur: sqlite3.Cursor, p: dict):
                 {price_col} = ?,
                 {url_col}   = CASE WHEN ? != '' THEN ? ELSE {url_col} END,
                 {desc_col}  = CASE WHEN ? != '' THEN ? ELSE {desc_col} END,
-                p_price     = CASE WHEN p_price=0 THEN ? ELSE p_price END,
                 img_url     = CASE WHEN ? != '' AND (img_url IS NULL OR img_url = '') THEN ? ELSE img_url END,
                 updated_at  = ?
             WHERE product_id = ?
@@ -338,11 +337,23 @@ def upsert_product(cur: sqlite3.Cursor, p: dict):
             price,
             url, url,
             desc, desc,
-            price,
             img, img,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             pid
         ))
+        cur.execute("""
+            UPDATE products
+            SET p_price = COALESCE((
+                SELECT MIN(store_price)
+                FROM (
+                    SELECT price_advice AS store_price
+                    UNION ALL SELECT price_jib
+                    UNION ALL SELECT price_ihavecpu
+                )
+                WHERE store_price > 0
+            ), 0)
+            WHERE product_id = ?
+        """, (pid,))
         _record_price_history(cur, pid, store, price)
     else:
         pid = make_pid(name, store)

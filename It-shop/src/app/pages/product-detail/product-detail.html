@@ -5,12 +5,17 @@
     <p>กำลังโหลดข้อมูลสินค้า...</p>
   </div>
 
-  <div *ngIf="!isLoading && !product" class="not-found">
+  <div *ngIf="!isLoading && loadError" class="not-found" role="alert">
+    <h2>ไม่สามารถเชื่อมต่อเพื่อโหลดข้อมูลสินค้าได้</h2>
+    <button type="button" (click)="loadProduct()" class="btn-back">ลองใหม่</button>
+  </div>
+
+  <div *ngIf="!isLoading && !loadError && !product" class="not-found">
     <h2>ไม่พบสินค้านี้</h2>
     <button routerLink="/products" class="btn-back">← กลับไปเลือกสินค้า</button>
   </div>
 
-  <div *ngIf="product" class="detail-card">
+  <div *ngIf="product && !loadError" class="detail-card">
 
     <!-- รูปสินค้า -->
     <div class="img-section">

@@ -1,0 +1,187 @@
+[
+  {
+    "id": "S03",
+    "group": 8,
+    "steps": "เรียก quick upsert 3 รอบ สินค้าเดิม ราคา5000→5100→5200",
+    "expected": "หนึ่งแถว; ราคาของร้าน=5200",
+    "actual": [
+      [
+        5200.0,
+        5200
+      ]
+    ],
+    "status": "Pass",
+    "source": "backend/scraper.py:upsert_product",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "S04",
+    "group": 8,
+    "steps": "ตรวจ p_price หลัง quick update ราคาเพิ่ม",
+    "expected": "p_price ตรงราคาต่ำสุดที่ยังมีอยู่จริง",
+    "actual": [
+      [
+        5200.0,
+        5200
+      ]
+    ],
+    "status": "Pass",
+    "source": "backend/scraper.py:upsert_product",
+    "fix": "คำนวณ p_price ใหม่จากราคาทุกร้านหลัง UPDATE; ปัจจุบันแก้เฉพาะเมื่อ p_price=0",
+    "severity": ""
+  },
+  {
+    "id": "S05",
+    "group": 8,
+    "steps": "is_same_product: MONITOR AOC 22B40HM 21.45 120Hz vs Monitor AOC 22B40HM/67 21.45 Inch FHD 120Hz",
+    "expected": "True",
+    "actual": true,
+    "status": "Pass",
+    "source": "backend/full_scraper.py:is_same_product",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "S06",
+    "group": 8,
+    "steps": "is_same_product: VGA ASUS DUAL GEFORCE RTX 4070 12GB vs VGA ASUS DUAL GEFORCE RTX 4070 TI 12GB",
+    "expected": "False",
+    "actual": false,
+    "status": "Pass",
+    "source": "backend/full_scraper.py:is_same_product",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "S07",
+    "group": 8,
+    "steps": "จำลอง ConnectError ใน HTTP iHaveCPU CPU category",
+    "expected": "ไม่ crash; log error และ SQLite integrity ok",
+    "actual": {
+      "result": [
+        0,
+        0
+      ],
+      "integrity": "ok",
+      "log": "  [iHaveCPU] CPU p1\n    [iHaveCPU HTTP err] QA simulated network outage\n  [iHaveCPU] CPU: +0 new, ~0 merged\n  [iHaveCPU] TOTAL: 0 new | 0 merged into existing\n"
+    },
+    "status": "Pass",
+    "source": "backend/full_scraper.py:scrape_ihavecpu",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "S08",
+    "group": 8,
+    "steps": "จำลอง HTTP200 แต่ HTML เปลี่ยนและไม่มี payload",
+    "expected": "ไม่เพิ่มสินค้าผิด; log อธิบายว่า payload/selector ขาด",
+    "actual": {
+      "result": [
+        0,
+        0
+      ],
+      "log": "  [iHaveCPU] CPU p1\n    no structured products\n  [iHaveCPU] CPU: +0 new, ~0 merged\n  [iHaveCPU] TOTAL: 0 new | 0 merged into existing\n"
+    },
+    "status": "Pass",
+    "source": "backend/full_scraper.py:scrape_ihavecpu",
+    "fix": "แยก parser failure ออกจากสินค้าหมด/หน้าว่าง; ส่งสัญญาณให้ผู้ดูแล",
+    "severity": ""
+  },
+  {
+    "id": "L-advice",
+    "group": 2,
+    "steps": "GET direct URL ของสินค้า DB 1 รายการ/ร้าน",
+    "expected": "HTTP200 หน้าสินค้า; ทดสอบ reachability เท่านั้น ยังไม่ยืนยัน SKU ด้วยสายตา",
+    "actual": {
+      "store": "advice",
+      "product": "120 GB SSD SATA BLACKBERRY (BBR120GST1)",
+      "url": "https://www.advice.co.th/product/ssd-solid-state-drive-/ssd-sata-2-5-128-gb/120-gb-ssd-sata-blackberry-bbr120gst1-",
+      "status": 200,
+      "final_url": "https://www.advice.co.th/product/ssd-solid-state-drive-/ssd-sata-2-5-128-gb/120-gb-ssd-sata-blackberry-bbr120gst1-",
+      "bytes": 109231
+    },
+    "status": "Pass",
+    "source": "backend/full_scraper.py/source URLs",
+    "fix": "ตรวจหน้าเว็บต้นทางและ URL ที่บันทึก",
+    "severity": ""
+  },
+  {
+    "id": "L-jib",
+    "group": 2,
+    "steps": "GET direct URL ของสินค้า DB 1 รายการ/ร้าน",
+    "expected": "HTTP200 หน้าสินค้า; ทดสอบ reachability เท่านั้น ยังไม่ยืนยัน SKU ด้วยสายตา",
+    "actual": {
+      "store": "jib",
+      "product": "1024 GB SSD (เอสเอสดี) HIKSEMI WAVE PRO(P) - PCIe 3 NVMe M.2 2280 (HS-SSD-WAVE PRO(P) 1024G)",
+      "url": "https://www.jib.co.th/web/product/readProduct/59271/52/1024-GB-SSD--เอสเอสดี--HIKSEMI-WAVE-PRO-P----PCIe-3-NVMe-M-2-2280--HS-SSD-WAVE-PRO-P--1024G-",
+      "status": 200,
+      "final_url": "https://www.jib.co.th/web/product/readProduct/59271/52/1024-GB-SSD--%E0%B9%80%E0%B8%AD%E0%B8%AA%E0%B9%80%E0%B8%AD%E0%B8%AA%E0%B8%94%E0%B8%B5--HIKSEMI-WAVE-PRO-P----PCIe-3-NVMe-M-2-2280--HS-SSD-WAVE-PRO-P--1024G-",
+      "bytes": 841207
+    },
+    "status": "Pass",
+    "source": "backend/full_scraper.py/source URLs",
+    "fix": "ตรวจหน้าเว็บต้นทางและ URL ที่บันทึก",
+    "severity": ""
+  },
+  {
+    "id": "L-ihavecpu",
+    "group": 2,
+    "steps": "GET direct URL ของสินค้า DB 1 รายการ/ร้าน",
+    "expected": "HTTP200 หน้าสินค้า; ทดสอบ reachability เท่านั้น ยังไม่ยืนยัน SKU ด้วยสายตา",
+    "actual": {
+      "store": "ihavecpu",
+      "product": "16GB (16GBx1) DDR4 3200MHz RAM (หน่วยความจำ) HIKSEMI ARMOR DDR4 - BLACK HSC416U32I2",
+      "url": "https://ihavecpu.com/product/48149/ram-hiksemi-armor-16gb-%2816x1%29-ddr4-3200mhz-black-%28hsc416u32i2%29-%28lt%29",
+      "status": 200,
+      "final_url": "https://ihavecpu.com/product/48149/ram-hiksemi-armor-16gb-%2816x1%29-ddr4-3200mhz-black-%28hsc416u32i2%29-%28lt%29",
+      "bytes": 173645
+    },
+    "status": "Pass",
+    "source": "backend/full_scraper.py/source URLs",
+    "fix": "ตรวจหน้าเว็บต้นทางและ URL ที่บันทึก",
+    "severity": ""
+  },
+  {
+    "id": "S01",
+    "group": 8,
+    "steps": "run_all stores=all pages=3 details=False; DB ว่างแยก; timeout120s",
+    "expected": "จบครบ 3 ร้าน มีสินค้า; details run ต้องมีรายละเอียด",
+    "actual": {
+      "reason": "QA wall-clock deadline 120s; full three-store run incomplete",
+      "elapsed_seconds": 120.2,
+      "counts": {
+        "advice": 313,
+        "jib": 226,
+        "ihavecpu": 0
+      },
+      "details": 313,
+      "log": "S01-live.log"
+    },
+    "status": "Blocked",
+    "source": "backend/full_scraper.py:run_all",
+    "fix": "ตรวจ log และทดสอบซ้ำโดยให้เวลาครบทุกหมวด",
+    "severity": "Medium"
+  },
+  {
+    "id": "S02",
+    "group": 8,
+    "steps": "run_all stores=all pages=2 details=True; DB ว่างแยก; timeout120s",
+    "expected": "จบครบ 3 ร้าน มีสินค้า; details run ต้องมีรายละเอียด",
+    "actual": {
+      "reason": "QA wall-clock deadline 120s; full three-store run incomplete",
+      "elapsed_seconds": 120.1,
+      "counts": {
+        "advice": 0,
+        "jib": 0,
+        "ihavecpu": 0
+      },
+      "details": 0,
+      "log": "S02-live.log"
+    },
+    "status": "Blocked",
+    "source": "backend/full_scraper.py:run_all",
+    "fix": "ตรวจ log และทดสอบซ้ำโดยให้เวลาครบทุกหมวด",
+    "severity": "Medium"
+  }
+]

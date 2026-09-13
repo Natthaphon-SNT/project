@@ -1,3 +1,7 @@
+import unittest
+if __name__ != "__main__":
+    raise unittest.SkipTest("manual live-site diagnostic")
+
 import asyncio, sys, io
 from playwright.async_api import async_playwright
 

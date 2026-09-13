@@ -13,6 +13,8 @@ import { ApiService } from '../../services/api';
 export class ProductDetail implements OnInit {
   product: any = null;
   isLoading = true;
+  loadError = false;
+  private productId = '';
   activeDescTab: 'advice' | 'jib' | 'ihavecpu' = 'advice';
 
   // Price history (data freshness / trend)
@@ -30,6 +32,17 @@ export class ProductDetail implements OnInit {
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
+      this.productId = id;
+      this.loadProduct();
+    }
+  }
+
+  loadProduct() {
+    if (!this.productId) return;
+    this.isLoading = true;
+    this.loadError = false;
+    this.product = null;
+    const id = this.productId;
       this.api.getProductDetail(id).subscribe({
         next: (res) => {
           if (res.status === 'success') {
@@ -43,12 +56,12 @@ export class ProductDetail implements OnInit {
           this.cdr.detectChanges();
           this.loadPriceHistory(id);
         },
-        error: () => {
+        error: (error) => {
           this.isLoading = false;
+          this.loadError = error.status !== 404;
           this.cdr.detectChanges();
         }
       });
-    }
   }
 
   loadPriceHistory(id: string) {

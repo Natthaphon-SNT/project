@@ -1,0 +1,1079 @@
+[
+  {
+    "id": "UI01",
+    "group": 1,
+    "steps": "Guest เปิด /admin/products โดยตรง",
+    "expected": "redirect login",
+    "actual": "http://127.0.0.1:55644/login",
+    "status": "Pass",
+    "source": "It-shop/src/app/guards/admin.guard.ts",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI02",
+    "group": 1,
+    "steps": "customer เปิด /admin/users โดยตรง",
+    "expected": "redirect หน้าแรก",
+    "actual": "http://127.0.0.1:55644/",
+    "status": "Pass",
+    "source": "It-shop/src/app/guards/admin.guard.ts",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI03",
+    "group": 1,
+    "steps": "เรียก validateForm ใน component จริง: email invalid,password x",
+    "expected": "block ทั้งสอง field",
+    "actual": {
+      "valid": false,
+      "errors": {
+        "email": "รูปแบบอีเมลไม่ถูกต้อง",
+        "password": "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"
+      }
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/register/register.ts:validateForm",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI04",
+    "group": 2,
+    "steps": "เปิด product ที่ mock API คืน 404",
+    "expected": "แสดงไม่พบสินค้า ไม่หน้าขาว",
+    "actual": "ไม่พบสินค้านี้\n← กลับไปเลือกสินค้า",
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/product-detail/product-detail.html",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI05",
+    "group": 2,
+    "steps": "เปิด product fixture ราคา 100/110/120",
+    "expected": "ราคา 3 ร้านแสดงตรง fixture และมี href",
+    "actual": {
+      "prices_present": [
+        true,
+        true,
+        true
+      ],
+      "hrefs": [
+        "https://www.advice.co.th/product/qa-0",
+        "https://www.jib.co.th/web/product/readProduct/0",
+        "https://ihavecpu.com/product/0"
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/product-detail/product-detail.html",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI06",
+    "group": 5,
+    "steps": "เปิด history เมื่อ API คืน []",
+    "expected": "แสดง empty state",
+    "actual": "📜 ประวัติการจัดสเปค\n\nดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน\n\n🛠️ จัดสเปกเองใหม่\n🤖 AI จัดสเปกใหม่\nทั้งหมด (0)\n🛠️ จัดสเปกเอง\n🤖 แนะนำสเปค\n⚖️ เปรียบเทียบ\n🔗 เช็คความเข้ากัน\n📭\nยังไม่มีประวัติการจัดสเปค\n\nลองจัดสเปกเอง หรือใช้ AI Recommend เพื่อบันทึกประวัติ\n\n🛠️ เริ่มจัดสเปกเอง\n🤖 เริ่มใช้ AI Recommend",
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/history/history.html",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI07",
+    "group": 2,
+    "steps": "คลิกเลือก 8 ชิ้น fixture ราคา Advice 100..800; JIB +10; IHC +20",
+    "expected": "Mixed=3600; Advice=3600,JIB=3680,IHC=3760; Best=Advice",
+    "actual": {
+      "selected": 8,
+      "mixed": 3600,
+      "advice": 3600,
+      "jib": 3680,
+      "ihavecpu": 3760,
+      "best": {
+        "bestStore": "Advice",
+        "bestTotal": 3600,
+        "isSingleStore": true
+      },
+      "compat": {
+        "overall": "warning",
+        "summary": "⚠️ ยังยืนยันความเข้ากันได้ครบไม่ได้: ควรตรวจเพิ่ม 0 จุด / ข้อมูลไม่พอ 1 จุด",
+        "checks": [
+          {
+            "rule": "R1 CPU ↔ Mainboard Socket",
+            "ok": true,
+            "severity": "PASS",
+            "detail": "CPU socket = LGA1700 / Mainboard socket = LGA1700",
+            "item": "R1 CPU ↔ Mainboard Socket"
+          },
+          {
+            "rule": "R2 RAM ↔ Mainboard DDR Gen",
+            "ok": true,
+            "severity": "PASS",
+            "detail": "RAM = DDR5 / Mainboard รองรับ DDR5",
+            "item": "R2 RAM ↔ Mainboard DDR Gen"
+          },
+          {
+            "rule": "R3 PSU Wattage",
+            "ok": true,
+            "severity": "PASS",
+            "sources": [],
+            "required_watt": 550,
+            "manufacturer_min_watt": 550,
+            "estimated_min_watt": 344,
+            "estimated_draw_watt": 275,
+            "detail": "PSU 750W ผ่านเกณฑ์กำลังวัตต์ ≥550W — สเปก GPU กำหนด PSU ระบบ ≥550W; ประมาณการระบบ (CPU 65W, GPU 130W, อุปกรณ์อื่น 80W) ×1.25 = 344W. ต้องตรวจหัวต่อและกำลังจ่ายจริงของ PSU เพิ่มเติม",
+            "item": "R3 PSU Wattage"
+          },
+          {
+            "rule": "R4S CPU ↔ Cooler Socket",
+            "ok": false,
+            "severity": "UNKNOWN",
+            "detail": "ยังยืนยัน socket ของ CPU cooler ไม่ได้จากข้อมูลสินค้า",
+            "item": "R4S CPU ↔ Cooler Socket"
+          },
+          {
+            "rule": "R4 CPU Cooler TDP",
+            "ok": true,
+            "severity": "PASS",
+            "detail": "Cooler ~150W vs CPU ~65W",
+            "item": "R4 CPU Cooler TDP"
+          },
+          {
+            "rule": "R5 Case ↔ Mainboard Form Factor",
+            "ok": true,
+            "severity": "PASS",
+            "detail": "Case รองรับ ATX / Mainboard = ATX",
+            "item": "R5 Case ↔ Mainboard Form Factor"
+          }
+        ],
+        "warnings": [
+          "ยังยืนยัน socket ของ CPU cooler ไม่ได้จากข้อมูลสินค้า"
+        ],
+        "suggestions": [],
+        "_engine": {
+          "rules_enforced": 6,
+          "passed": 5,
+          "errors": 0,
+          "warnings": 0,
+          "unknown": 1,
+          "deterministic": true
+        }
+      }
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/pc-builder/pc-builder.ts:getBestStoreInfo/getTotalPrice",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI08",
+    "group": 3,
+    "steps": "เลือกครบ 8 ชิ้นแล้วคลิกสลับ CPU เป็น AM5",
+    "expected": "ส่ง compat request อัตโนมัติและขึ้น socket error",
+    "actual": {
+      "requests_before": 7,
+      "requests_after": 8,
+      "banner": "❌\n❌ พบปัญหาความเข้ากันได้ 1 จุด ที่ต้องแก้ก่อนใช้งาน\n✗ CPU socket = AM5 / Mainboard socket = LGA1700 → เข้ากันไม่ได้\n✓ RAM = DDR5 / Mainboard รองรับ DDR5\n✓ PSU 750W ผ่านเกณฑ์กำลังวัตต์ ≥550W — สเปก GPU กำหนด PSU ระบบ ≥550W; ประมาณการระบบ (CPU 65W, GPU 130W, อุปกรณ์อื่น 80W) ×1.25 = 344W. ต้องตรวจหัวต่อและกำลังจ่ายจริงของ PSU เพิ่มเติม\n⚠ ยังยืนยัน socket ของ CPU cooler ไม่ได้จากข้อมูลสินค้า\n✓ Cooler ~150W vs CPU ~65W\n✓ Case รองรับ ATX / Mainboard = ATX\n💡 แนะนำ:\n- เปลี่ยน Mainboard ให้ตรง socket กับ CPU (หรือเปลี่ยน CPU)"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/pc-builder/pc-builder.ts:selectProduct/checkCompatibility",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI09-390",
+    "group": 9,
+    "steps": "PC Builder 8 ชิ้น+socket warning; Chromium viewport 390",
+    "expected": "ไม่มี horizontal overflow ของหน้า; screenshot แนบ",
+    "actual": {
+      "width": 390,
+      "document": 390,
+      "body": 390,
+      "screenshot": "builder-390.png"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar/search ให้ wrap หรือย่อได้บนมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "UI09-768",
+    "group": 9,
+    "steps": "PC Builder 8 ชิ้น+socket warning; Chromium viewport 768",
+    "expected": "ไม่มี horizontal overflow ของหน้า; screenshot แนบ",
+    "actual": {
+      "width": 768,
+      "document": 768,
+      "body": 768,
+      "screenshot": "builder-768.png"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar/search ให้ wrap หรือย่อได้บนมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "UI10",
+    "group": 3,
+    "steps": "ลบ Cooler หลังเลือกครบ",
+    "expected": "แสดง 7/8 และไม่ crash; Cooler optional ตาม slots",
+    "actual": {
+      "selected": 7,
+      "counter_visible": true
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/pc-builder/pc-builder.ts:slots/removeProduct",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI11",
+    "group": 5,
+    "steps": "บันทึก PC Builder ผ่าน component จริง; mock persist แล้วเปิด history",
+    "expected": "เห็น manual history และราคาตาม snapshot",
+    "actual": {
+      "history_rows": 1,
+      "page": "📜 ประวัติการจัดสเปค\n\nดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน\n\n🛠️ จัดสเปกเองใหม่\n🤖 AI จัดสเปกใหม่\nทั้งหมด (1)\n🛠️ จัดสเปกเอง\n🤖 แนะนำสเปค\n⚖️ เปรียบเทียบ\n🔗 เช็คความเข้ากัน\n🛠️ จัดสเปกเอง\nจัดสเปกเอง (2,800 ฿)\n7/8 ชิ้นส่วน | ราคาเริ่มต้น 2,800 ฿\n2,800 ฿\n❌ ไม่เข้ากัน\n12 ก.ย. 2569 07:00\n🗑️\n▲\nADVICE รวม\n2,800 ฿\nมี 7 ชิ้น\nJIB รวม\n2,870 ฿\nมี 7 ชิ้น\nIHAVECPU รวม\n2,940 ฿\nมี 7 ชิ้น\n🏆 ราคาดีที่สุด\n2,800 ฿\nAdvice\n\n❌ พบปัญหาความเข้ากันได้ 1 จุด ที่ต้องแก้ก่อนใช้งาน\n\nชิ้นส่วน\tชื่อสินค้า\tADVICE\tJIB\tIHAVECPU\tราคาต่ำสุด\nCPU / Processor\t\nAMD Ryzen AM5\n100฿\nดูสินค้า Advice ↗\n\t\n110฿\nดูสินค้า JIB ↗"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/pc-builder/pc-builder.ts:saveAndNavigateToHistory",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI20",
+    "group": 5,
+    "steps": "Mock AI success ผ่านหน้า AI จริง แล้วเปิด history ที่มี manual เดิม",
+    "expected": "ทั้ง manual และ ai ถูกบันทึกและแสดงร่วมกัน",
+    "actual": {
+      "types": [
+        "manual",
+        "ai"
+      ],
+      "text": "📜 ประวัติการจัดสเปค\n\nดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน\n\n🛠️ จัดสเปกเองใหม่\n🤖 AI จัดสเปกใหม่\nทั้งหมด (2)\n🛠️ จัดสเปกเอง\n🤖 แนะนำสเปค\n⚖️ เปรียบเทียบ\n🔗 เช็คความเข้ากัน\n🛠️ จัดสเปกเอง\nจัดสเปกเอง (2,800 ฿)\n7/8 ชิ้นส่วน | ราคาเริ่มต้น 2,800 ฿\n2,800 ฿\n❌ ไม่เข้ากัน\n12 ก.ย. 2569 07:00\n🗑️\n▲\nADVICE รวม\n2,800 ฿\nมี 7 ชิ้น\nJIB รวม\n2,870 ฿\nมี 7 ชิ้น\nIHAVECPU รวม\n2,940 ฿\nมี 7 ชิ้น\n🏆 ราคาดีที่สุด\n2,800 ฿\nAdvice\n\n❌ พบปัญหาความเข้ากันได้ 1 จุด ที่ต้องแก้ก่อนใช้งาน\n\nชิ้นส่วน\tชื่อสินค้า\tADVICE\tJIB\tIHAVECPU\tราคาต่ำสุด\nCPU / Processor\t\nAMD Ryzen AM5\n100฿\nดูสินค้า Advice ↗\n\t\n110฿\nดูสินค้า JIB ↗\n\t\n120฿\nดูสินค้า iHaveCPU ↗\n\t100 ฿\nMainboard\t\nASUS B760 ATX DDR5\n200฿\nดูสินค้า Advice ↗\n\t\n210฿\nดูสิน"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/ai-recommend/ai-recommend.ts:saveHistory",
+    "fix": "ตรวจ payload ของ AI history และ schema ให้ตรงกับ backend",
+    "severity": ""
+  },
+  {
+    "id": "UI12",
+    "group": 4,
+    "steps": "ส่ง AI แล้ว mock HTTP 502",
+    "expected": "หยุด loading และแสดง error",
+    "actual": {
+      "step": 3,
+      "type": "error",
+      "error": "AI provider request failed. Check model and quota."
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/ai-recommend/ai-recommend.ts:runPrompt",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI13-390",
+    "group": 9,
+    "steps": "AI Settings; Chromium viewport 390",
+    "expected": "ไม่มี horizontal overflow; screenshot แนบ",
+    "actual": {
+      "width": 390,
+      "document": 390,
+      "body": 390,
+      "screenshot": "ai-settings-390.png"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar/search ให้ wrap หรือย่อได้บนมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "UI13-768",
+    "group": 9,
+    "steps": "AI Settings; Chromium viewport 768",
+    "expected": "ไม่มี horizontal overflow; screenshot แนบ",
+    "actual": {
+      "width": 768,
+      "document": 768,
+      "body": 768,
+      "screenshot": "ai-settings-768.png"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/components/navbar/navbar.scss:.nav-container/.nav-search",
+    "fix": "ปรับ navbar/search ให้ wrap หรือย่อได้บนมือถือ",
+    "severity": ""
+  },
+  {
+    "id": "UI14-1",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nIT-RECOMMEND\n\nระบบแนะนำและจัดสเปคคอมพิวเตอร์\nเลือกชิ้นส่วนเองหรือให้ AI ช่วยจัดสเปคให้คุณ\n\nจัดสเปคด้วยตัวเอง\nให้ AI ช่วยจัดสเปค",
+      "error_terms": [],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "ai/settings"
+        ],
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "ai/settings"
+        ],
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-2",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /products",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/products",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nไม่สามารถโหลดสินค้าได้\nสินค้าทั้งหมด\nค้นหา\n\nไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้\n\nลองใหม่",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "ai/settings"
+        ],
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "ai/settings"
+        ],
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "products"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/products",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-3",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /category/CPU",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/category/CPU",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nไม่สามารถโหลดสินค้าได้\nCPU\nค้นหา\n\nไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้\n\nลองใหม่",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "ai/settings"
+        ],
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/category/CPU",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-4",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /product/qa-0",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/product/qa-0",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nไม่สามารถเชื่อมต่อเพื่อโหลดข้อมูลสินค้าได้\nลองใหม่",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "ai/settings"
+        ],
+        [
+          "GET",
+          "ai/sessions"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products/qa-0"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/product/qa-0",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-5",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /pc-builder",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/pc-builder",
+      "text_excerpt": "ยบเทียบราคาแยก 3 ร้าน พร้อมระบบตรวจเช็คความเข้ากันได้\n\n❌\nไม่สามารถเชื่อมต่อเพื่อโหลดรายการสินค้าได้\nลองใหม่\n🔲\nCPU / Processor\n*\n＋\nคลิกเพื่อเลือก CPU / Processor\n🟦\nMainboard\n*\n＋\nคลิกเพื่อเลือก Mainboard\n🎮\nGPU / VGA\n＋\nคลิกเพื่อเลือก GPU / VGA\n📊\nRAM\n*\n＋\nคลิกเพื่อเลือก RAM\n💾\nSSD / M.2\n*\n＋\nคลิกเพื่อเลือก SSD / M.2\n⚡\nPower Supply\n*\n＋\nคลิกเพื่อเลือก Power Supply\n🖥️\nCase\n＋\nคลิกเพื่อเลือก Case\n❄️\nCPU Cooler\n＋\nคลิกเพื่อเลือก CPU Cooler\nสรุปสเปก\n🔲\nCPU / Processor\n—\n🟦\nMainboard\n—\n🎮\nGPU / VGA\n—\n📊\nRAM\n—\n💾\nSSD / M.2\n—\n⚡\nPower Supply\n—\n🖥️\nCase\n—\n❄️\nCPU Cooler\n—\nราคารวมเริ่มต้น (ต่ำสุด)\n0 ฿\n\nเลือกแล้ว 0 / 8 ชิ้น\n\n💾 บันทึกและดูสรุปสเปก (แยก 3 ร้าน)\nล้างทั้งหมด",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/pc-builder",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-6",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /history",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/history",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n📜 ประวัติการจัดสเปค\n\nดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน\n\n🛠️ จัดสเปกเองใหม่\n🤖 AI จัดสเปกใหม่\nทั้งหมด (0)\n🛠️ จัดสเปกเอง\n🤖 แนะนำสเปค\n⚖️ เปรียบเทียบ\n🔗 เช็คความเข้ากัน\n❌\nไม่สามารถเชื่อมต่อเพื่อโหลดประวัติได้\nลองใหม่",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/history",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-7",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /profile",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/profile",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n\nไม่สามารถเชื่อมต่อเพื่อโหลดโปรไฟล์ได้\n\nลองใหม่",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/profile",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-8",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /ai-recommend",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/ai-recommend",
+      "text_excerpt": "ิดอยู่ เข้าสู่ระบบใหม่\n\nLT PC BUILD · AI SPEC ADVISOR\nแนะนำสเปคคอม\nด้วย AI\n\nวิเคราะห์ความต้องการ · แนะนำสเปค · เช็คความเข้ากัน · เปรียบเทียบ\n\nAI Advisor\nประวัติของฉัน\nแนะนำสเปค\nเปรียบเทียบสเปค\nเช็คความเข้ากัน\nการใช้งานหลัก\n🎮\nเล่นเกม\nAAA / Esports / Streaming\n💼\nทำงานออฟฟิศ\nExcel / Zoom / เอกสาร\n🎬\nตัดต่อวิดีโอ\nPremiere / DaVinci / After Effects\n🧊\n3D / Render\nBlender / Maya / Cinema4D\n🤖\nAI / ML\nTraining / Stable Diffusion\n🖥️\nใช้งานทั่วไป\nท่องเน็ต / ดูหนัง / เรียน\nงบประมาณ\nต่ำกว่า 10,000 ฿\n10,000 – 15,000 ฿\n15,000 – 20,000 ฿\n20,000 – 30,000 ฿\n30,000 – 50,000 ฿\n50,000 - 100,000 ฿\n100,000 ฿ ขึ้นไป\nความต้องการเพิ่มเติม (ไม่บังคับ)\n🤖 ให้ AI แนะนำสเปค",
+      "error_terms": [
+        "ปิดอยู่"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "profile"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/ai-recommend",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-9",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /admin/products",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/admin/products",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n📦 จัดการสินค้า (Admin)\n➕ เพิ่มสินค้าใหม่\nชื่อสินค้า\nราคา (บาท)\nหมวดหมู่\nCPU\nMainboard\nGPU / VGA\nRAM\nM.2 / SSD\nPSU\nCase\nLiquid Cooler\nAir Cooler\nคำอธิบายสินค้า\nURL รูปภาพ\n➕ เพิ่มสินค้า\nรายการสินค้าทั้งหมด (0 รายการ)\nค้นหา\nไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้ ลองใหม่",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": {
+        "loadError": true
+      },
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "products"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/admin/products",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-10",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /admin/users",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/admin/users",
+      "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n👥 จัดการผู้ใช้งาน\n\nดูและจัดการบัญชีผู้ใช้ทั้งหมดในระบบ\n\n0\nทั้งหมด\n0\nAdmin\n\nไม่สามารถเชื่อมต่อเพื่อโหลดผู้ใช้งานได้\n\nลองใหม่\n🔍\nทุก Role\nCustomer\nAdmin\nStaff",
+      "error_terms": [
+        "ไม่สามารถ",
+        "เชื่อมต่อ"
+      ],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "admin/users"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/admin/users",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-11",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /login",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/login",
+      "text_excerpt": "💻\nเข้าสู่ระบบ\n\nIT-RECOMMEND\n\nอีเมลหรือชื่อผู้ใช้\n👤\nรหัสผ่าน\n🔒\n👁️\nเข้าสู่ระบบ\nยังไม่มีบัญชี?สมัครสมาชิกที่นี่\n← กลับหน้าแรก",
+      "error_terms": [],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "admin/users"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/login",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI14-12",
+    "group": 9,
+    "steps": "จำลอง API connection refused แล้วเปิด /register",
+    "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
+    "actual": {
+      "url": "http://127.0.0.1:55644/register",
+      "text_excerpt": "🖥️\nสร้างบัญชีใหม่\n\nIT-RECOMMEND\n\nชื่อผู้ใช้ *\n👤\nอีเมล *\n📧\nเบอร์โทรศัพท์ *\n📱\nวันเกิด *\n🎂\nรหัสผ่าน *\n🔒\n👁️\nยืนยันรหัสผ่าน *\n🔐\n👁️\nสมัครสมาชิก\nมีบัญชีอยู่แล้ว?เข้าสู่ระบบที่นี่\n← กลับหน้าแรก",
+      "error_terms": [],
+      "component_state": null,
+      "recent_requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "spec-history"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "profile"
+        ],
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "GET",
+          "admin/users"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/register",
+    "fix": "เพิ่ม error state แยกจาก empty/not-found และปุ่มลองใหม่",
+    "severity": ""
+  },
+  {
+    "id": "UI16",
+    "group": 7,
+    "steps": "เปิด admin products และ submit สินค้า fixture; บันทึก request destinations",
+    "expected": "ใช้ GET/POST /api/products ของ FastAPI พร้อม JWT",
+    "actual": {
+      "requests": [
+        [
+          "GET",
+          "products"
+        ],
+        [
+          "POST",
+          "products"
+        ],
+        [
+          "GET",
+          "products"
+        ]
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/admin-products/admin-products.ts:api/loadProducts/submitForm",
+    "fix": "เปลี่ยน PHP URL เดิมเป็น ApiService และแนบ JWT",
+    "severity": ""
+  },
+  {
+    "id": "UI17",
+    "group": 7,
+    "steps": "ใส่2700 fixture rows ใน component จริงแล้ว render",
+    "expected": "มี search/pagination จำกัดจำนวนแถวบนหน้า",
+    "actual": {
+      "rows": 20,
+      "inputs": [
+        "เช่น Intel Core i9-14900K",
+        "0",
+        "https://... หรือ assets/...",
+        "ค้นหาสินค้า"
+      ]
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/admin-products/admin-products.ts/html",
+    "fix": "เพิ่ม search/pagination และรับข้อมูลแบบแบ่งหน้าจาก API",
+    "severity": ""
+  },
+  {
+    "id": "UI18",
+    "group": 9,
+    "steps": "ปล่อย AI fetch ค้าง แล้วเดิน browser clock 180วินาที",
+    "expected": "frontend timeout/cancel พร้อม error",
+    "actual": {
+      "step": 3,
+      "error": "คำขอ AI หมดเวลาหลัง 60 วินาที กรุณาลองใหม่"
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/ai-recommend/ai-recommend.ts:callGemini",
+    "fix": "เพิ่ม AbortController deadline และปุ่มยกเลิก; timeout ของ backend ไม่แทน client timeout",
+    "severity": ""
+  },
+  {
+    "id": "UI19-firefox",
+    "group": 9,
+    "steps": "เปิด PC Builder และ AI บน firefox ที่390/768px พร้อม mock API",
+    "expected": "components แสดงได้ ไม่มี uncaught error",
+    "actual": {
+      "views": [
+        {
+          "path": "pc-builder",
+          "width": 390,
+          "visible": true
+        },
+        {
+          "path": "pc-builder",
+          "width": 768,
+          "visible": true
+        },
+        {
+          "path": "ai-recommend",
+          "width": 390,
+          "visible": true
+        },
+        {
+          "path": "ai-recommend",
+          "width": 768,
+          "visible": true
+        }
+      ],
+      "pageerrors": []
+    },
+    "status": "Pass",
+    "source": "",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI19-webkit",
+    "group": 9,
+    "steps": "เปิด PC Builder และ AI บน webkit ที่390/768px พร้อม mock API",
+    "expected": "components แสดงได้ ไม่มี uncaught error",
+    "actual": {
+      "views": [
+        {
+          "path": "pc-builder",
+          "width": 390,
+          "visible": true
+        },
+        {
+          "path": "pc-builder",
+          "width": 768,
+          "visible": true
+        },
+        {
+          "path": "ai-recommend",
+          "width": 390,
+          "visible": true
+        },
+        {
+          "path": "ai-recommend",
+          "width": 768,
+          "visible": true
+        }
+      ],
+      "pageerrors": []
+    },
+    "status": "Pass",
+    "source": "It-shop/src/app/pages/ai-recommend",
+    "fix": "",
+    "severity": ""
+  },
+  {
+    "id": "UI15",
+    "group": 9,
+    "steps": "รวบรวม pageerror ระหว่าง browser scenarios",
+    "expected": "ไม่มี uncaught pageerror",
+    "actual": [],
+    "status": "Pass",
+    "source": "It-shop/src/app",
+    "fix": "ตรวจ handler และ async errors",
+    "severity": ""
+  }
+]

@@ -96,6 +96,7 @@ export class PcBuilderComponent implements OnInit {
   private compatRequestId = 0;
   isCheckingCompat = false;
   isSaving = false;
+  catalogLoadError = false;
 
   constructor(
     private http: HttpClient,
@@ -105,13 +106,18 @@ export class PcBuilderComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    this.reloadCatalog();
+  }
+
+  reloadCatalog() {
+    this.catalogLoadError = false;
     this.slots.forEach(slot => this.loadSlotProducts(slot));
   }
 
   // ─── Load products for a slot ───
   loadSlotProducts(slot: BuildSlot, search: string = '') {
     slot.isLoading = true;
-    const params: any = { category: slot.category };
+    const params: any = { category: slot.category, page: '1', limit: '100' };
     if (search) params['search'] = search;
 
     const query = new URLSearchParams(params).toString();
@@ -124,7 +130,7 @@ export class PcBuilderComponent implements OnInit {
 
         // สำหรับ cooler รวม air + liquid
         if (slot.key === 'cooler') {
-          this.http.get<any>(`${API}/api/products?category=air+cooler`).subscribe({
+          this.http.get<any>(`${API}/api/products?category=air+cooler&page=1&limit=100`).subscribe({
             next: (res2) => {
               const extra = (res2.status === 'success' ? res2.data : []).filter(
                 (p: Product) => !p.p_name.toLowerCase().includes('vacuum') && !p.p_name.toLowerCase().includes('เครื่องดูดฝุ่น')
@@ -136,6 +142,7 @@ export class PcBuilderComponent implements OnInit {
             error: () => {
               slot.products = products;
               slot.isLoading = false;
+              this.catalogLoadError = true;
               this.cdr.detectChanges();
             }
           });
@@ -148,6 +155,8 @@ export class PcBuilderComponent implements OnInit {
       },
       error: () => {
         slot.isLoading = false;
+        slot.products = [];
+        this.catalogLoadError = true;
         this.cdr.detectChanges();
       }
     });
@@ -413,7 +422,9 @@ export class PcBuilderComponent implements OnInit {
       })
     };
 
-    this.http.post<any>(`${API}/api/spec-history`, payload).subscribe({
+    this.http.post<any>(`${API}/api/spec-history`, payload, {
+      headers: { Authorization: `Bearer ${this.auth.getToken()}` }
+    }).subscribe({
       next: (res) => {
         this.isSaving = false;
         this.showToast('บันทึกสเปกเรียบร้อยแล้ว กำลังนำท่านไปยังหน้าประวัติ...', 'success');

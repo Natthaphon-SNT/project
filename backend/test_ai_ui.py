@@ -1,3 +1,6 @@
+import unittest
+if __name__ != "__main__":
+    raise unittest.SkipTest("manual built-UI browser diagnostic")
 
 import functools
 import http.server

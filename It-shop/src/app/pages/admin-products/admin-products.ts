@@ -1,8 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
+import { ApiService } from '../../services/api';
 
 @Component({
   selector: 'app-admin-products',
@@ -13,6 +13,11 @@ import { RouterModule } from '@angular/router';
 })
 export class AdminProductsComponent implements OnInit {
   products: any[] = [];
+  totalProducts = 0;
+  page = 1;
+  readonly pageSize = 20;
+  searchQuery = '';
+  loadError = false;
   editMode = false;
   editingId: string | null = null;
 
@@ -22,17 +27,40 @@ export class AdminProductsComponent implements OnInit {
     description: '', image: ''
   };
 
-  private api = 'http://localhost/pc_part/api/admin_product_manage.php';
-
-  constructor(private http: HttpClient) {}
+  constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
     this.loadProducts();
   }
 
-  loadProducts() {
-    this.http.get<any>('http://localhost/pc_part/api/get_product.php')
-      .subscribe(res => this.products = res.data || []);
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.totalProducts / this.pageSize));
+  }
+
+  get visibleProducts(): any[] {
+    return this.products.slice(0, this.pageSize);
+  }
+
+  loadProducts(page = this.page) {
+    this.page = page;
+    this.loadError = false;
+    this.api.getProducts('', this.searchQuery.trim(), this.page, this.pageSize).subscribe({
+      next: res => {
+        this.products = res.data || [];
+        this.totalProducts = res.pagination?.total ?? this.products.length;
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.products = [];
+        this.totalProducts = 0;
+        this.loadError = true;
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  applySearch() {
+    this.loadProducts(1);
   }
 
   // ✅ เพิ่มหรือแก้ไข ขึ้นอยู่กับ editMode
@@ -42,17 +70,33 @@ export class AdminProductsComponent implements OnInit {
       return;
     }
 
-    const action = this.editMode ? 'edit' : 'add';
-    const payload: any = { action, data: this.formProduct };
-    if (this.editMode) payload.id = this.editingId;
+    const payload = {
+      p_name: this.formProduct.name.trim(),
+      p_price: Number(this.formProduct.price),
+      cid: this.formProduct.category,
+      category: this.getCategoryName(this.formProduct.category),
+      p_description: this.formProduct.description,
+      img_url: this.formProduct.image
+    };
+    const request = this.editMode && this.editingId
+      ? this.api.updateProduct(this.editingId, payload)
+      : this.api.createProduct({
+          product_id: `admin-${Date.now()}`,
+          ...payload
+        });
 
-    this.http.post<any>(this.api, payload).subscribe(res => {
-      if (res.status === 'success') {
-        alert(this.editMode ? '✅ แก้ไขสินค้าสำเร็จ' : '✅ เพิ่มสินค้าสำเร็จ');
-        this.resetForm();
-        this.loadProducts();
-      } else {
-        alert('❌ เกิดข้อผิดพลาด: ' + res.message);
+    request.subscribe({
+      next: res => {
+        if (res.status === 'success') {
+          alert(this.editMode ? '✅ แก้ไขสินค้าสำเร็จ' : '✅ เพิ่มสินค้าสำเร็จ');
+          this.resetForm();
+          this.loadProducts(this.page);
+        } else {
+          alert('❌ เกิดข้อผิดพลาด: ' + (res.detail || res.message));
+        }
+      },
+      error: err => {
+        alert('❌ เกิดข้อผิดพลาด: ' + (err.error?.detail || 'เชื่อมต่อ API ไม่ได้'));
       }
     });
   }
@@ -78,8 +122,10 @@ export class AdminProductsComponent implements OnInit {
 
   deleteProduct(id: string) {
     if (!confirm('⚠️ ยืนยันการลบสินค้านี้?')) return;
-    this.http.post<any>(this.api, { action: 'delete', id })
-      .subscribe(() => this.loadProducts());
+    this.api.deleteProduct(id).subscribe({
+      next: () => this.loadProducts(this.page),
+      error: err => alert('❌ ลบสินค้าไม่สำเร็จ: ' + (err.error?.detail || 'เชื่อมต่อ API ไม่ได้'))
+    });
   }
 
   resetForm() {

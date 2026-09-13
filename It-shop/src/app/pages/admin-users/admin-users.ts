@@ -15,6 +15,7 @@ export class AdminUsersComponent implements OnInit {
   users: any[] = [];
   filteredUsers: any[] = [];
   isLoading = true;
+  loadError = false;
   searchQuery = '';
   roleFilter = '';
 
@@ -55,6 +56,7 @@ export class AdminUsersComponent implements OnInit {
 
   loadUsers() {
     this.isLoading = true;
+    this.loadError = false;
     this.http.get<any>(`${this.API}/api/admin/users`, { headers: this.getHeaders() }).subscribe({
       next: (res) => {
         this.isLoading = false;
@@ -66,6 +68,9 @@ export class AdminUsersComponent implements OnInit {
       },
       error: () => {
         this.isLoading = false;
+        this.loadError = true;
+        this.users = [];
+        this.filteredUsers = [];
         this.cdr.detectChanges();
       }
     });

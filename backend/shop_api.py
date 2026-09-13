@@ -10,11 +10,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, status, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, ForeignKey, func, text
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship
 import bcrypt
@@ -67,6 +67,7 @@ class User(Base):
     u_created_at = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     u_updated_at = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     u_last_login = Column(String, nullable=True)
+    token_version = Column(Integer, nullable=False, default=0)
     orders       = relationship("Order", back_populates="user")
 
 class Category(Base):
@@ -278,6 +279,12 @@ def run_migrations(db_engine):
         except Exception:
             pass
 
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass
+
         # เพิ่ม categories ใหม่ (Gaming Gear + Furniture + PC Set)
         new_cats = [
             ("c10", "Mouse",         "Gaming Mouse / Optical Mouse"),
@@ -363,6 +370,8 @@ def get_current_user(
         user = db.query(User).filter(User.uid == payload["uid"]).first()
         if not user:
             raise HTTPException(status_code=401, detail="ไม่พบผู้ใช้")
+        if payload.get("token_version", 0) != (user.token_version or 0):
+            raise HTTPException(status_code=401, detail="Token ถูกยกเลิกแล้ว")
         return user
     except Exception:
         raise HTTPException(status_code=401, detail="Token ไม่ถูกต้องหรือหมดอายุ")
@@ -371,6 +380,13 @@ def require_admin(user: User = Depends(get_current_user)):
     if user.u_role != "admin":
         raise HTTPException(status_code=403, detail="ต้องมีสิทธิ์ Admin")
     return user
+
+def ensure_admin_remains(user: User, new_role: str, db: Session) -> None:
+    """Reject every update path that would demote the system's final admin."""
+    if user.u_role == "admin" and new_role != "admin":
+        admin_count = db.query(User).filter(User.u_role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(409, "ไม่สามารถถอดสิทธิ์ admin คนสุดท้ายได้ — ระบบต้องมี admin อย่างน้อย 1 คน")
 
 def get_optional_user(
     creds: HTTPAuthorizationCredentials = Depends(security),
@@ -430,10 +446,10 @@ def product_to_dict(p: Product) -> dict:
 class RegisterBody(BaseModel):
     uid: str
     u_name: str
-    u_email: str
+    u_email: EmailStr
     u_phone: str
     dob: str
-    u_password: str
+    u_password: str = Field(min_length=6)
     confirm: str
 
 class LoginBody(BaseModel):
@@ -446,9 +462,10 @@ class ProductCreate(BaseModel):
     product_id: str
     p_name: str
     p_description: str = ""
-    p_price: float
+    p_price: float = Field(ge=0)
     p_stock: int = 0
     img_url: str = ""
+    cid: str = ""
     category: str = ""
     specs: str = ""
     url_advice: str = ""
@@ -461,9 +478,10 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     p_name: Optional[str] = None
     p_description: Optional[str] = None
-    p_price: Optional[float] = None
+    p_price: Optional[float] = Field(default=None, ge=0)
     p_stock: Optional[int] = None
     img_url: Optional[str] = None
+    cid: Optional[str] = None
     category: Optional[str] = None
     specs: Optional[str] = None
     url_advice: Optional[str] = None
@@ -481,24 +499,6 @@ class PromoCreate(BaseModel):
     discount_value: float = 0
     start_date: str
     end_date: str
-
-class OrderItemSchema(BaseModel):
-    product_id: str
-    p_name: str
-    quantity: int
-    price: float
-
-class CustomerInfo(BaseModel):
-    name: str
-    phone: str
-    address: str
-
-class PlaceOrderBody(BaseModel):
-    uid: Optional[str] = None
-    customer: CustomerInfo
-    items: List[OrderItemSchema]
-    total_price: float
-    payment_method: str = "cod"
 
 class ProfileUpdate(BaseModel):
     u_name: Optional[str] = None
@@ -611,7 +611,11 @@ def login(body: LoginBody, db: Session = Depends(get_db)):
         raise HTTPException(401, "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
     user.u_last_login = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.commit()
-    token = create_token({"uid": user.uid, "role": user.u_role})
+    token = create_token({
+        "uid": user.uid,
+        "role": user.u_role,
+        "token_version": user.token_version or 0,
+    })
     return {
         "status": "success",
         "message": "เข้าสู่ระบบสำเร็จ",
@@ -625,6 +629,7 @@ def login(body: LoginBody, db: Session = Depends(get_db)):
 @app.get("/api/products")
 def get_products(
     category: str = "", cid: str = "", search: str = "", name: str = "",
+    page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
     q = db.query(Product)
@@ -633,8 +638,18 @@ def get_products(
     if cid:      q = q.filter(Product.cid == cid)
     if search:   q = q.filter(Product.p_name.contains(search) | Product.p_description.contains(search))
     if name:     q = q.filter(Product.p_name.contains(name))
-    products = q.order_by(Product.created_at.desc()).all()
-    return {"status": "success", "data": [product_to_dict(p) for p in products]}
+    total = q.count()
+    products = q.order_by(Product.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    return {
+        "status": "success",
+        "data": [product_to_dict(p) for p in products],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit,
+        },
+    }
 
 @app.get("/api/products/{product_id}")
 def get_product(product_id: str, db: Session = Depends(get_db)):
@@ -781,110 +796,8 @@ def delete_promo(promo_id: int, admin=Depends(require_admin), db: Session = Depe
     return {"status": "success", "message": "ลบโปรโมชั่นสำเร็จ"}
 
 # ─────────────────────────────────────────
-# Orders
+# Spec History (the authenticated CRUD handlers are defined below)
 # ─────────────────────────────────────────
-@app.post("/api/orders")
-def place_order(body: PlaceOrderBody, db: Session = Depends(get_db)):
-    order = Order(
-        uid=body.uid,
-        customer_name=body.customer.name,
-        phone=body.customer.phone,
-        address=body.customer.address,
-        payment_method=body.payment_method,
-        total_price=body.total_price,
-        o_status="pending"
-    )
-    db.add(order); db.flush()
-    for item in body.items:
-        detail = OrderItem(
-            order_id=order.order_id,
-            product_id=item.product_id,
-            p_name=item.p_name,
-            oi_quantity=item.quantity,
-            oi_price=item.price
-        )
-        db.add(detail)
-    db.commit()
-    return {"status": "success", "message": "สั่งซื้อสำเร็จ", "order_id": order.order_id}
-
-@app.get("/api/orders")
-def get_all_orders(admin=Depends(require_admin), db: Session = Depends(get_db)):
-    orders = db.query(Order).order_by(Order.order_date.desc()).all()
-    result = []
-    for o in orders:
-        result.append({
-            "order_id": o.order_id, "uid": o.uid,
-            "customer_name": o.customer_name, "phone": o.phone,
-            "address": o.address, "payment_method": o.payment_method,
-            "total_price": o.total_price, "status": o.o_status,
-            "order_date": str(o.order_date) if o.order_date else "",
-            "u_name": o.user.u_name if o.user else o.customer_name,
-            "u_email": o.user.u_email if o.user else "",
-            "u_phone": o.user.u_phone if o.user else o.phone,
-            "items": [{"product_id": d.product_id, "p_name": d.p_name,
-                       "quantity": d.oi_quantity, "price": d.oi_price} for d in o.items]
-        })
-    return {"status": "success", "data": result}
-
-@app.get("/api/orders/my")
-def get_my_orders(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    orders = db.query(Order).filter(Order.uid == user.uid).order_by(Order.order_date.desc()).all()
-    result = []
-    for o in orders:
-        result.append({
-            "order_id": o.order_id, "total_price": o.total_price,
-            "status": o.o_status, "order_date": str(o.order_date) if o.order_date else "",
-            "payment_method": o.payment_method,
-            "items": [{"product_id": d.product_id, "p_name": d.p_name,
-                       "quantity": d.oi_quantity, "price": d.oi_price} for d in o.items]
-        })
-    return {"status": "success", "data": result}
-
-@app.get("/api/orders/{order_id}")
-def get_order_detail(order_id: int, db: Session = Depends(get_db)):
-    o = db.query(Order).filter(Order.order_id == order_id).first()
-    if not o: raise HTTPException(404, "ไม่พบคำสั่งซื้อ")
-    return {"status": "success", "data": {
-        "order_id": o.order_id, "customer_name": o.customer_name,
-        "phone": o.phone, "address": o.address,
-        "payment_method": o.payment_method, "total_price": o.total_price,
-        "status": o.o_status, "order_date": str(o.order_date) if o.order_date else "",
-        "items": [{"product_id": d.product_id, "p_name": d.p_name,
-                   "quantity": d.oi_quantity, "price": d.oi_price} for d in o.items]
-    }}
-
-@app.put("/api/orders/{order_id}/status")
-def update_order_status(order_id: int, payload: dict, admin=Depends(require_admin), db: Session = Depends(get_db)):
-    o = db.query(Order).filter(Order.order_id == order_id).first()
-    if not o: raise HTTPException(404, "ไม่พบคำสั่งซื้อ")
-    o.o_status = payload.get("status", o.o_status)
-    db.commit()
-    return {"status": "success", "message": "อัปเดตสถานะสำเร็จ"}
-
-# ─────────────────────────────────────────
-# Spec History
-# ─────────────────────────────────────────
-class SpecHistoryCreate(BaseModel):
-    uid: str
-    username: str = ""
-    type: str = "ai"
-    mode: str = "recommend"
-    title: str = ""
-    inputSummary: str = ""
-    result_data: Any = "{}"
-
-@app.get("/api/spec-history")
-def get_spec_history(uid: str = "", limit: int = 20, db: Session = Depends(get_db)):
-    q = db.query(SpecHistory)
-    if uid: q = q.filter(SpecHistory.uid == uid)
-    items = q.order_by(SpecHistory.createdAt.desc()).limit(limit).all()
-    return {"status": "success", "data": [
-        {"id": i.id, "uid": i.uid, "username": i.username,
-         "type": i.type, "mode": i.mode, "title": i.title,
-         "inputSummary": i.inputSummary, "result_data": i.result_data,
-         "createdAt": i.createdAt}
-        for i in items
-    ]}
 
 @app.get("/api/spec-history/all")
 def get_all_spec_history(admin=Depends(require_admin), limit: int = 100, db: Session = Depends(get_db)):
@@ -897,21 +810,6 @@ def get_all_spec_history(admin=Depends(require_admin), limit: int = 100, db: Ses
         for i in items
     ]}
 
-@app.post("/api/spec-history")
-def save_spec_history(body: SpecHistoryCreate, db: Session = Depends(get_db)):
-    values = body.model_dump()
-    if not isinstance(values["result_data"], str):
-        values["result_data"] = json.dumps(values["result_data"], ensure_ascii=False)
-    item = SpecHistory(**values)
-    db.add(item); db.commit()
-    return {"status": "success", "message": "บันทึกประวัติสำเร็จ", "id": item.id}
-
-@app.delete("/api/spec-history/{id}")
-def delete_spec_history(id: int, db: Session = Depends(get_db)):
-    item = db.query(SpecHistory).filter(SpecHistory.id == id).first()
-    if not item: raise HTTPException(404, "ไม่พบข้อมูล")
-    db.delete(item); db.commit()
-    return {"status": "success", "message": "ลบสำเร็จ"}
 
 # ─────────────────────────────────────────
 # Profile
@@ -954,6 +852,7 @@ def change_password(body: PasswordChangeBody, user: User = Depends(get_current_u
     if len(body.new_password) < 6:
         raise HTTPException(400, "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร")
     db_user.u_password = hash_password(body.new_password)
+    db_user.token_version = (db_user.token_version or 0) + 1
     db_user.u_updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.commit()
     return {"status": "success", "message": "เปลี่ยนรหัสผ่านสำเร็จ"}
@@ -996,14 +895,13 @@ def admin_get_all_users(admin=Depends(require_admin), db: Session = Depends(get_
     users = db.query(User).order_by(User.u_created_at.desc()).all()
     result = []
     for u in users:
-        order_count = db.query(Order).filter(Order.uid == u.uid).count()
         spec_count  = db.query(SpecHistory).filter(SpecHistory.uid == u.uid).count()
         result.append({
             "uid": u.uid, "u_name": u.u_name, "u_email": u.u_email,
             "u_phone": u.u_phone, "u_role": u.u_role, "dob": u.dob,
             "u_image": u.u_image, "u_address": u.u_address,
             "u_created_at": u.u_created_at, "u_last_login": u.u_last_login,
-            "order_count": order_count, "spec_count": spec_count
+            "spec_count": spec_count
         })
     return {"status": "success", "data": result}
 
@@ -1034,7 +932,9 @@ def admin_update_user(uid: str, body: AdminUserUpdate, admin=Depends(require_adm
         u.u_email = body.u_email
     if body.u_phone is not None: u.u_phone = body.u_phone
     if body.u_address is not None: u.u_address = body.u_address
-    if body.u_role: u.u_role = body.u_role
+    if body.u_role:
+        ensure_admin_remains(u, body.u_role, db)
+        u.u_role = body.u_role
     u.u_updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.commit()
     return {"status": "success", "message": "อัปเดตข้อมูลผู้ใช้สำเร็จ"}
@@ -1055,6 +955,7 @@ def admin_change_role(uid: str, body: RoleUpdate, admin=Depends(require_admin), 
     allowed_roles = ["customer", "admin", "staff"]
     if body.role not in allowed_roles:
         raise HTTPException(400, f"role ต้องเป็น: {', '.join(allowed_roles)}")
+    ensure_admin_remains(u, body.role, db)
     u.u_role = body.role
     u.u_updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.commit()
@@ -1067,19 +968,6 @@ def admin_get_user_specs(uid: str, admin=Depends(require_admin), db: Session = D
         {"id": s.id, "type": s.type, "mode": s.mode, "title": s.title,
          "inputSummary": s.inputSummary, "result_data": s.result_data, "createdAt": s.createdAt}
         for s in specs
-    ]}
-
-@app.get("/api/admin/users/{uid}/orders")
-def admin_get_user_orders(uid: str, admin=Depends(require_admin), db: Session = Depends(get_db)):
-    orders = db.query(Order).filter(Order.uid == uid).order_by(Order.order_date.desc()).all()
-    return {"status": "success", "data": [
-        {
-            "order_id": o.order_id, "total_price": o.total_price,
-            "status": o.o_status, "order_date": str(o.order_date) if o.order_date else "",
-            "payment_method": o.payment_method,
-            "items": [{"product_id": d.product_id, "p_name": d.p_name,
-                       "quantity": d.oi_quantity, "price": d.oi_price} for d in o.items]
-        } for o in orders
     ]}
 
 # ─────────────────────────────────────────
@@ -1362,6 +1250,8 @@ async def ai_recommend(
         return {"status": "success", "data": raw,
                 "session_id": session.id if user and session else None}
 
+    except (httpx.TimeoutException, httpx.ConnectError):
+        raise HTTPException(502, "AI provider เชื่อมต่อไม่ได้หรือหมดเวลา กรุณาลองใหม่")
     except RuntimeError as e:
         msg = str(e)
         if msg == "rate_limit":
@@ -1384,8 +1274,18 @@ async def compat_check(body: CompatCheckBody):
     return {"status": "success", "data": result}
 
 
+class CompatPartItem(BaseModel):
+    """T1-2: Typed part item to prevent 500 on bad payload (C14, C15)"""
+    category: str = ""
+    name: Optional[str] = None
+    p_name: Optional[str] = None
+    price: Optional[float] = None
+    p_price: Optional[float] = None
+    product_id: Optional[str] = None
+    id: Optional[str] = None
+
 class CompatibilityPartsBody(BaseModel):
-    parts: list[dict]
+    parts: List[CompatPartItem]
     budget: Optional[int] = None
 
 @app.post("/api/compatibility/check-parts")
@@ -1397,10 +1297,10 @@ def check_compatibility_parts(body: CompatibilityPartsBody, db: Session = Depend
 
     parsed = []
     for p in body.parts:
-        cat   = p.get("category") or ""
-        name  = p.get("name") or p.get("p_name") or ""
-        price = p.get("price") or p.get("p_price") or 0
-        pid   = p.get("product_id") or p.get("id") or ""
+        cat   = p.category or ""
+        name  = p.name or p.p_name or ""
+        price = p.price or p.p_price or 0
+        pid   = p.product_id or p.id or ""
 
         # ดึง specs จาก DB ถ้ามี product_id — ใช้ข้อมูลจากหน้าสินค้าจริง (แม่นกว่า regex)
         specs_text = ""
@@ -1425,7 +1325,7 @@ def check_compatibility_parts(body: CompatibilityPartsBody, db: Session = Depend
 
 
 class SpecHistoryCreate(BaseModel):
-    uid: str
+    uid: Optional[str] = ""  # ignored — server uses JWT
     email: Optional[str] = ""
     username: Optional[str] = ""
     type: Optional[str] = "manual"
@@ -1437,13 +1337,14 @@ class SpecHistoryCreate(BaseModel):
     result_data: Any = "{}"
 
 @app.get("/api/spec-history")
-def get_spec_history(uid: Optional[str] = None, email: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):
-    q = db.query(SpecHistory)
-    if uid:
-        q = q.filter(SpecHistory.uid == uid)
-    if email:
-        q = q.filter(SpecHistory.email == email)
-    items = q.order_by(SpecHistory.createdAt.desc()).limit(limit).all()
+def get_spec_history(request: Request, current_user: User = Depends(get_current_user), limit: int = 50, db: Session = Depends(get_db)):
+    # T0-1: Filter by JWT uid only — no uid/email query params (H04, H05)
+    requested_uid = request.query_params.get("uid")
+    if requested_uid and requested_uid != current_user.uid:
+        raise HTTPException(403, "ไม่มีสิทธิ์ดูประวัติของผู้ใช้อื่น")
+    items = db.query(SpecHistory).filter(
+        SpecHistory.uid == current_user.uid
+    ).order_by(SpecHistory.createdAt.desc()).limit(limit).all()
     return {"status": "success", "data": [
         {
             "id": s.id, "uid": s.uid, "email": s.email or "", "username": s.username,
@@ -1454,22 +1355,14 @@ def get_spec_history(uid: Optional[str] = None, email: Optional[str] = None, lim
     ]}
 
 @app.post("/api/spec-history")
-def create_spec_history(body: SpecHistoryCreate, user: Optional[User] = Depends(get_optional_user), db: Session = Depends(get_db)):
+def create_spec_history(body: SpecHistoryCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # T0-1: uid from JWT only — ignore body.uid (H06)
     res_str = json.dumps(body.result_data, ensure_ascii=False) if not isinstance(body.result_data, str) else body.result_data
-    user_email = ""
-    if user:
-        user_email = user.u_email
-    elif body.email:
-        user_email = body.email
-    elif body.uid:
-        u = db.query(User).filter(User.uid == body.uid).first()
-        if u:
-            user_email = u.u_email
 
     item = SpecHistory(
-        uid=body.uid,
-        email=user_email,
-        username=body.username or (user.u_name if user else ""),
+        uid=current_user.uid,
+        email=current_user.u_email,
+        username=body.username or current_user.u_name,
         type=body.type or "manual",
         mode=body.mode or "manual",
         title=body.title or "จัดสเปกเอง",
@@ -1492,10 +1385,13 @@ def create_spec_history(body: SpecHistoryCreate, user: Optional[User] = Depends(
     }
 
 @app.delete("/api/spec-history/{id}")
-def delete_spec_history(id: int, db: Session = Depends(get_db)):
+def delete_spec_history(id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     item = db.query(SpecHistory).filter(SpecHistory.id == id).first()
     if not item:
         raise HTTPException(404, "ไม่พบประวัติการจัดสเปค")
+    # T0-1: Only owner or admin can delete (H07)
+    if item.uid != current_user.uid and current_user.u_role != "admin":
+        raise HTTPException(403, "ไม่มีสิทธิ์ลบประวัตินี้")
     db.delete(item)
     db.commit()
     return {"status": "success", "message": "ลบประวัติสำเร็จ"}

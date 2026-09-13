@@ -24,7 +24,27 @@ describe('AiRecommendComponent', () => { // ตั้งชื่อ describe �
     fixture.detectChanges();
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
+  it('allows an in-flight AI request to be cancelled', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')));
+      })) as typeof fetch;
+
+    try {
+      component.selectedUseCase = 'gaming';
+      component.selectedBudget = '30k';
+      const request = component.handleRecommend();
+      await Promise.resolve();
+      expect(component.step).toBe(2);
+      component.cancelAiRequest();
+      await request;
+      expect(component.step).toBe(3);
+      expect(component.resultType).toBe('error');
+      expect(component.errorMessage).toBeTruthy();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

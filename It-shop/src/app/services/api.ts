@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable, interval } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 
@@ -16,11 +16,11 @@ export class ApiService {
   }
 
   // Products
-  getProducts(category: string = '', search: string = ''): Observable<any> {
-    let url = `${this.baseUrl}/api/products?`;
-    if (category) url += `category=${encodeURIComponent(category)}&`;
-    if (search)   url += `search=${encodeURIComponent(search)}`;
-    return this.http.get(url);
+  getProducts(category = '', search = '', page = 1, limit = 20): Observable<any> {
+    let params = new HttpParams().set('page', page).set('limit', limit);
+    if (category) params = params.set('category', category);
+    if (search) params = params.set('search', search);
+    return this.http.get(`${this.baseUrl}/api/products`, { params });
   }
 
   getProductDetail(id: string | number): Observable<any> {
@@ -87,7 +87,7 @@ export class ApiService {
 
   // Spec History
   getSpecHistory(uid: string, limit = 50): Observable<any> {
-    return this.http.get(`${this.baseUrl}/api/spec-history?uid=${uid}&limit=${limit}`, { headers: this.authHeaders() });
+    return this.http.get(`${this.baseUrl}/api/spec-history?limit=${limit}`, { headers: this.authHeaders() });
   }
   getAllSpecHistory(): Observable<any> {
     return this.http.get(`${this.baseUrl}/api/spec-history/all`, { headers: this.authHeaders() });

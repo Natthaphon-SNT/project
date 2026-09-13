@@ -29,7 +29,7 @@
   </div>
 
   <!-- Product Grid -->
-  <div *ngIf="!isLoading" class="product-grid fade-in">
+  <div *ngIf="!isLoading && !loadError" class="product-grid fade-in">
     <div *ngFor="let p of products" class="product-card">
 
       <div class="product-img-box" [routerLink]="['/product', p.product_id]">
@@ -72,9 +72,20 @@
   </div>
 
   <!-- Empty State -->
-  <div *ngIf="!isLoading && products.length === 0" class="empty-state fade-in">
+  <div *ngIf="!isLoading && loadError" class="empty-state fade-in" role="alert">
+    <p>ไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้</p>
+    <button (click)="loadProducts(page)" class="btn-clear">ลองใหม่</button>
+  </div>
+
+  <div *ngIf="!isLoading && !loadError && products.length === 0" class="empty-state fade-in">
     <p>ไม่พบสินค้าที่ค้นหา</p>
     <button (click)="searchQuery = ''; onSearch()" class="btn-clear">ล้างการค้นหา</button>
+  </div>
+
+  <div *ngIf="!isLoading && !loadError && totalProducts > pageSize" class="modal-actions">
+    <button class="btn-clear" [disabled]="page <= 1" (click)="loadProducts(page - 1)">ก่อนหน้า</button>
+    <span>หน้า {{ page }} / {{ totalPages }}</span>
+    <button class="btn-clear" [disabled]="page >= totalPages" (click)="loadProducts(page + 1)">ถัดไป</button>
   </div>
 
   <!-- Modal แก้ไขสินค้า (Admin) -->

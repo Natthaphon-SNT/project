@@ -27,8 +27,14 @@
     <p>กำลังโหลดประวัติ...</p>
   </div>
 
+  <div *ngIf="!isLoading && loadError" class="empty-state" role="alert">
+    <div class="empty-icon">❌</div>
+    <h3>ไม่สามารถเชื่อมต่อเพื่อโหลดประวัติได้</h3>
+    <button type="button" (click)="fetchHistory()" class="btn-new">ลองใหม่</button>
+  </div>
+
   <!-- Empty -->
-  <div *ngIf="!isLoading && filteredHistory.length === 0" class="empty-state">
+  <div *ngIf="!isLoading && !loadError && filteredHistory.length === 0" class="empty-state">
     <div class="empty-icon">📭</div>
     <h3>ยังไม่มีประวัติการจัดสเปค</h3>
     <p>ลองจัดสเปกเอง หรือใช้ AI Recommend เพื่อบันทึกประวัติ</p>
@@ -39,7 +45,7 @@
   </div>
 
   <!-- History List -->
-  <div *ngIf="!isLoading && filteredHistory.length > 0" class="history-list">
+  <div *ngIf="!isLoading && !loadError && filteredHistory.length > 0" class="history-list">
     <div *ngFor="let item of filteredHistory" class="history-card">
 
       <!-- Card Header -->

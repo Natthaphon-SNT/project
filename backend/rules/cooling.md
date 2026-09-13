@@ -11,4 +11,6 @@
 - 240mm AIO: ~200W+, 360mm AIO: ~250W+
 
 ## Rule
-cooler_rating >= cpu_tdp else WARNING (throttling risk).
+- The cooler's supported sockets must include the CPU socket; a known mismatch
+  is ERROR and cannot be overridden by the LLM.
+- `cooler_rating >= cpu_tdp`; otherwise WARNING (throttling risk).

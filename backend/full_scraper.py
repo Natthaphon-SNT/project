@@ -34,7 +34,8 @@ from datetime import datetime
 import httpx
 from playwright.async_api import async_playwright
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if __name__ == "__main__" and hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config

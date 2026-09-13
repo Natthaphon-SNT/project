@@ -21,6 +21,11 @@
     {{ message }}
   </div>
 
+  <div *ngIf="!isLoading && loadError" class="empty-state" role="alert">
+    <p>ไม่สามารถเชื่อมต่อเพื่อโหลดผู้ใช้งานได้</p>
+    <button type="button" class="btn-edit" (click)="loadUsers()">ลองใหม่</button>
+  </div>
+
   <!-- Filters -->
   <div class="filter-bar">
     <div class="search-box">
@@ -37,7 +42,7 @@
   </div>
 
   <!-- Layout -->
-  <div class="users-layout">
+  <div class="users-layout" *ngIf="!loadError">
 
     <!-- Users List -->
     <div class="users-list">

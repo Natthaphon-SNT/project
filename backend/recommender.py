@@ -56,7 +56,15 @@ def detect_use_case(text: str) -> str:
 
 def detect_budget_thb(text: str) -> Optional[int]:
     """Extract upper budget bound from Thai text like '20,000–30,000 บาท'."""
-    nums = [int(n.replace(",", "")) for n in re.findall(r"\d{1,3}(?:,\d{3})+|\d{4,7}", text)]
+    explicit = re.findall(
+        r"(?:งบ(?:ประมาณ)?|budget)\s*(?:ไม่เกิน|ประมาณ|ราว|=|:)?\s*([0-9][0-9,]{0,9})"
+        r"|([0-9][0-9,]{0,9})\s*(?:บาท|฿|thb)",
+        text,
+        re.IGNORECASE,
+    )
+    nums = [int((left or right).replace(",", "")) for left, right in explicit]
+    if not nums:
+        nums = [int(n.replace(",", "")) for n in re.findall(r"\d{1,3}(?:,\d{3})+|\d{4,7}", text)]
     if not nums:
         return None
     return max(nums)
@@ -370,51 +378,59 @@ def map_part_to_candidate(part: dict, candidates: list) -> Optional[dict]:
 def build_final_result(llm_result: dict, candidates: list, budget: Optional[int], use_case: str) -> dict:
     """Attach real products/prices + run deterministic compatibility engine."""
     parts_out, parsed_parts = [], []
-    for part in llm_result.get("parts", []):
+    proposed_parts = llm_result.get("parts", [])
+    unmatched_categories = []
+    for part in proposed_parts:
         label = sp.normalize_label(str(part.get("type", "")))
         cand = map_part_to_candidate(part, candidates)
-        price = part.get("price", 0)
-        if isinstance(price, str):
-            digits = re.sub(r"[^\d]", "", price)
-            price = int(digits) if digits else 0
+        if not cand:
+            category = label or str(part.get("type") or "ไม่ทราบหมวดหมู่")
+            unmatched_categories.append(category)
+            continue
+
         entry = {
             "type": part.get("type", ""),
-            "name": cand["name"] if cand else part.get("name", ""),
-            "price": f"{(cand['price'] if cand else price):,} ฿",
+            "name": cand["name"],
+            "price": f"{cand['price']:,} ฿",
             "reason": part.get("reason", ""),
+            "product_id": cand["product_id"],
+            "real_price": cand["price"],
+            "shop_prices": cand["prices"],
+            "shop_urls": cand.get("urls", {}),
+            "url": cand["url"],
+            "matched_real_product": True,
         }
-        if cand:
-            entry.update({
-                "product_id": cand["product_id"],
-                "real_price": cand["price"],
-                "shop_prices": cand["prices"],
-                "shop_urls": cand.get("urls", {}),
-                "url": cand["url"],
-                "matched_real_product": True,
-            })
-            price_for_calc = cand["price"]
-        else:
-            entry["matched_real_product"] = False
-            price_for_calc = price
         parts_out.append(entry)
 
         db_cat = label if label in PC_CATEGORIES else (
             "Air Cooler" if label in ("Air Cooler", "Liquid Cooler") else None)
         if db_cat and entry["name"]:
-            parsed = sp.parse_part(db_cat, entry["name"], specs=cand.get("specs", "") if cand else "")
-            parsed["price"] = price_for_calc
+            parsed = sp.parse_part(db_cat, entry["name"], specs=cand.get("specs", ""))
+            parsed["price"] = cand["price"]
             parsed_parts.append(parsed)
 
     total = sum(p.get("price") or 0 for p in parsed_parts)
     compat = ce.check_build(parsed_parts, budget)
+    warnings = list(llm_result.get("warnings") or [])
+    warnings.extend(
+        f"ไม่พบสินค้าที่ตรงในฐานข้อมูลสำหรับ {category}"
+        for category in dict.fromkeys(unmatched_categories)
+    )
+    all_parts_matched = bool(proposed_parts) and not unmatched_categories
+    total_label = f"{total:,} ฿"
+    if all_parts_matched:
+        total_label += " (ราคาจริงจากฐานข้อมูล)"
+    elif parts_out:
+        total_label += " (รวมเฉพาะสินค้าที่ตรงกับฐานข้อมูล)"
 
     result = {
         "summary": llm_result.get("summary", ""),
-        "totalBudget": f"{total:,} ฿ (ราคาจริงจากฐานข้อมูล)",
+        "totalBudget": total_label,
         "tier": llm_result.get("tier", ""),
         "useCase": use_case,
         "budgetInput": budget,
         "parts": parts_out,
+        "warnings": warnings,
         "performance": llm_result.get("performance", {}),
         "pros": llm_result.get("pros", []),
         "cons": llm_result.get("cons", []),
@@ -425,7 +441,8 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
 
             "compatibility": "deterministic-engine",
             "candidates_offered": len(candidates),
-            "parts_matched_to_db": sum(1 for p in parts_out if p.get("matched_real_product")),
+            "parts_matched_to_db": len(parts_out),
+            "parts_rejected_not_in_db": len(unmatched_categories),
         },
     }
     return result
@@ -656,8 +673,19 @@ async def compat_check_hybrid(parts_text: str, provider: str = "google", model: 
             if arr_m:
                 extra_suggestions = json.loads(arr_m.group(0))
                 if isinstance(extra_suggestions, list):
+                    # LLM enrichment may add neutral advice, but compatibility
+                    # assertions belong exclusively to the deterministic engine.
+                    assertions = re.compile(
+                        r"compatible|compatibility|incompatible|not compatible|"
+                        r"เข้ากัน|ไม่เข้ากัน|ใช้ร่วมกันไม่ได้|ผ่านทั้งหมด|ไม่ผ่าน|ไม่มีปัญหา|ทุกอย่าง",
+                        re.IGNORECASE,
+                    )
+                    safe_suggestions = [
+                        str(s) for s in extra_suggestions
+                        if isinstance(s, str) and not assertions.search(s)
+                    ]
                     result["suggestions"] = list(dict.fromkeys(
-                        result["suggestions"] + [str(s) for s in extra_suggestions]))[:8]
+                        result["suggestions"] + safe_suggestions))[:8]
         except Exception:
             pass
 
@@ -668,25 +696,45 @@ async def compat_check_hybrid(parts_text: str, provider: str = "google", model: 
 
 async def compare_specs(spec1: str, spec2: str,
                         provider: str = "google", model: str = "", api_key: str = "", context: str = "") -> str:
-    """LLM passthrough comparison (returns raw text for frontend parseJson)."""
+    """Compare specs while suppressing unsupported numeric market claims."""
     prompt = (
         "คุณคือผู้เชี่ยวชาญคอมพิวเตอร์ในประเทศไทย เปรียบเทียบสเปค 2 ชุดนี้อย่างละเอียดและตรงไปตรงมา:\n\n"
         f"ชุดที่ 1: {spec1}\nชุดที่ 2: {spec2}\n\n"
         "== กฎการเปรียบเทียบ ==\n"
-        "1. อ้างอิง benchmark จริง เช่น FPS, Cinebench R23, Blender time\n"
-        "2. คำนึงถึงราคาตลาดไทยปัจจุบัน\n"
+        "1. ห้ามระบุตัวเลข benchmark/FPS ถ้าไม่มีตัวเลขพร้อมแหล่งอ้างอิงในข้อมูลนำเข้า\n"
+        "2. ห้ามระบุราคาตลาดหรือความคุ้มค่าเชิงราคา ถ้าไม่มีราคาจากฐานข้อมูลในข้อมูลนำเข้า\n"
         "3. บอกชัดเจนว่าแต่ละ category อันไหนชนะและทำไม\n\n"
         "ตอบเป็น JSON เท่านั้น ห้ามมี text นอก JSON:\n"
         '{"spec1Name":"...","spec2Name":"...","winner":"1|2|tie","verdict":"...",'
         '"categories":[{"name":"...","spec1":"...","spec2":"...","winner":"..."}],'
         '"spec1Pros":["..."],"spec2Pros":["..."],"recommendation":"..."}'
     )
-    return await llm_chat(
+    raw = await llm_chat(
         [{"role": "system", "content": "คุณคือ IT-RECOMMEND AI ตอบเป็น JSON เท่านั้น"},
          {"role": "user", "content": prompt + "\n" + context}],
         provider=provider, model=model, api_key=api_key,
         temperature=0.4,
     )
+    try:
+        data = json.loads(raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+    except (TypeError, ValueError):
+        return raw
+
+    unsupported = re.compile(
+        r"(?:\b(?:price|cost|baht|thb|fps|cinebench|benchmark)\b|ราคา|บาท|฿)",
+        re.IGNORECASE,
+    )
+
+    def scrub(value):
+        if isinstance(value, str) and unsupported.search(value):
+            return "ละเว้นข้อมูลราคา/benchmark ที่ไม่มีแหล่งข้อมูลยืนยัน"
+        if isinstance(value, list):
+            return [scrub(item) for item in value]
+        if isinstance(value, dict):
+            return {key: scrub(item) for key, item in value.items()}
+        return value
+
+    return json.dumps(scrub(data), ensure_ascii=False)
 
 
 # ─────────────────────────────────────────

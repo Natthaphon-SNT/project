@@ -1,0 +1,62 @@
+
+============================================================
+  IT-RECOMMEND Full Scraper v3
+  Stores      : advice, jib, ihavecpu
+  Pages       : 3 per category
+  Fetch detail: NO (fast)
+  Started     : 2026-09-13 23:03:52
+============================================================
+
+=== [Advice] ===
+    [url mismatch] advice: คอมประกอบ Advice : Computer Set AMD #A303 RYZEN 7 7800X3D AMD RX 7600  -> คอมประกอบ-advice-computer-set-amd-a303-ryzen-7-7800x3d-amd-rx-7600-8gb-power-color-fighter
+    [url mismatch] advice: คอมประกอบ Advice : Computer Set AMD #A302 RYZEN 5 7500F AMD RX 7600 8G -> คอมประกอบ-advice-computer-set-amd-a302-ryzen-5-7500f-amd-rx-7600-8gb-power-color-fighter-v
+  [Advice] CPU: +52 new, ~20 updated
+  [Advice] Mainboard: +15 new, ~17 updated
+    [invalid price] advice: GPU VGA LEADTEK GEFORCE RTX PRO 6000 BLACKWELL WORKSTATION EDITION -  -> 579,000 B
+  [Advice] GPU: +27 new, ~3 updated
+  [Advice] RAM: +25 new, ~7 updated
+  [Advice] SSD: +28 new, ~4 updated
+    [invalid price] advice: PSU POWER SUPPLY 5Amp GLINK GIPS-002 -> 160 B
+    [invalid price] advice: PSU POWER SUPPLY 10Amp GLINK GIPS-003 -> 230 B
+  [Advice] PSU: +27 new, ~68 updated
+  [Advice] Case: +18 new, ~18 updated
+  [Advice] Liquid Cooler: +24 new, ~14 updated
+    [invalid price] advice: CPU CPU COOLER ID-COOLING SE-214-XT RS -> 480 B
+    [invalid price] advice: Air Cooler Cooler Pad (1 Fan) OKER N-19 Black -> 120 B
+    [invalid price] advice: Air Cooler Cooler Pad (1 Fan) MAGICTECH M19 Black -> 110 B
+    [invalid price] advice: Air Cooler Cooler Pad (2 Fan) OKER C-818 Black -> 190 B
+    [invalid price] advice: Air Cooler Cooler Pad (2 Fan) MAGICTECH M6 Black -> 170 B
+    [invalid price] advice: CPU CPU COOLER DEEPCOOL ICEEDGE MINI FS -> 240 B
+    [invalid price] advice: Air Cooler FAN CASE 12CM COLD COOLER CQ120 BLACK -> 170 B
+  [Advice] Air Cooler: +21 new, ~17 updated
+    [invalid price] advice: Mouse MOUSE HP GAMING M270 BLACK (เมาส์สาย) -> 160 B
+  [Advice] Monitor: +42 new, ~14 updated
+    [invalid price] advice: Mouse MOUSE HP GAMING M150 BLACK -> 150 B
+    [invalid price] advice: Mouse MOUSE HP GAMING M220 LITE BLACK (เมาส์สาย) -> 160 B
+  [Advice] Mouse: +4 new, ~3 updated
+  [Advice] Keyboard: +3 new, ~9 updated
+  [Advice] Headset: +14 new, ~1 updated
+  [Advice] Gaming Chair: +10 new, ~1 updated
+  [Advice] Gaming Desk: +3 new, ~0 updated
+  [Advice] TOTAL: 313 new | 196 merged into existing
+
+=== [JIB] ===
+  [JIB] CPU p1
+    -> 66 products processed
+  [JIB] CPU p2
+    -> 64 products processed
+  [JIB] CPU p3
+    -> 63 products processed
+  [JIB] CPU: +45 new, ~148 merged
+  [JIB] Mainboard p1
+    -> 100 products processed
+  [JIB] Mainboard p2
+    -> 100 products processed
+  [JIB] Mainboard p3
+    -> 100 products processed
+  [JIB] Mainboard: +64 new, ~236 merged
+  [JIB] GPU p1
+    -> 98 products processed
+  [JIB] GPU p2
+    -> 98 products processed
+  [JIB] GPU p3

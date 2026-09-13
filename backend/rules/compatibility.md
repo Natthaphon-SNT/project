@@ -58,10 +58,11 @@ Deterministic
 
 ---
 
-## R4: CPU Cooler ↔ CPU TDP
+## R4: CPU Cooler ↔ CPU Socket and TDP
 
 ### Rule
-Cooler TDP rating MUST be >= CPU TDP.
+The cooler MUST explicitly support the CPU socket. A known socket mismatch is
+an ERROR. Separately, cooler TDP rating SHOULD be >= CPU TDP.
 
 ### Facts
 - Stock-style tower coolers (SE-214, AS-120 class) ≈ 120–150W rating
@@ -83,7 +84,7 @@ Case supported motherboard sizes MUST include the mainboard form factor.
 Ordering: ATX case fits ATX/mATX/ITX; mATX case fits mATX/ITX; ITX case fits ITX only.
 
 ### Severity
-ERROR
+ERROR for a known socket mismatch; WARNING for insufficient thermal rating.
 
 ### Validation
 Deterministic
@@ -124,11 +125,20 @@ Deterministic (manufacturer/product specs)
 ## R7: Budget Adherence
 
 ### Rule
-Total real price (min across Advice/JIB/iHaveCPU) SHOULD NOT exceed the user's
-budget by more than 10%.
+Total real price (min across Advice/JIB/iHaveCPU) MUST NOT exceed the user's
+stated budget. Any excess is reported explicitly and is never marked PASS.
 
 ### Severity
 WARNING
 
 ### Validation
 Deterministic
+
+---
+
+## LLM Boundary
+
+The verdict and every compatibility claim from `compat_engine.py` are the
+highest-priority truth. LLM output may add neutral usage advice, but it MUST NOT
+claim that parts are compatible/incompatible, override a verdict, or contradict
+any deterministic check. Conflicting LLM suggestions are discarded by code.

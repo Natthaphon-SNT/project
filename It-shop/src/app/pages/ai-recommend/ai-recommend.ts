@@ -306,6 +306,8 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   ];
 
   private loadingInterval: any;
+  private activeRequestController: AbortController | null = null;
+  readonly requestTimeoutMs = 60_000;
 
   constructor(private cdr: ChangeDetectorRef, private http: HttpClient) {}
 
@@ -330,6 +332,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.activeRequestController?.abort();
     this.stopLoadingAnimation();
   }
 
@@ -518,7 +521,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (uid === 'guest' || !token) return;
 
     // โหลดประวัติของ user
-    const url = `http://localhost:3000/api/spec-history?uid=${uid}&limit=50`;
+    const url = 'http://localhost:3000/api/spec-history?limit=50';
     this.http.get<any>(url, {
       headers: { Authorization: `Bearer ${token}` }
     }).subscribe({
@@ -728,25 +731,49 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   private async callGemini(prompt: string): Promise<string> {
     if (this.authError) throw new Error(this.authError);
     const token = localStorage.getItem('lt_token') || '';
-    const res = await fetch('http://localhost:3000/api/ai/recommend', {
-      method: 'POST', headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {})},
-      body: JSON.stringify({prompt, mode: this.mode, ...this.aiSettings,
-        model: this.aiSettings.custom_model.trim() || this.aiSettings.model,
-        session_id: this.activeSessionId, spec1: this.spec1, spec2: this.spec2})
-    });
-    const data = await res.json();
-    if (res.status === 401) {
-      this.authError = 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่';
-      throw new Error(this.authError);
+    const controller = new AbortController();
+    this.activeRequestController = controller;
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.requestTimeoutMs);
+    try {
+      const res = await fetch('http://localhost:3000/api/ai/recommend', {
+        method: 'POST', signal: controller.signal,
+        headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {})},
+        body: JSON.stringify({prompt, mode: this.mode, ...this.aiSettings,
+          model: this.aiSettings.custom_model.trim() || this.aiSettings.model,
+          session_id: this.activeSessionId, spec1: this.spec1, spec2: this.spec2})
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        this.authError = 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่';
+        throw new Error(this.authError);
+      }
+      if (!res.ok || data.status !== 'success') {
+        if (res.status === 400 && (data.detail || '').includes('API Key')) this.showSettingsPanel = true;
+        throw new Error(data.detail || data.message || 'AI request failed');
+      }
+      this.activeSessionId = data.session_id;
+      this.chatMessages = [...this.chatMessages, {role: 'user', content: prompt}, {role: 'assistant', content: data.data}];
+      this.loadSessions();
+      return data.data;
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw new Error(timedOut
+          ? 'คำขอ AI หมดเวลาหลัง 60 วินาที กรุณาลองใหม่'
+          : 'ยกเลิกคำขอ AI แล้ว');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+      if (this.activeRequestController === controller) this.activeRequestController = null;
     }
-    if (!res.ok || data.status !== 'success') {
-      if (res.status === 400 && (data.detail || '').includes('API Key')) this.showSettingsPanel = true;
-      throw new Error(data.detail || data.message || 'AI request failed');
-    }
-    this.activeSessionId = data.session_id;
-    this.chatMessages = [...this.chatMessages, {role: 'user', content: prompt}, {role: 'assistant', content: data.data}];
-    this.loadSessions();
-    return data.data;
+  }
+
+  cancelAiRequest() {
+    this.activeRequestController?.abort();
   }
   async handleRecommend() {
     if (!this.selectedUseCase || !this.selectedBudget) return;

@@ -54,6 +54,10 @@ export class ProductsComponent implements OnInit, OnDestroy {
   category: string = '';
   searchQuery: string = '';
   isLoading = true;
+  loadError = false;
+  page = 1;
+  readonly pageSize = 20;
+  totalProducts = 0;
   isAdmin = false;
 
   // Toast notification
@@ -128,16 +132,26 @@ export class ProductsComponent implements OnInit, OnDestroy {
     if (this.toastTimer) clearTimeout(this.toastTimer);
   }
 
-  loadProducts() {
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.totalProducts / this.pageSize));
+  }
+
+  loadProducts(page = this.page) {
+    this.page = page;
     this.isLoading = true;
-    this.api.getProducts(this.category, this.searchQuery).subscribe({
+    this.loadError = false;
+    this.api.getProducts(this.category, this.searchQuery, this.page, this.pageSize).subscribe({
       next: (res) => {
         this.products = res.status === 'success' ? res.data : [];
+        this.totalProducts = res.pagination?.total ?? this.products.length;
         this.isLoading = false;
         this.cdr.detectChanges();
       },
       error: () => {
         this.isLoading = false;
+        this.loadError = true;
+        this.products = [];
+        this.totalProducts = 0;
         this.showToast('ไม่สามารถโหลดสินค้าได้', 'error');
         this.cdr.detectChanges();
       }
@@ -146,7 +160,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
 
   onSearch() {
     // ไม่ clear category เพื่อให้ค้นหาภายในหมวดหมู่ปัจจุบันได้
-    this.loadProducts();
+    this.loadProducts(1);
   }
 
   showToast(msg: string, type: 'success' | 'error') {
