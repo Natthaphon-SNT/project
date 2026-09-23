@@ -1,0 +1,322 @@
+{
+  "phase": "S02-round4",
+  "cases": {
+    "ihavecpu": {
+      "label": "ihavecpu",
+      "stores": [
+        "ihavecpu"
+      ],
+      "started_at": "2026-09-14T19:04:34+07:00",
+      "elapsed_seconds": 426.564,
+      "deadline_seconds": 1800,
+      "exit_code": 0,
+      "completed": true,
+      "status": "Pass",
+      "reasons": [],
+      "stats": {
+        "per_store": {
+          "ihavecpu": {
+            "products": 267,
+            "with_description": 267,
+            "with_image": 267
+          }
+        },
+        "checkpoint": {
+          "ihavecpu": {
+            "success": 56,
+            "failed": 0,
+            "attempts": 56
+          }
+        },
+        "integrity": "ok"
+      },
+      "detail_queue": {
+        "queued": 56,
+        "elapsed_seconds": 124.435,
+        "pages_per_second": 0.45,
+        "metric_samples": [
+          {
+            "store": "ihavecpu",
+            "queued": 56,
+            "checkpoint_hits": 0,
+            "concurrency": 1,
+            "elapsed_seconds": 124.435,
+            "pages_per_second": 0.45
+          }
+        ]
+      },
+      "http_429_marker_count": 0,
+      "retry_marker_count": 0,
+      "target_closed_error_count": 0,
+      "log": "docs\\qa\\round4\\S02-ihavecpu.log"
+    },
+    "jib": {
+      "label": "jib",
+      "stores": [
+        "jib"
+      ],
+      "started_at": "2026-09-14T19:21:54+07:00",
+      "elapsed_seconds": 534.031,
+      "deadline_seconds": 1800,
+      "exit_code": 0,
+      "completed": true,
+      "status": "Fail",
+      "reasons": [
+        "jib: descriptions 848/869 incomplete"
+      ],
+      "stats": {
+        "per_store": {
+          "jib": {
+            "products": 869,
+            "with_description": 848,
+            "with_image": 869
+          }
+        },
+        "checkpoint": {
+          "jib": {
+            "success": 1053,
+            "failed": 28,
+            "attempts": 1124
+          }
+        },
+        "integrity": "ok"
+      },
+      "detail_queue": {
+        "queued": 412,
+        "elapsed_seconds": 297.211,
+        "pages_per_second": 1.3862,
+        "metric_samples": [
+          {
+            "store": "jib",
+            "queued": 2,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 1.741,
+            "pages_per_second": 1.149
+          },
+          {
+            "store": "jib",
+            "queued": 0,
+            "checkpoint_hits": 16,
+            "concurrency": 4,
+            "elapsed_seconds": 0.0,
+            "pages_per_second": 0.0
+          },
+          {
+            "store": "jib",
+            "queued": 1,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 1.083,
+            "pages_per_second": 0.9236
+          },
+          {
+            "store": "jib",
+            "queued": 0,
+            "checkpoint_hits": 2,
+            "concurrency": 4,
+            "elapsed_seconds": 0.0,
+            "pages_per_second": 0.0
+          },
+          {
+            "store": "jib",
+            "queued": 0,
+            "checkpoint_hits": 2,
+            "concurrency": 4,
+            "elapsed_seconds": 0.0,
+            "pages_per_second": 0.0
+          },
+          {
+            "store": "jib",
+            "queued": 68,
+            "checkpoint_hits": 32,
+            "concurrency": 4,
+            "elapsed_seconds": 45.729,
+            "pages_per_second": 1.487
+          },
+          {
+            "store": "jib",
+            "queued": 15,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 10.427,
+            "pages_per_second": 1.4386
+          },
+          {
+            "store": "jib",
+            "queued": 100,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 71.516,
+            "pages_per_second": 1.3983
+          },
+          {
+            "store": "jib",
+            "queued": 12,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 8.554,
+            "pages_per_second": 1.4029
+          },
+          {
+            "store": "jib",
+            "queued": 91,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 62.593,
+            "pages_per_second": 1.4538
+          },
+          {
+            "store": "jib",
+            "queued": 1,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 1.178,
+            "pages_per_second": 0.8486
+          },
+          {
+            "store": "jib",
+            "queued": 11,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 7.673,
+            "pages_per_second": 1.4337
+          },
+          {
+            "store": "jib",
+            "queued": 95,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 65.268,
+            "pages_per_second": 1.4555
+          },
+          {
+            "store": "jib",
+            "queued": 2,
+            "checkpoint_hits": 0,
+            "concurrency": 4,
+            "elapsed_seconds": 10.851,
+            "pages_per_second": 0.1843
+          },
+          {
+            "store": "jib",
+            "queued": 14,
+            "checkpoint_hits": 2,
+            "concurrency": 4,
+            "elapsed_seconds": 10.598,
+            "pages_per_second": 1.321
+          }
+        ]
+      },
+      "http_429_marker_count": 0,
+      "retry_marker_count": 0,
+      "target_closed_error_count": 0,
+      "log": "docs\\qa\\round4\\S02-jib.log"
+    },
+    "advice": {
+      "label": "advice",
+      "stores": [
+        "advice"
+      ],
+      "started_at": "2026-09-14T19:18:02+07:00",
+      "elapsed_seconds": 1800.342,
+      "deadline_seconds": 1800,
+      "exit_code": 1,
+      "completed": false,
+      "status": "Blocked",
+      "reasons": [
+        "TimeoutError",
+        "run did not complete within the fixed round-4 deadline",
+        "advice: descriptions 302/311 incomplete"
+      ],
+      "stats": {
+        "per_store": {
+          "advice": {
+            "products": 311,
+            "with_description": 302,
+            "with_image": 311
+          }
+        },
+        "checkpoint": {
+          "advice": {
+            "success": 0,
+            "failed": 33,
+            "attempts": 33
+          }
+        },
+        "integrity": "ok"
+      },
+      "detail_queue": {
+        "queued": 15,
+        "elapsed_seconds": 1198.587,
+        "pages_per_second": 0.0125,
+        "metric_samples": [
+          {
+            "store": "advice",
+            "queued": 1,
+            "checkpoint_hits": 0,
+            "concurrency": 1,
+            "elapsed_seconds": 20.32,
+            "pages_per_second": 0.0492,
+            "http_429": 3,
+            "circuit_open": 2
+          },
+          {
+            "store": "advice",
+            "queued": 3,
+            "checkpoint_hits": 0,
+            "concurrency": 1,
+            "elapsed_seconds": 245.169,
+            "pages_per_second": 0.0122,
+            "http_429": 12,
+            "circuit_open": 9
+          },
+          {
+            "store": "advice",
+            "queued": 6,
+            "checkpoint_hits": 0,
+            "concurrency": 1,
+            "elapsed_seconds": 506.289,
+            "pages_per_second": 0.0119,
+            "http_429": 30,
+            "circuit_open": 22
+          },
+          {
+            "store": "advice",
+            "queued": 4,
+            "checkpoint_hits": 0,
+            "concurrency": 1,
+            "elapsed_seconds": 326.925,
+            "pages_per_second": 0.0122,
+            "http_429": 42,
+            "circuit_open": 31
+          },
+          {
+            "store": "advice",
+            "queued": 1,
+            "checkpoint_hits": 0,
+            "concurrency": 1,
+            "elapsed_seconds": 99.884,
+            "pages_per_second": 0.01,
+            "http_429": 45,
+            "circuit_open": 33
+          }
+        ]
+      },
+      "http_429_marker_count": 69,
+      "retry_marker_count": 140,
+      "target_closed_error_count": 0,
+      "log": "docs\\qa\\round4\\S02-advice.log"
+    }
+  },
+  "generated_at": "2026-09-14T19:48:03+07:00",
+  "round3_baseline": {
+    "jib_products_in_1800_seconds": 137,
+    "jib_pages_per_second": 0.0761,
+    "advice_http_429": 96,
+    "advice_descriptions": "255/319",
+    "ihavecpu_descriptions": "266/267"
+  },
+  "status": "Incomplete",
+  "history": {}
+}

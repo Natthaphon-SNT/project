@@ -186,17 +186,17 @@
           <div class="perf-card">
             <span class="perf-icon">🎮</span>
             <div class="perf-name">Gaming</div>
-            <div class="perf-val">{{ recommendData.performance?.gaming }}</div>
+            <div class="perf-val">{{ recommendData.performance.gaming }}</div>
           </div>
           <div class="perf-card">
             <span class="perf-icon">💼</span>
             <div class="perf-name">Productivity</div>
-            <div class="perf-val">{{ recommendData.performance?.productivity }}</div>
+            <div class="perf-val">{{ recommendData.performance.productivity }}</div>
           </div>
           <div class="perf-card">
             <span class="perf-icon">⬆️</span>
             <div class="perf-name">Upgrade Path</div>
-            <div class="perf-val">{{ recommendData.performance?.upgrade }}</div>
+            <div class="perf-val">{{ recommendData.performance.upgrade }}</div>
           </div>
         </div>
       </div>
@@ -356,7 +356,7 @@
             <span>{{ check.item }}: {{ check.detail }}</span>
           </div>
         </div>
-        <div class="suggestions-box" *ngIf="compatData.suggestions?.length">
+      <div class="suggestions-box" *ngIf="compatData.suggestions.length">
           <div class="sug-title">💡 คำแนะนำเพิ่มเติม</div>
           <div *ngFor="let s of compatData.suggestions" class="sug-item">• {{ s }}</div>
         </div>

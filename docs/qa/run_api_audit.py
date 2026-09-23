@@ -51,7 +51,7 @@ def run():
         # Block dotenv from loading real credentials. These settings are process-local.
         for name in ('OPENAI_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY'):
             os.environ[name] = ''
-        os.environ['SECRET_KEY'] = 'qa-fixture-secret-not-for-production-0123456789'
+        os.environ['JWT_SECRET'] = 'qa-fixture-secret-not-for-production-0123456789'
         with patch('dotenv.load_dotenv'), contextlib.redirect_stdout(io.StringIO()):
             import shop_api as api
         api.Base.metadata.create_all(api.engine)

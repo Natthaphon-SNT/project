@@ -118,8 +118,10 @@ def parse_mainboard(name: str) -> dict:
     if not ram_support:
         if socket in ("AM5", "LGA1851"):
             ram_support = {"DDR5"}          # AM5 / Intel 800-series = DDR5 only
-        elif socket in ("AM4", "LGA1700", "LGA1200"):
-            ram_support = {"DDR4"}          # AM4 / Intel 10-14th = DDR4 only
+        elif socket == "LGA1700":
+            ram_support = {"DDR4", "DDR5"}  # LGA1700 boards ship as both DDR4 and DDR5 variants (e.g. Z690/B660)
+        elif socket in ("AM4", "LGA1200"):
+            ram_support = {"DDR4"}          # AM4 / Intel 10th-11th gen = DDR4 only
         # else: truly unknown (e.g. very old or no chipset found)
 
     ff = "mATX"

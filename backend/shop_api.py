@@ -3,7 +3,7 @@
 รัน: uvicorn shop_api:app --reload --port 3000
 """
 import os, re, json, shutil, asyncio, httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, List, Literal
 from pathlib import Path
 
@@ -19,11 +19,75 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, Text, Date
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship
 import bcrypt
 import jwt
+from cryptography.fernet import Fernet, InvalidToken
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # ─────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────
-SECRET_KEY = os.getenv("SECRET_KEY", "tak-tech-secret-2025")
+def load_jwt_secret() -> str:
+    """Load a dedicated HMAC key and reject unsafe deployment settings."""
+    secret = os.getenv("JWT_SECRET", "")
+    if len(secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "JWT_SECRET must be set to a random value of at least 32 bytes; "
+            "run backend/rotate_jwt_secret.py --apply during an announced deploy window"
+        )
+    provider_keys = {
+        os.getenv("GOOGLE_API_KEY", ""), os.getenv("GEMINI_API_KEY", ""),
+        os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENROUTER_API_KEY", ""),
+    }
+    provider_keys.discard("")
+    if secret in provider_keys:
+        raise RuntimeError("JWT_SECRET must not reuse an AI provider credential")
+    return secret
+
+
+def load_ai_key_cipher() -> Fernet:
+    """Load the symmetric key used to encrypt user AI provider keys at rest.
+
+    Generate one with:
+      python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    and put it in .env as AI_KEY_ENCRYPTION_KEY. Rotating this key makes every
+    previously-saved AI key unreadable, so treat it like JWT_SECRET.
+    """
+    raw = os.getenv("AI_KEY_ENCRYPTION_KEY", "")
+    if not raw:
+        raise RuntimeError(
+            "AI_KEY_ENCRYPTION_KEY must be set (see load_ai_key_cipher docstring "
+            "for how to generate one) before saving or reading user AI keys"
+        )
+    try:
+        return Fernet(raw.encode("utf-8"))
+    except Exception as e:
+        raise RuntimeError(f"AI_KEY_ENCRYPTION_KEY is not a valid Fernet key: {e}")
+
+
+AI_KEY_CIPHER = load_ai_key_cipher()
+
+
+def encrypt_ai_key(plain: str) -> str:
+    """Encrypt a user-supplied AI provider key before it touches SQLite."""
+    if not plain:
+        return ""
+    return AI_KEY_CIPHER.encrypt(plain.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_ai_key(stored: str) -> str:
+    """Decrypt a stored AI key. Tolerates rows written before encryption was
+    added (plain OpenAI/Google/OpenRouter keys never look like a Fernet token,
+    so a failed decrypt is treated as legacy plaintext instead of an error)."""
+    if not stored:
+        return ""
+    try:
+        return AI_KEY_CIPHER.decrypt(stored.encode("utf-8")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return stored
+
+
+SECRET_KEY = load_jwt_secret()
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 72
 DB_URL = "sqlite:///./shop.db"
@@ -42,13 +106,23 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 security = HTTPBearer(auto_error=False)
 
+# Comma-separated list in .env, e.g. CORS_ORIGINS=http://localhost:4200,https://it-recommend.example.com
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",") if o.strip()
+]
+
 app = FastAPI(title="IT-RECOMMEND Shop API", version="3.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS, allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# ── Rate limiting (per client IP) ───────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ─────────────────────────────────────────
 # Models
@@ -157,7 +231,7 @@ class UserAiSettings(Base):
     email        = Column(String, default="", index=True)
     provider     = Column(String, default="google")   # google | openai | openrouter
     model        = Column(String, default="gemini-2.0-flash")
-    api_key      = Column(Text, default="")        # stored plaintext (project scope)
+    api_key      = Column(Text, default="")        # Fernet-encrypted at rest (S02)
     custom_model = Column(String, default="")      # user-typed custom model id
     updated_at   = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -353,7 +427,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_token(data: dict) -> str:
     payload = data.copy()
-    payload["exp"] = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    payload["exp"] = datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS)
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def decode_token(token: str) -> dict:
@@ -520,10 +594,6 @@ class AdminUserUpdate(BaseModel):
 class RoleUpdate(BaseModel):
     role: str
 
-class AIRecommendBody(BaseModel):
-    prompt: str
-    mode: str = "recommend"   # recommend | compare | compat
-
 # ─────────────────────────────────────────
 # Auth Routes
 # ─────────────────────────────────────────
@@ -538,7 +608,8 @@ from fastapi.responses import Response as FastAPIResponse
 import urllib.parse as _urlparse
 
 @app.get("/api/image-proxy")
-async def image_proxy(url: str = Query(..., description="URL รูปภาพต้นทาง")):
+@limiter.limit("30/minute")
+async def image_proxy(request: Request, url: str = Query(..., description="URL รูปภาพต้นทาง")):
     """
     Proxy รูปภาพจากร้านค้า (JIB, iHaveCPU, Advice) เพื่อหลีกเลี่ยง
     hotlink-block / CORS / Referer ที่ทำให้ browser โหลดรูปไม่ได้โดยตรง
@@ -583,7 +654,8 @@ async def image_proxy(url: str = Query(..., description="URL รูปภาพ�
         raise HTTPException(502, f"โหลดรูปไม่ได้: {str(e)[:100]}")
 
 @app.post("/api/register")
-def register(body: RegisterBody, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(request: Request, body: RegisterBody, db: Session = Depends(get_db)):
     if body.u_password != body.confirm:
         raise HTTPException(400, "รหัสผ่านไม่ตรงกัน")
     if db.query(User).filter(User.u_email == body.u_email).first():
@@ -601,7 +673,8 @@ def register(body: RegisterBody, db: Session = Depends(get_db)):
     return {"status": "success", "message": "สมัครสมาชิกสำเร็จ"}
 
 @app.post("/api/login")
-def login(body: LoginBody, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginBody, db: Session = Depends(get_db)):
     username = body.email or body.u_name or ""
     password = body.password or body.u_password or ""
     user = db.query(User).filter(
@@ -739,7 +812,7 @@ def compare_product_prices(product_id: str, db: Session = Depends(get_db)):
 def create_product(body: ProductCreate, admin=Depends(require_admin), db: Session = Depends(get_db)):
     if db.query(Product).filter(Product.product_id == body.product_id).first():
         raise HTTPException(400, "product_id นี้มีอยู่แล้ว")
-    p = Product(**body.dict())
+    p = Product(**body.model_dump())
     db.add(p); db.commit()
     return {"status": "success", "message": "เพิ่มสินค้าสำเร็จ"}
 
@@ -747,7 +820,7 @@ def create_product(body: ProductCreate, admin=Depends(require_admin), db: Sessio
 def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_admin), db: Session = Depends(get_db)):
     p = db.query(Product).filter(Product.product_id == product_id).first()
     if not p: raise HTTPException(404, "ไม่พบสินค้า")
-    for k, v in body.dict(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         setattr(p, k, v)
     db.commit()
     return {"status": "success", "message": "แก้ไขสินค้าสำเร็จ"}
@@ -776,7 +849,7 @@ def get_promotions(db: Session = Depends(get_db)):
 
 @app.post("/api/promotions")
 def create_promo(body: PromoCreate, admin=Depends(require_admin), db: Session = Depends(get_db)):
-    pr = Promotion(**body.dict())
+    pr = Promotion(**body.model_dump())
     db.add(pr); db.commit()
     return {"status": "success", "message": "เพิ่มโปรโมชั่นสำเร็จ", "promo_id": pr.promo_id}
 
@@ -784,7 +857,7 @@ def create_promo(body: PromoCreate, admin=Depends(require_admin), db: Session = 
 def update_promo(promo_id: int, body: PromoCreate, admin=Depends(require_admin), db: Session = Depends(get_db)):
     pr = db.query(Promotion).filter(Promotion.promo_id == promo_id).first()
     if not pr: raise HTTPException(404, "ไม่พบโปรโมชั่น")
-    for k, v in body.dict().items(): setattr(pr, k, v)
+    for k, v in body.model_dump().items(): setattr(pr, k, v)
     db.commit()
     return {"status": "success", "message": "แก้ไขโปรโมชั่นสำเร็จ"}
 
@@ -1025,7 +1098,7 @@ def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depend
         "email":        row.email or user.u_email,
         "provider":     row.provider,
         "model":        row.model,
-        "api_key":      row.api_key,
+        "api_key":      decrypt_ai_key(row.api_key),
         "custom_model": row.custom_model,
         "updated_at":   row.updated_at,
     }}
@@ -1034,17 +1107,18 @@ def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depend
 def save_ai_settings(body: AiSettingsBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    encrypted_key = encrypt_ai_key(body.api_key)
     if row:
         row.email        = user.u_email
         row.provider     = body.provider
         row.model        = body.model
-        row.api_key      = body.api_key
+        row.api_key      = encrypted_key
         row.custom_model = body.custom_model
         row.updated_at   = now
     else:
         row = UserAiSettings(
             uid=user.uid, email=user.u_email, provider=body.provider, model=body.model,
-            api_key=body.api_key, custom_model=body.custom_model, updated_at=now
+            api_key=encrypted_key, custom_model=body.custom_model, updated_at=now
         )
         db.add(row)
     db.commit()
@@ -1153,7 +1227,9 @@ def get_ai_optional_user(creds: HTTPAuthorizationCredentials = Depends(security)
     return get_current_user(creds, db) if creds else None
 
 @app.post("/api/ai/recommend")
+@limiter.limit("10/minute")
 async def ai_recommend(
+    request: Request,
     body: AIRecommendBody,
     user: Optional[User] = Depends(get_ai_optional_user),
     db: Session = Depends(get_db)
@@ -1173,7 +1249,8 @@ async def ai_recommend(
     model = body.model if body.model is not None else ((db_settings.custom_model or db_settings.model) if same_provider else "")
     model = model.strip() or (fallback_model if provider == fallback_provider else rec.DEFAULT_MODELS[provider])
     configured_key, _ = server_ai_credentials(provider)
-    api_key = body.api_key if body.api_key is not None and body.api_key.strip() else (db_settings.api_key if same_provider and db_settings.api_key else configured_key)
+    stored_key = decrypt_ai_key(db_settings.api_key) if db_settings else ""
+    api_key = body.api_key if body.api_key is not None and body.api_key.strip() else (stored_key if same_provider and stored_key else configured_key)
     if not api_key.strip():
         raise HTTPException(400, f"ยังไม่ได้ตั้งค่า API Key สำหรับ {provider} กรุณาเปิด Settings หรือกำหนด key ฝั่งเซิร์ฟเวอร์")
     session = None

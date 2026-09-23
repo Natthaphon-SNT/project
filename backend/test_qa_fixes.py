@@ -24,6 +24,9 @@ class QaFixTests(unittest.TestCase):
         )
         os.chdir(cls.temp_dir.name)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
+        os.environ.setdefault(
+            "JWT_SECRET", "qa-fixes-jwt-secret-012345678901234567890123"
+        )
         # Other test modules also import shop_api against their own temporary
         # databases.  Discovery runs in one interpreter, so force this suite
         # to construct a fresh engine after changing into its isolated cwd.
@@ -69,6 +72,30 @@ class QaFixTests(unittest.TestCase):
     def auth(cls, uid):
         token = cls.api.create_token({"uid": uid})
         return {"Authorization": f"Bearer {token}"}
+
+    def test_jwt_rotation_rejects_old_token_and_accepts_new_token(self):
+        old_secret = "old-qa-jwt-secret-012345678901234567890123"
+        new_secret = "new-qa-jwt-secret-012345678901234567890123"
+        with patch.object(self.api, "SECRET_KEY", old_secret):
+            old_token = self.api.create_token({"uid": "qa-alice"})
+        with patch.object(self.api, "SECRET_KEY", new_secret):
+            with self.assertRaises(self.api.jwt.InvalidSignatureError):
+                self.api.decode_token(old_token)
+            new_token = self.api.create_token({"uid": "qa-alice"})
+            self.assertEqual(self.api.decode_token(new_token)["uid"], "qa-alice")
+
+    def test_jwt_secret_must_be_long_and_separate_from_provider_keys(self):
+        with patch.dict(os.environ, {"JWT_SECRET": "too-short"}, clear=True):
+            with self.assertRaises(RuntimeError):
+                self.api.load_jwt_secret()
+        reused = "same-secret-value-012345678901234567890123"
+        with patch.dict(
+            os.environ,
+            {"JWT_SECRET": reused, "GOOGLE_API_KEY": reused},
+            clear=True,
+        ):
+            with self.assertRaises(RuntimeError):
+                self.api.load_jwt_secret()
 
     def test_routes_are_unique_and_order_api_is_retired(self):
         routes = [

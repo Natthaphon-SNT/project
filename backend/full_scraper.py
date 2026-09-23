@@ -29,9 +29,12 @@ import io
 import random
 import os
 import subprocess
+import time
+from collections import deque
 from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
 import httpx
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 if __name__ == "__main__" and hasattr(sys.stdout, "buffer"):
@@ -41,6 +44,7 @@ if __name__ == "__main__" and hasattr(sys.stdout, "buffer"):
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "shop.db")
+DETAIL_CONCURRENCY = {"advice": 1, "jib": 4, "ihavecpu": 1}
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -193,9 +197,6 @@ IHC_CATS = [
     ("Monitor",      "https://www.ihavecpu.com/category/monitor"),
     ("Mouse",        "https://www.ihavecpu.com/category/mouse"),
     ("Keyboard",     "https://www.ihavecpu.com/category/keyboard"),
-    ("Headset",      "https://www.ihavecpu.com/category/headphone"),
-    ("Gaming Chair", "https://www.ihavecpu.com/category/chair"),
-    ("Gaming Desk",  "https://www.ihavecpu.com/category/desk"),
 ]
 IHC_SKIP = [
     "MOUSE PAD", "MOUSEPAD", "WEBCAM", "GAMEPAD", "JOYSTICK", "SPEAKER",
@@ -324,6 +325,11 @@ def ihc_product_description(product: dict) -> str:
     for label, field in (
         ("Summary", "size_guide_th"),
         ("Description", "description_th"),
+        # Some products (for example iHaveCPU 44014) contain only an image in
+        # description_th.  The server-provided meta description is then the
+        # only textual product description and is preferable to invented text.
+        ("Meta description", "meta_description_th"),
+        ("Meta description", "meta_description_gb"),
     ):
         value = _plain_html(product.get(field) or "")
         if value and not (label == "Description" and len(value) < 10):
@@ -635,6 +641,10 @@ def clean_ihc_name(name: str) -> str:
 
 def detect_jib_cat(name: str):
     up = name.upper()
+    if up.startswith(("CPU AIR COOLER", "AIR COOLER", "CPU COOLER")):
+        return "Air Cooler"
+    if up.startswith(("CPU LIQUID COOLER", "LIQUID COOLER", "AIO COOLER")):
+        return "Liquid Cooler"
     for skip in JIB_SKIP_PREFIXES:
         if up.startswith(skip):
             return None
@@ -719,6 +729,17 @@ def source_url_score(name: str, url: str, category: str) -> int:
     return len(wanted & found)
 
 
+def source_url_is_out_of_scope(url: str) -> bool:
+    """Reject explicit accessory/category paths returned by broad searches."""
+    path = unquote(urlparse(url or "").path).lower()
+    return any(part in path for part in (
+        "/gaming-microphone/", "/microphone/", "/cable/",
+        "/cctv-accessories/", "/ups-", "/ups/",
+        "/case-iphone", "/case-ipad", "/case-samsung",
+        "/notebook/", "/laptop/",
+    ))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DB Setup
 # ─────────────────────────────────────────────────────────────────────────────
@@ -751,6 +772,25 @@ def setup_db(conn: sqlite3.Connection):
     """)
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_ph_prod ON price_history(product_id, captured_at)"
+    )
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS scrape_detail_checkpoint (
+            store       TEXT NOT NULL,
+            url_hash    TEXT NOT NULL,
+            url         TEXT NOT NULL,
+            category    TEXT DEFAULT '',
+            status      TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            image_url   TEXT DEFAULT '',
+            attempts    INTEGER NOT NULL DEFAULT 0,
+            last_error  TEXT DEFAULT '',
+            updated_at  TEXT NOT NULL,
+            PRIMARY KEY (store, url_hash)
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_detail_checkpoint_status "
+        "ON scrape_detail_checkpoint(store, status)"
     )
     conn.commit()
 
@@ -828,6 +868,34 @@ def repair_conflicting_source_data(conn: sqlite3.Connection) -> int:
     conn.commit()
     if repaired:
         log(f"  [repair] cleared {repaired} mismatched store URL/detail records")
+    return repaired
+
+
+def repair_out_of_scope_source_data(conn: sqlite3.Connection) -> int:
+    """Clear store data for accessories leaked in by broad search APIs."""
+    cur = conn.cursor()
+    repaired = 0
+    for store, price_col, url_col, desc_col in (
+        ("advice", "price_advice", "url_advice", "desc_advice"),
+        ("jib", "price_jib", "url_jib", "desc_jib"),
+        ("ihavecpu", "price_ihavecpu", "url_ihavecpu", "desc_ihavecpu"),
+    ):
+        rows = cur.execute(
+            f"SELECT product_id, p_name, {url_col} FROM products "
+            f"WHERE {price_col}>0 AND trim(coalesce({url_col},''))<>''"
+        ).fetchall()
+        for pid, name, url in rows:
+            if not should_skip(name or "") and not source_url_is_out_of_scope(url or ""):
+                continue
+            cur.execute(
+                f"UPDATE products SET {price_col}=0, {url_col}='', {desc_col}='' "
+                "WHERE product_id=?",
+                (pid,),
+            )
+            _refresh_lowest_price(cur, pid)
+            repaired += 1
+            log(f"  [repair] cleared out-of-scope {store} item: {(name or '')[:70]}")
+    conn.commit()
     return repaired
 
 
@@ -931,6 +999,9 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
     if not name or not price:
         return False
     if should_skip(name):
+        return False
+    if source_url_is_out_of_scope(url):
+        log(f"    [out of scope] {store}: {name[:65]}")
         return False
     if not valid_product_price(cat, price):
         log(f"    [invalid price] {store}: {cat} {name[:65]} -> {price:,} B")
@@ -1036,7 +1107,7 @@ _DESC_SELECTORS = [
     "div.table-wrapper", "table",
     # JIB
     "#product-description", "div#tab_description", "#detail_spec",
-    "table.table-spec", "div.product-detail-content",
+    "[id*='spec']", "table.table-spec", "div.product-detail-content",
     # Advice
     ".spec-content", ".spec-list", "div.product-spec", "table.spec-table",
     # Generic
@@ -1062,6 +1133,155 @@ _IMG_SELECTORS = [
     "[class*='product-image'] img",
     "[class*='gallery'] img",
 ]
+
+_TRANSIENT_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+
+
+class AdaptiveRateLimiter:
+    """Store-local 429 circuit breaker shared by listing/detail workers.
+
+    Advice has historically throttled even low request rates.  A rolling event
+    window is used instead of a simple consecutive counter because a successful
+    retry between two 429 responses must not immediately erase the signal.
+    """
+
+    def __init__(self, store: str, *, threshold: int = 2,
+                 window_seconds: float = 60.0,
+                 base_cooldown_seconds: float = 15.0,
+                 max_cooldown_seconds: float = 120.0):
+        self.store = store
+        self.threshold = threshold
+        self.window_seconds = window_seconds
+        self.base_cooldown_seconds = base_cooldown_seconds
+        self.max_cooldown_seconds = max_cooldown_seconds
+        self.rate_limit_events: deque[float] = deque()
+        self.pause_until = 0.0
+        self.total_429 = 0
+        self.circuit_open_count = 0
+        self._lock = asyncio.Lock()
+
+    async def before_request(self) -> None:
+        async with self._lock:
+            delay = max(0.0, self.pause_until - time.monotonic())
+        if delay:
+            log(f"    [circuit wait] store={self.store} seconds={delay:.1f}")
+            await asyncio.sleep(delay)
+
+    async def record_status(self, status_code: int) -> None:
+        if status_code != 429:
+            return
+        now = time.monotonic()
+        async with self._lock:
+            self.total_429 += 1
+            self.rate_limit_events.append(now)
+            while (self.rate_limit_events and
+                   now - self.rate_limit_events[0] > self.window_seconds):
+                self.rate_limit_events.popleft()
+            recent = len(self.rate_limit_events)
+            if recent < self.threshold:
+                return
+            exponent = min(recent - self.threshold, 3)
+            cooldown = min(
+                self.max_cooldown_seconds,
+                self.base_cooldown_seconds * (2 ** exponent),
+            )
+            self.pause_until = max(self.pause_until, now + cooldown)
+            self.circuit_open_count += 1
+        log(
+            f"    [circuit open] store={self.store} status=429 "
+            f"recent={recent} cooldown={cooldown:.1f}s"
+        )
+
+    def metrics(self) -> dict[str, int]:
+        return {
+            "http_429": self.total_429,
+            "circuit_open": self.circuit_open_count,
+        }
+
+
+async def request_with_retry(client: httpx.AsyncClient, method: str, url: str,
+                             *, attempts: int = 3,
+                             rate_limiter: AdaptiveRateLimiter | None = None,
+                             **kwargs) -> httpx.Response:
+    """Retry only transient HTTP/transport failures with bounded backoff."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        retry_after = 0.0
+        if rate_limiter is not None:
+            await rate_limiter.before_request()
+        try:
+            response = await client.request(method, url, **kwargs)
+            if rate_limiter is not None:
+                await rate_limiter.record_status(response.status_code)
+            if response.status_code not in _TRANSIENT_HTTP_STATUSES:
+                return response
+            if response.status_code == 429:
+                try:
+                    retry_after = float(response.headers.get("retry-after", "0"))
+                except ValueError:
+                    retry_after = 0.0
+            last_error = httpx.HTTPStatusError(
+                f"transient HTTP {response.status_code}",
+                request=response.request,
+                response=response,
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_error = exc
+        if attempt < attempts:
+            base_delay = 5.0 if getattr(last_error, "response", None) is not None and last_error.response.status_code == 429 else 0.5
+            delay = max(retry_after, base_delay * (2 ** (attempt - 1)))
+            log(
+                f"    [retry] {method.upper()} transient failure "
+                f"attempt {attempt}/{attempts}; backoff {delay:.1f}s"
+            )
+            await asyncio.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+async def goto_with_retry(page, url: str, *, timeout_ms: int,
+                          wait_until: str = "domcontentloaded", attempts: int = 3,
+                          rate_limiter: AdaptiveRateLimiter | None = None):
+    """Retry transient browser navigation failures and HTTP 429/5xx responses."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        retry_after = 0.0
+        transient_status = 0
+        if rate_limiter is not None:
+            await rate_limiter.before_request()
+        try:
+            response = await page.goto(url, timeout=timeout_ms, wait_until=wait_until)
+            status = response.status if response else 0
+            if rate_limiter is not None:
+                await rate_limiter.record_status(status)
+            if status not in _TRANSIENT_HTTP_STATUSES:
+                return response
+            transient_status = status
+            if status == 429 and response:
+                try:
+                    retry_after = float(await response.header_value("retry-after") or 0)
+                except (TypeError, ValueError):
+                    retry_after = 0.0
+            last_error = RuntimeError(f"transient HTTP {status}")
+        except Exception as exc:
+            # Playwright raises its own TimeoutError type; other navigation
+            # failures are also safe to retry because page.goto is read-only.
+            last_error = exc
+        if attempt < attempts:
+            base_delay = 5.0 if transient_status == 429 else 0.5
+            delay = max(retry_after, base_delay * (2 ** (attempt - 1)))
+            log(
+                f"    [retry] browser navigation attempt {attempt}/{attempts}; "
+                f"backoff {delay:.1f}s"
+            )
+            await asyncio.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+def source_payload_needs_detail(description: str, image_url: str) -> bool:
+    """Return true only when a store listing lacks usable detail evidence."""
+    return len((description or "").strip()) < 30 or not (image_url or "").strip()
 
 
 def detail_description_is_relevant(name: str, description: str, category: str) -> bool:
@@ -1103,10 +1323,25 @@ def detail_description_is_relevant(name: str, description: str, category: str) -
     return True
 
 
+def select_best_relevant_description(
+    candidates: list[tuple[int, str]], name: str, category: str
+) -> str:
+    """Pick the highest-scoring candidate after relevance filtering.
+
+    A large related-products container must not hide a smaller authoritative
+    specification table merely because the container received a higher score.
+    """
+    relevant = [
+        item for item in candidates
+        if detail_description_is_relevant(name, item[1], category)
+    ]
+    return max(relevant, key=lambda item: item[0])[1] if relevant else ""
+
+
 async def fetch_ihc_detail_http(client: httpx.AsyncClient, url: str,
                                 expected_name: str = "", category: str = "") -> tuple[str, str]:
     try:
-        response = await client.get(url)
+        response = await request_with_retry(client, "GET", url)
         response.raise_for_status()
         product = ihc_detail_product(response.text)
         actual_name = product.get("name_th") or product.get("name_gb") or ""
@@ -1124,10 +1359,92 @@ async def fetch_ihc_detail_http(client: httpx.AsyncClient, url: str,
         return "", ""
 
 
+async def fetch_jib_detail_http(client: httpx.AsyncClient, url: str,
+                                expected_name: str, category: str) -> tuple[str, str]:
+    """Extract JIB's server-rendered spec without Chromium per product."""
+    try:
+        response = await request_with_retry(client, "GET", url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        candidates: list[tuple[int, str]] = []
+        for selector in _DESC_SELECTORS:
+            try:
+                elements = soup.select(selector)
+            except Exception:
+                continue
+            for element in elements:
+                text_value = element.get_text(" ", strip=True)
+                if len(text_value) < 30:
+                    continue
+                if len(text_value) > 18000:
+                    text_value = text_value[:18000]
+                low = text_value.lower()
+                score = min(len(text_value), 6000)
+                score += sum(180 for word in (
+                    "spec", "socket", "ddr", "watt", "dimension", "รายละเอียด",
+                    "คุณสมบัติ", "การรับประกัน", "interface", "capacity",
+                ) if word in low)
+                keyword_hits = sum(1 for word in (
+                    "spec", "socket", "ddr", "watt", "dimension", "brand", "model",
+                    "form factor", "chipset", "memory type", "continuous power",
+                    "warranty", "interface", "capacity",
+                ) if word in low)
+                score += keyword_hits * 180
+                if selector in ("main", "article", "main [role='main']"):
+                    score -= 900
+                if ("detail" in selector or "description" in selector) and not keyword_hits:
+                    score -= 900
+                if selector in ("table", "div.table-wrapper", "[id*='spec']"):
+                    score += 350
+                candidates.append((score, text_value))
+        desc = select_best_relevant_description(
+            candidates, expected_name, category
+        )
+        if not desc:
+            for script in soup.select("script[type='application/ld+json']"):
+                try:
+                    payload = json.loads(script.get_text(strip=True))
+                except (TypeError, ValueError):
+                    continue
+                objects = payload if isinstance(payload, list) else [payload]
+                for item in objects:
+                    value = item.get("description", "") if isinstance(item, dict) else ""
+                    if detail_description_is_relevant(expected_name, value, category):
+                        desc = value.strip()
+                        break
+                if desc:
+                    break
+        img = ""
+        for selector in _IMG_SELECTORS:
+            try:
+                element = soup.select_one(selector)
+            except Exception:
+                element = None
+            if not element:
+                continue
+            for attr in ("src", "data-src", "data-lazy", "data-original"):
+                value = (element.get(attr) or "").strip()
+                if value.startswith("http") and not value.endswith(".gif"):
+                    img = value
+                    break
+            if img:
+                break
+        if not img:
+            meta = soup.select_one("meta[property='og:image']")
+            value = (meta.get("content") or "").strip() if meta else ""
+            if value.startswith("http"):
+                img = value
+        return desc, img
+    except Exception as exc:
+        log(f"      [JIB HTTP detail err] {str(exc)[:100]}")
+        return "", ""
+
+
 async def fetch_detail_page(page, url: str, expected_name: str = "",
                             category: str = "", timeout_ms: int = 20000,
                             settle_ms: int = 1800,
-                            http_client: httpx.AsyncClient | None = None) -> tuple[str, str]:
+                            http_client: httpx.AsyncClient | None = None,
+                            rate_limiter: AdaptiveRateLimiter | None = None) -> tuple[str, str]:
     """
     Visit a product detail page and extract (description, image_url).
     """
@@ -1138,7 +1455,9 @@ async def fetch_detail_page(page, url: str, expected_name: str = "",
     if "ihavecpu.com" in url.lower() and http_client is not None:
         return await fetch_ihc_detail_http(http_client, url, expected_name, category)
     try:
-        await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        await goto_with_retry(
+            page, url, timeout_ms=timeout_ms, rate_limiter=rate_limiter
+        )
         # Allow client-rendered specs/images to settle without waiting several
         # seconds for every product page. Selectors below still fall back to
         # meta description/og:image when a page is slow or partially blocked.
@@ -1214,9 +1533,9 @@ async def fetch_detail_page(page, url: str, expected_name: str = "",
             except Exception:
                 pass
         if candidates:
-            desc = max(candidates, key=lambda item: item[0])[1]
-        if desc and not detail_description_is_relevant(expected_name, desc, category):
-            desc = ""
+            desc = select_best_relevant_description(
+                candidates, expected_name, category
+            )
         if not desc:
             try:
                 m = await page.query_selector('meta[name="description"]')
@@ -1290,6 +1609,215 @@ async def fetch_detail_page(page, url: str, expected_name: str = "",
     return desc, img
 
 
+def _detail_checkpoint_key(url: str) -> str:
+    return hashlib.sha256((url or "").strip().encode("utf-8")).hexdigest()
+
+
+def _read_detail_checkpoint(conn: sqlite3.Connection, store: str,
+                            url: str) -> tuple[str, str] | None:
+    row = conn.execute(
+        "SELECT description, image_url FROM scrape_detail_checkpoint "
+        "WHERE store=? AND url_hash=? AND status='success'",
+        (store, _detail_checkpoint_key(url)),
+    ).fetchone()
+    if not row:
+        return None
+    return (row[0] or "", row[1] or "")
+
+
+def _write_detail_checkpoint(conn: sqlite3.Connection, store: str, item: dict,
+                             desc: str, img: str, error: str = "") -> None:
+    success = len((desc or "").strip()) >= 30
+    conn.execute(
+        """
+        INSERT INTO scrape_detail_checkpoint
+            (store, url_hash, url, category, status, description, image_url,
+             attempts, last_error, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(store, url_hash) DO UPDATE SET
+            category=excluded.category,
+            status=excluded.status,
+            description=excluded.description,
+            image_url=excluded.image_url,
+            attempts=scrape_detail_checkpoint.attempts + 1,
+            last_error=excluded.last_error,
+            updated_at=excluded.updated_at
+        """,
+        (
+            store, _detail_checkpoint_key(item["url"]), item["url"],
+            item.get("category", ""), "success" if success else "failed",
+            desc or "", img or "", error[:300],
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    conn.commit()
+
+
+async def fetch_browser_detail_queue(
+    ctx,
+    conn: sqlite3.Connection,
+    store: str,
+    items: list[dict],
+    *,
+    concurrency: int | None = None,
+    rate_limiter: AdaptiveRateLimiter | None = None,
+    timeout_ms: int = 20000,
+    settle_ms: int = 1800,
+) -> tuple[dict[str, tuple[str, str]], dict]:
+    """Fetch product details with bounded workers and durable checkpoints.
+
+    Every worker owns one Playwright page.  On cancellation all worker tasks
+    are cancelled and awaited before their pages (and later the context) close,
+    preventing orphan Playwright futures from reporting TargetClosedError.
+    """
+    limit = max(1, concurrency or DETAIL_CONCURRENCY.get(store, 1))
+    results: dict[str, tuple[str, str]] = {}
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    checkpoint_hits = 0
+    unique: dict[str, dict] = {}
+    for item in items:
+        if item.get("url"):
+            unique[item["url"]] = item
+    for url, item in unique.items():
+        cached = _read_detail_checkpoint(conn, store, url)
+        if cached is not None:
+            results[url] = cached
+            checkpoint_hits += 1
+        else:
+            queue.put_nowait(item)
+
+    queued = queue.qsize()
+    started = time.perf_counter()
+
+    async def worker(worker_id: int) -> None:
+        page = await ctx.new_page()
+        try:
+            while True:
+                try:
+                    item = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return
+                error = ""
+                try:
+                    desc, img = await fetch_detail_page(
+                        page, item["url"], item.get("name", ""),
+                        item.get("category", ""), timeout_ms=timeout_ms,
+                        settle_ms=settle_ms, rate_limiter=rate_limiter,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    desc, img = "", ""
+                    error = f"{type(exc).__name__}: {str(exc)[:220]}"
+                _write_detail_checkpoint(conn, store, item, desc, img, error)
+                results[item["url"]] = (desc, img)
+                queue.task_done()
+        finally:
+            try:
+                await page.close()
+            except Exception:
+                pass
+
+    workers = [
+        asyncio.create_task(worker(index), name=f"{store}-detail-{index}")
+        for index in range(min(limit, queued))
+    ]
+    try:
+        if workers:
+            await asyncio.gather(*workers)
+    except asyncio.CancelledError:
+        for task in workers:
+            task.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        raise
+    finally:
+        for task in workers:
+            if not task.done():
+                task.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    elapsed = time.perf_counter() - started
+    metrics = {
+        "store": store,
+        "queued": queued,
+        "checkpoint_hits": checkpoint_hits,
+        "concurrency": limit,
+        "elapsed_seconds": round(elapsed, 3),
+        "pages_per_second": round(queued / elapsed, 4) if elapsed else 0.0,
+    }
+    if rate_limiter is not None:
+        metrics.update(rate_limiter.metrics())
+    log(f"  [Detail queue metrics] {json.dumps(metrics, ensure_ascii=False)}")
+    return results, metrics
+
+
+async def fetch_http_detail_queue(
+    client: httpx.AsyncClient,
+    conn: sqlite3.Connection,
+    store: str,
+    items: list[dict],
+    *,
+    concurrency: int | None = None,
+) -> tuple[dict[str, tuple[str, str]], dict]:
+    """HTTP counterpart of the resumable browser queue (currently iHaveCPU)."""
+    limit = max(1, concurrency or DETAIL_CONCURRENCY.get(store, 1))
+    results: dict[str, tuple[str, str]] = {}
+    unique = {item["url"]: item for item in items if item.get("url")}
+    pending: list[dict] = []
+    checkpoint_hits = 0
+    for url, item in unique.items():
+        cached = _read_detail_checkpoint(conn, store, url)
+        if cached is None:
+            pending.append(item)
+        else:
+            results[url] = cached
+            checkpoint_hits += 1
+
+    started = time.perf_counter()
+    semaphore = asyncio.Semaphore(limit)
+
+    async def fetch_one(item: dict) -> None:
+        async with semaphore:
+            fetcher = fetch_jib_detail_http if store == "jib" else fetch_ihc_detail_http
+            desc, img = await fetcher(
+                client, item["url"], item.get("name", ""), item.get("category", "")
+            )
+            _write_detail_checkpoint(conn, store, item, desc, img)
+            results[item["url"]] = (desc, img)
+
+    tasks = [
+        asyncio.create_task(fetch_one(item), name=f"{store}-detail-{index}")
+        for index, item in enumerate(pending)
+    ]
+    try:
+        if tasks:
+            await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    elapsed = time.perf_counter() - started
+    metrics = {
+        "store": store,
+        "queued": len(pending),
+        "checkpoint_hits": checkpoint_hits,
+        "concurrency": limit,
+        "elapsed_seconds": round(elapsed, 3),
+        "pages_per_second": round(len(pending) / elapsed, 4) if elapsed else 0.0,
+    }
+    log(f"  [Detail queue metrics] {json.dumps(metrics, ensure_ascii=False)}")
+    return results, metrics
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Scraper: Advice (JSON API)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1305,14 +1833,17 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher,
             args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )
         ctx = await browser.new_context(user_agent=UA, locale="th-TH")
-        detail_pg = await ctx.new_page()
+        # Advice starts at one detail request at a time.  Its limiter can open
+        # a longer shared pause when multiple 429s arrive in a rolling window.
+        advice_limiter = AdaptiveRateLimiter("advice")
         api_client = httpx.AsyncClient(
             headers={"User-Agent": UA, "Accept": "application/json"},
             follow_redirects=True,
             timeout=httpx.Timeout(30.0, connect=15.0),
         )
         try:
-            guest_response = await api_client.post(
+            guest_response = await request_with_retry(
+                api_client, "POST",
                 "https://prodbackadvice.advice.in.th/api/v1.0.0/user/guest",
                 json={"type": "online"},
             )
@@ -1331,8 +1862,8 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher,
                 for pn in range(pages):
                     skip = pn * 12
                     try:
-                        api_response = await api_client.post(
-                            ADVICE_API,
+                        api_response = await request_with_retry(
+                            api_client, "POST", ADVICE_API,
                             headers=api_headers,
                             json={
                                 "category": "search", "category_sub": "", "product": "",
@@ -1352,6 +1883,7 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher,
                         break
 
                     page_new = 0
+                    normalized: list[dict] = []
                     for it in items:
                         code  = it.get("code") or ""
                         name  = (it.get("name") or "").strip()
@@ -1368,26 +1900,48 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher,
 
                         if not url:
                             url = "https://www.advice.co.th/search?keyword=" + urllib.parse.quote(name[:60])
+                        if source_url_is_out_of_scope(url):
+                            log(f"    [Advice] out-of-scope search result skipped: {name[:70]}")
+                            continue
 
                         actual_cat = detect_obvious_category(name, cat_name)
-                        det_desc = ""
-                        det_img  = ""
-                        if (fetch_details and url and not url.startswith("https://www.advice.co.th/search")
-                                and needs_detail(cur, matcher, name, actual_cat, "advice")):
-                            det_desc, det_img = await fetch_detail_page(
-                                detail_pg, url, name, actual_cat
-                            )
-                            await asyncio.sleep(random.uniform(0.7, 1.4))
+                        api_spec = it.get("spec") or ""
+                        normalized.append({
+                            "name": name, "price": price, "url": url,
+                            "img": img, "category": actual_cat,
+                            "api_spec": api_spec,
+                        })
 
+                    detail_items = [
+                        item for item in normalized
+                        if (fetch_details and item["url"] and
+                            not item["url"].startswith("https://www.advice.co.th/search") and
+                            source_payload_needs_detail(item["api_spec"], item["img"]) and
+                            needs_detail(cur, matcher, item["name"], item["category"], "advice"))
+                    ]
+                    detail_results: dict[str, tuple[str, str]] = {}
+                    if detail_items:
+                        try:
+                            detail_results, _metrics = await fetch_browser_detail_queue(
+                                ctx, conn, "advice", detail_items,
+                                concurrency=DETAIL_CONCURRENCY["advice"],
+                                rate_limiter=advice_limiter,
+                            )
+                        except asyncio.CancelledError:
+                            await browser.close()
+                            raise
+
+                    for item in normalized:
+                        det_desc, det_img = detail_results.get(item["url"], ("", ""))
                         is_new = upsert_product(cur, matcher, {
-                            "name": name, "price": price,
-                            "img_url": det_img or img, "url": url,
-                            "category": actual_cat, "store": "advice",
+                            "name": item["name"], "price": item["price"],
+                            "img_url": det_img or item["img"], "url": item["url"],
+                            "category": item["category"], "store": "advice",
                             # Advice's API spec is the most reliable source for
                             # compatibility fields. Keep it even when the page
                             # also exposes a longer marketing description.
                             "description": combine_descriptions(
-                                it.get("spec") or "", det_desc
+                                item["api_spec"], det_desc
                             ),
                         })
                         if is_new:
@@ -1418,6 +1972,15 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
                      pages: int = 5, fetch_details: bool = False):
     cur = conn.cursor()
     total_new = total_upd = 0
+    detail_client = httpx.AsyncClient(
+        headers={
+            "User-Agent": UA,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
+        },
+        follow_redirects=True,
+        timeout=httpx.Timeout(30.0, connect=15.0),
+    )
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1427,7 +1990,6 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
         ctx = await browser.new_context(user_agent=UA, viewport={"width": 1280, "height": 800})
         await ctx.add_init_script(ANTI_BOT)
         page = await ctx.new_page()
-        detail_pg = await ctx.new_page()
 
         for cat_name, base_url in JIB_CATS:
             if any(kw in base_url.lower() for kw in NOTEBOOK_URL_KW):
@@ -1440,7 +2002,7 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
                 log(f"  [JIB] {cat_name} p{pn}")
 
                 try:
-                    await page.goto(url, timeout=40000, wait_until="domcontentloaded")
+                    await goto_with_retry(page, url, timeout_ms=40000)
                     await page.wait_for_timeout(4000)
                 except Exception as e:
                     log(f"    err: {e}")
@@ -1454,6 +2016,7 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
                     break
 
                 count = 0
+                normalized: list[dict] = []
                 for card in cards:
                     try:
                         ne = await card.query_selector("span.promo_name")
@@ -1495,6 +2058,8 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
                         )
                         if prod_url and source_url_conflicts(name, prod_url, actual_cat):
                             prod_url = ""
+                        if source_url_is_out_of_scope(prod_url):
+                            continue
 
                         img = ""
                         ie = await card.query_selector("img")
@@ -1507,18 +2072,37 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
                             if img and not img.startswith("http"):
                                 img = "https://www.jib.co.th" + img
 
-                        det_desc = ""
-                        det_img  = ""
-                        if fetch_details and prod_url and needs_detail(cur, matcher, name, actual_cat, "jib"):
-                            det_desc, det_img = await fetch_detail_page(
-                                detail_pg, prod_url, name, actual_cat
-                            )
-                            await asyncio.sleep(random.uniform(0.7, 1.4))
+                        normalized.append({
+                            "name": name, "price": price, "url": prod_url,
+                            "img": img, "category": actual_cat,
+                        })
+                    except Exception as e:
+                        log(f"    card err: {e}")
 
+                detail_items = [
+                    item for item in normalized
+                    if (fetch_details and item["url"] and
+                        needs_detail(cur, matcher, item["name"], item["category"], "jib"))
+                ]
+                detail_results: dict[str, tuple[str, str]] = {}
+                if detail_items:
+                    try:
+                        detail_results, _metrics = await fetch_http_detail_queue(
+                            detail_client, conn, "jib", detail_items,
+                            concurrency=DETAIL_CONCURRENCY["jib"],
+                        )
+                    except asyncio.CancelledError:
+                        await detail_client.aclose()
+                        await browser.close()
+                        raise
+
+                for item in normalized:
+                    try:
+                        det_desc, det_img = detail_results.get(item["url"], ("", ""))
                         is_new = upsert_product(cur, matcher, {
-                            "name": name, "price": price,
-                            "img_url": det_img or img, "url": prod_url,
-                            "category": actual_cat, "store": "jib",
+                            "name": item["name"], "price": item["price"],
+                            "img_url": det_img or item["img"], "url": item["url"],
+                            "category": item["category"], "store": "jib",
                             "description": det_desc,
                         })
                         if is_new:
@@ -1528,7 +2112,7 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
                         count += 1
 
                     except Exception as e:
-                        log(f"    card err: {e}")
+                        log(f"    upsert err: {e}")
 
                 conn.commit()
                 log(f"    -> {count} products processed")
@@ -1541,6 +2125,7 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
             await asyncio.sleep(random.uniform(1, 2))
 
         await browser.close()
+        await detail_client.aclose()
 
     log(f"  [JIB] TOTAL: {total_new} new | {total_upd} merged into existing")
     return total_new, total_upd
@@ -1579,7 +2164,7 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                 url = base_url if pn == 1 else f"{base_url}?page={pn}"
                 log(f"  [iHaveCPU] {cat_name} p{pn}")
                 try:
-                    response = await client.get(url)
+                    response = await request_with_retry(client, "GET", url)
                     response.raise_for_status()
                     items = ihc_listing_products(response.text)
                 except Exception as e:
@@ -1623,9 +2208,12 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                     img = (item.get("image800") or item.get("image") or "").strip()
                     desc = ihc_product_description(item)
                     if (fetch_details and prod_url and
+                            source_payload_needs_detail(desc, img) and
                             needs_detail(cur, matcher, name, actual_cat, "ihavecpu")):
                         try:
-                            detail_response = await client.get(prod_url)
+                            detail_response = await request_with_retry(
+                                client, "GET", prod_url
+                            )
                             detail_response.raise_for_status()
                             detail_product = ihc_detail_product(detail_response.text)
                             if detail_product and int(detail_product.get("product_id") or 0) == int(product_id):
@@ -1662,6 +2250,64 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
     return total_new, total_upd
 
 
+def apply_successful_detail_checkpoints(
+    conn: sqlite3.Connection, stores: list[str]
+) -> int:
+    """Attach completed queue results that an ambiguous matcher did not apply.
+
+    Checkpoints are keyed by the authoritative source URL.  This reconciliation
+    is intentionally conservative: it only fills a missing description when a
+    same-category URL slug has a strong, conflict-free score for the row.
+    """
+    columns = {
+        "jib": ("price_jib", "url_jib", "desc_jib"),
+        "ihavecpu": ("price_ihavecpu", "url_ihavecpu", "desc_ihavecpu"),
+        "advice": ("price_advice", "url_advice", "desc_advice"),
+    }
+    cur = conn.cursor()
+    applied = 0
+    for store in stores:
+        price_col, url_col, desc_col = columns[store]
+        checkpoints = cur.execute(
+            "SELECT url, category, description, image_url "
+            "FROM scrape_detail_checkpoint "
+            "WHERE store=? AND status='success' AND length(trim(description))>=30",
+            (store,),
+        ).fetchall()
+        if not checkpoints:
+            continue
+        rows = cur.execute(
+            f"SELECT product_id, p_name, category FROM products "
+            f"WHERE {price_col}>0 AND length(trim(coalesce({desc_col},'')))<30"
+        ).fetchall()
+        for pid, name, category in rows:
+            candidates = []
+            for url, checkpoint_category, desc, img in checkpoints:
+                if checkpoint_category != category:
+                    continue
+                score = source_url_score(name or "", url or "", category or "")
+                if score >= 2 and not source_url_conflicts(
+                    name or "", url or "", category or ""
+                ):
+                    candidates.append((score, url, desc, img))
+            if not candidates:
+                continue
+            score, url, desc, img = max(candidates, key=lambda item: item[0])
+            cur.execute(
+                f"UPDATE products SET {url_col}=?, {desc_col}=?, "
+                "img_url=CASE WHEN trim(coalesce(img_url,''))='' THEN ? ELSE img_url END, "
+                "specs=CASE WHEN trim(coalesce(specs,''))='' THEN ? ELSE specs END, "
+                "updated_at=? WHERE product_id=?",
+                (url, desc, img, desc,
+                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
+            )
+            applied += 1
+            log(f"  [checkpoint reconcile] {store} score={score}: {(name or '')[:65]}")
+    if applied:
+        conn.commit()
+    return applied
+
+
 async def backfill_missing_details(conn: sqlite3.Connection, stores: list[str]):
     """Visit already-known store URLs whose detail text is still missing.
 
@@ -1675,7 +2321,9 @@ async def backfill_missing_details(conn: sqlite3.Connection, stores: list[str]):
         "ihavecpu": ("url_ihavecpu", "desc_ihavecpu"),
         "advice": ("url_advice", "desc_advice"),
     }
-    pending: list[tuple[str, str, str, str, str]] = []
+    pending: dict[str, list[tuple[str, str, str, str, str]]] = {
+        store: [] for store in stores
+    }
     cur = conn.cursor()
     for store in stores:
         pair = columns.get(store)
@@ -1690,16 +2338,18 @@ async def backfill_missing_details(conn: sqlite3.Connection, stores: list[str]):
             _pid, _name, _category, _url, _desc = row
             if (len((_desc or '').strip()) < 30 or
                     not detail_description_is_relevant(_name or '', _desc or '', _category or '')):
-                pending.append((store, *row))
+                pending[store].append(row)
 
-    if not pending:
+    pending_count = sum(len(rows) for rows in pending.values())
+    if not pending_count:
         log("  [Detail backfill] no missing store descriptions")
         return {store: 0 for store in stores}
 
-    log(f"  [Detail backfill] {len(pending)} product URLs queued")
+    log(f"  [Detail backfill] {pending_count} product URLs queued")
     updated = {store: 0 for store in stores}
     cleared = 0
-    ihc_client = httpx.AsyncClient(
+    advice_limiter = AdaptiveRateLimiter("advice")
+    async with httpx.AsyncClient(
         headers={
             "User-Agent": UA,
             "Accept": "text/html,application/xhtml+xml",
@@ -1707,57 +2357,88 @@ async def backfill_missing_details(conn: sqlite3.Connection, stores: list[str]):
         },
         follow_redirects=True,
         timeout=httpx.Timeout(30.0, connect=15.0),
-    )
-
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-        )
-        ctx = await browser.new_context(user_agent=UA, viewport={"width": 1280, "height": 800})
-        await ctx.add_init_script(ANTI_BOT)
-        page = await ctx.new_page()
-
-        for index, (store, pid, name, category, url, _old_desc) in enumerate(pending, 1):
-            url_col, desc_col = columns[store]
-            if source_url_conflicts(name or "", url or "", category or ""):
-                cur.execute(
-                    f"UPDATE products SET {url_col}='', {desc_col}='', updated_at=? WHERE product_id=?",
-                    (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
-                )
-                cleared += 1
-                continue
-
-            desc, img = await fetch_detail_page(
-                page, url, name, category, timeout_ms=10000, settle_ms=1000,
-                http_client=ihc_client,
+    ) as ihc_client:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
             )
-            if desc or img:
-                cur.execute(
-                    f"UPDATE products SET {desc_col} = ?, "
-                    "img_url = CASE WHEN ? != '' THEN ? ELSE img_url END, "
-                    "specs = CASE WHEN (specs IS NULL OR specs='') AND ? != '' THEN ? ELSE specs END, "
-                    "updated_at=? WHERE product_id=?",
-                    (desc, img, img, desc, desc,
-                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
+            try:
+                ctx = await browser.new_context(
+                    user_agent=UA, viewport={"width": 1280, "height": 800}
                 )
-                updated[store] += 1
-            elif not detail_description_is_relevant(name, _old_desc or '', category):
-                # Do not leave a known related-product/cookie description in
-                # the row when the source page currently exposes no valid
-                # detail block.
-                cur.execute(
-                    f"UPDATE products SET {desc_col}='', updated_at=? WHERE product_id=?",
-                    (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
-                )
-            if index % 25 == 0:
-                conn.commit()
-                log(f"    [Detail backfill] {index}/{len(pending)} processed")
-            await asyncio.sleep(random.uniform(0.4, 0.9))
+                await ctx.add_init_script(ANTI_BOT)
 
-        conn.commit()
-        await browser.close()
-    await ihc_client.aclose()
+                for store in stores:
+                    valid_items: list[dict] = []
+                    rows_by_url: dict[str, tuple[str, str, str, str, str]] = {}
+                    for pid, name, category, url, old_desc in pending.get(store, []):
+                        url_col, desc_col = columns[store]
+                        if source_url_conflicts(name or "", url or "", category or ""):
+                            cur.execute(
+                                f"UPDATE products SET {url_col}='', {desc_col}='', updated_at=? "
+                                "WHERE product_id=?",
+                                (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
+                            )
+                            cleared += 1
+                            continue
+                        item = {
+                            "url": url, "name": name or "",
+                            "category": category or "",
+                        }
+                        valid_items.append(item)
+                        rows_by_url[url] = (pid, name, category, url, old_desc)
+                    conn.commit()
+
+                    if store in {"ihavecpu", "jib"}:
+                        detail_results, _metrics = await fetch_http_detail_queue(
+                            ihc_client, conn, store, valid_items,
+                            concurrency=DETAIL_CONCURRENCY[store],
+                        )
+                    else:
+                        detail_results, _metrics = await fetch_browser_detail_queue(
+                            ctx, conn, store, valid_items,
+                            concurrency=DETAIL_CONCURRENCY[store],
+                            rate_limiter=advice_limiter if store == "advice" else None,
+                            timeout_ms=10000, settle_ms=1000,
+                        )
+
+                    for index, (url, row) in enumerate(rows_by_url.items(), 1):
+                        pid, name, category, _url, old_desc = row
+                        _url_col, desc_col = columns[store]
+                        desc, img = detail_results.get(url, ("", ""))
+                        if desc:
+                            cur.execute(
+                                f"UPDATE products SET {desc_col} = ?, "
+                                "img_url = CASE WHEN ? != '' THEN ? ELSE img_url END, "
+                                "specs = CASE WHEN (specs IS NULL OR specs='') AND ? != '' "
+                                "THEN ? ELSE specs END, updated_at=? WHERE product_id=?",
+                                (desc, img, img, desc, desc,
+                                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
+                            )
+                            updated[store] += 1
+                        else:
+                            log(
+                                f"    [{store} missing description] "
+                                f"product_id={pid} url={url}"
+                            )
+                            if not detail_description_is_relevant(
+                                name, old_desc or "", category
+                            ):
+                                cur.execute(
+                                    f"UPDATE products SET {desc_col}='', updated_at=? "
+                                    "WHERE product_id=?",
+                                    (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pid),
+                                )
+                        if index % 25 == 0:
+                            conn.commit()
+                            log(
+                                f"    [Detail backfill] store={store} "
+                                f"{index}/{len(rows_by_url)} processed"
+                            )
+                    conn.commit()
+            finally:
+                await browser.close()
 
     log(f"  [Detail backfill] updated: {updated} | cleared mismatches: {cleared}")
     return updated
@@ -1769,10 +2450,17 @@ async def backfill_missing_details(conn: sqlite3.Connection, stores: list[str]):
 async def run_all(stores: list[str], pages: int, fetch_details: bool = False,
                   backfill_only: bool = False):
     conn = sqlite3.connect(DB_PATH)
+    # asyncio.wait_for cancels this coroutine when a bounded QA run expires.
+    # Close SQLite from the task completion callback even if cancellation
+    # happens inside a store/browser context before the normal close below.
+    task = asyncio.current_task()
+    if task is not None:
+        task.add_done_callback(lambda _task: conn.close())
     setup_db(conn)
     repair_pc_set_categories(conn)
     repair_obvious_product_categories(conn)
     repair_conflicting_source_data(conn)
+    repair_out_of_scope_source_data(conn)
     repair_implausible_prices(conn)
 
     matcher = SmartMatcher(conn.cursor())
@@ -1804,6 +2492,7 @@ async def run_all(stores: list[str], pages: int, fetch_details: bool = False,
         summary["ihavecpu"] = {"new": n, "updated": u}
 
     if fetch_details or backfill_only:
+        apply_successful_detail_checkpoints(conn, stores)
         log("\n=== [Detail backfill] ===")
         summary["detail_backfill"] = await backfill_missing_details(conn, stores)
 

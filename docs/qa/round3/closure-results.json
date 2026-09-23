@@ -1,0 +1,81 @@
+{
+  "project": "IT-RECOMMEND",
+  "round": 3,
+  "date": "2026-09-14",
+  "timezone": "Asia/Bangkok",
+  "revision_started": "5722fd7a7e1a659fd924a74fa6d2989e5d5a3739",
+  "decision": "Conditional / Not Ready for final release",
+  "blocking_items": ["SEC01", "S02"],
+  "closure": {
+    "SEC01": "Fail / Open",
+    "S01": "Pass",
+    "S02": "Fail / Blocked",
+    "production_build": "Pass",
+    "backend_regression": "Pass",
+    "angular_unit_tests": "Pass",
+    "critical_high_smoke": "Pass",
+    "report_secret_hygiene": "Pass"
+  },
+  "commands": {
+    "backend": {
+      "command": "python -B -m unittest discover -s backend -v",
+      "elapsed_seconds": 2.522,
+      "exit_code": 0,
+      "passed": 51,
+      "skipped": 17,
+      "failed": 0
+    },
+    "angular": {
+      "command": "npm --prefix It-shop test -- --watch=false",
+      "elapsed_seconds": 7.087,
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0
+    },
+    "production_build": {
+      "command": "npm --prefix It-shop run build",
+      "elapsed_seconds": 6.387,
+      "exit_code": 0,
+      "initial_raw_kb": 661.05,
+      "baseline_initial_raw_kb": 670.59,
+      "budget_configuration_changed": false,
+      "NG8107_count": 0
+    },
+    "api_audit": {
+      "command": "python -B docs/qa/run_api_audit.py",
+      "elapsed_seconds": 5.067,
+      "exit_code": 0,
+      "passed": 77,
+      "failed": 0
+    },
+    "browser_audit": {
+      "command": "python -B docs/qa/run_browser_audit.py",
+      "elapsed_seconds": 20.359,
+      "exit_code": 0,
+      "passed": 33,
+      "blocked": 1,
+      "required_round3_targets_passed": true
+    },
+    "security_offline": {
+      "command": "python -B docs/qa/run_round3_security.py",
+      "elapsed_seconds": 7.266,
+      "exit_code": 1,
+      "working_tree_google_key_patterns": 0,
+      "history_google_key_patterns": 3,
+      "target_commit_reachable": true,
+      "live_revocation_check_attempted": false
+    }
+  },
+  "evidence": {
+    "S01": "docs/qa/round3/S01-results.json",
+    "S02": "docs/qa/round3/S02-results.json",
+    "SEC01": "docs/qa/round3/SEC01-results.json",
+    "api": "docs/qa/api-results.json",
+    "browser": "docs/qa/browser-results.json",
+    "mobile_screenshots": [
+      "docs/qa/builder-390.png",
+      "docs/qa/ai-settings-390.png"
+    ]
+  },
+  "contains_secret_values": false
+}

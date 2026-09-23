@@ -114,8 +114,8 @@
         "u_image": "",
         "u_role": "customer",
         "dob": "2000-01-01",
-        "u_created_at": "2026-09-13 22:58:30",
-        "u_last_login": "2026-09-13 22:58:31"
+        "u_created_at": "2026-09-14 19:14:44",
+        "u_last_login": "2026-09-14 19:14:45"
       }
     },
     "status": "Pass",
@@ -768,7 +768,7 @@
     "group": 4,
     "steps": "จำลอง provider ReadTimeout ใน compare endpoint",
     "expected": "HTTP 502 ข้อความ error ไม่ค้าง",
-    "actual": "HTTP 502; seconds=0.004; {\"detail\":\"AI provider เชื่อมต่อไม่ได้หรือหมดเวลา กรุณาลองใหม่\"}",
+    "actual": "HTTP 502; seconds=0.005; {\"detail\":\"AI provider เชื่อมต่อไม่ได้หรือหมดเวลา กรุณาลองใหม่\"}",
     "status": "Pass",
     "source": "backend/shop_api.py:ai_recommend",
     "fix": "จับ httpx.TimeoutException และ map เป็น502/504พร้อมข้อความลองใหม่",
@@ -924,7 +924,7 @@
     "group": 7,
     "steps": "GET /api/admin/users; identity=admin; payload=none",
     "expected": "HTTP [200]",
-    "actual": "HTTP 200; {\"status\":\"success\",\"data\":[{\"uid\":\"admin\",\"u_name\":\"qa_admin\",\"u_email\":\"admin@example.com\",\"u_phone\":\"0800000000\",\"u_role\":\"admin\",\"dob\":\"2000-01-01\",\"u_image\":\"\",\"u_address\":\"\",\"u_created_at\":\"2026-09-13 22:58:31\",\"u_last_login\":\"2026-09-13 22:58:31\",\"spec_count\":0},{\"uid\":\"alice\",\"u_name\":\"qa_alice\",\"u_email\":\"alice@example.com\",\"u_phone\":\"0800000000\",\"u_role\":\"customer\",\"dob\":\"2000-01-01\",\"u_image\":\"\",\"u_address\":\"QA updated address\",\"u_crea",
+    "actual": "HTTP 200; {\"status\":\"success\",\"data\":[{\"uid\":\"alice\",\"u_name\":\"qa_alice\",\"u_email\":\"alice@example.com\",\"u_phone\":\"0800000000\",\"u_role\":\"customer\",\"dob\":\"2000-01-01\",\"u_image\":\"\",\"u_address\":\"QA updated address\",\"u_created_at\":\"2026-09-14 19:14:44\",\"u_last_login\":\"2026-09-14 19:14:45\",\"spec_count\":1},{\"uid\":\"bob\",\"u_name\":\"qa_bob\",\"u_email\":\"bob@example.com\",\"u_phone\":\"0800000000\",\"u_role\":\"customer\",\"dob\":\"2000-01-01\",\"u_image\":\"\",\"u_address\":\"\",\"u_created",
     "status": "Pass",
     "source": "backend/shop_api.py:admin_get_all_users",
     "fix": "",
@@ -1026,23 +1026,23 @@
     "actual": {
       "catalog_count": 20,
       "serial_seconds": [
-        0.021,
-        0.022,
-        0.023
+        0.036,
+        0.038,
+        0.034
       ],
       "concurrent_seconds": [
-        0.089,
-        0.033,
-        0.089,
-        0.074,
-        0.087,
-        0.068,
-        0.057,
-        0.06,
-        0.058,
-        0.055
+        0.038,
+        0.127,
+        0.128,
+        0.101,
+        0.127,
+        0.093,
+        0.065,
+        0.065,
+        0.061,
+        0.063
       ],
-      "p95_seconds": 0.089,
+      "p95_seconds": 0.128,
       "response_bytes": 21733
     },
     "status": "Pass",

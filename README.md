@@ -85,7 +85,7 @@ npm --prefix It-shop ci
 สร้างหรือแก้ไข `.env` ที่รากโปรเจกต์ โดยรักษาค่าที่ตั้งไว้เดิม ตัวอย่างนี้แสดงเฉพาะ placeholder:
 
 ```dotenv
-SECRET_KEY=replace-with-a-long-random-secret
+JWT_SECRET=replace-with-a-random-secret-of-at-least-32-bytes
 
 # เลือกตั้งค่าเฉพาะผู้ให้บริการที่ต้องการใช้
 OPENAI_API_KEY=
@@ -103,6 +103,8 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 เมื่อส่งคำขอ AI ระบบใช้ key ที่ส่งมากับคำขอ ตามด้วย key ที่สมาชิกบันทึกไว้สำหรับ provider เดียวกัน และ key ฝั่งเซิร์ฟเวอร์ หากไม่มี key จะตอบ HTTP 400 การเปลี่ยน `.env` ต้องเริ่ม backend ใหม่
 
 การตั้งค่า key ของสมาชิกถูกเก็บเป็นข้อความธรรมดาใน SQLite ตาม implementation ปัจจุบัน ส่วน browser ไม่เก็บ AI key ใน localStorage การตั้งค่าของผู้เยี่ยมชมอยู่ใน component ชั่วคราว จึงควรเก็บ `.env` และฐานข้อมูลที่มี key เป็นข้อมูลส่วนตัว
+
+`JWT_SECRET` ต้องเป็นค่าสุ่มอย่างน้อย 32 bytes และห้ามใช้ค่าเดียวกับ key ของ AI provider ระบบจะปฏิเสธการเริ่มทำงานเมื่อไม่ได้ตั้งค่าหรือค่าสั้นเกินไป เมื่อต้อง rotate ให้แจ้ง deploy window ก่อน แล้วรัน `python backend/rotate_jwt_secret.py --apply`; การ restart ด้วยค่าใหม่จะทำให้ JWT เดิมทั้งหมดใช้ไม่ได้และผู้ใช้ทุกคนต้องเข้าสู่ระบบใหม่ สคริปต์ไม่พิมพ์ secret แต่รายงานเฉพาะความยาว fingerprint และเวลา rotate
 
 ### 3. เตรียมฐานข้อมูล
 

@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-09-14T19:08:04+07:00",
+  "product_id": 44014,
+  "url": "https://ihavecpu.com/product/44014/silicone-%28%E0%B8%8B%E0%B8%B4%E0%B8%A5%E0%B8%B4%E0%B9%82%E0%B8%84%E0%B8%99%29-arctic-thermal-mx-7-2g",
+  "http_status": 200,
+  "root_cause": "description_th is image-only after HTML normalization",
+  "raw_description_text_length": 0,
+  "meta_description_text_length": 41,
+  "normalized_description_length": 59,
+  "source_field_used": "meta_description_th",
+  "status": "Pass"
+}

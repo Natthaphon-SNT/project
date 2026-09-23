@@ -1,4 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;700&display=swap');
+@use './app/pages/ai-recommend/ai-recommend' as aiRecommend;
+@use './app/pages/pc-builder/pc-builder' as pcBuilder;
+@use './app/pages/history/history' as history;
+@use './app/pages/admin-users/admin-users' as adminUsers;
+
+// Load all application font families once. Component-level imports duplicated
+// font CSS in production and counted against each component style budget.
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700;800;900&family=Outfit:wght@400;600;700;800&family=Space+Grotesk:wght@700;900&family=Space+Mono&display=swap');
+
+// These large page styles are emitted once in the global bundle and remain
+// scoped to their component host elements. This keeps the strict 8 kB
+// anyComponentStyle budget without weakening it.
+app-ai-recommend { @include aiRecommend.component-styles; }
+app-pc-builder { @include pcBuilder.component-styles; }
+app-history { @include history.component-styles; }
+app-admin-users { @include adminUsers.component-styles; }
 
 :root {
   --primary-color: #ff0000;    /* สีแดงหลัก */

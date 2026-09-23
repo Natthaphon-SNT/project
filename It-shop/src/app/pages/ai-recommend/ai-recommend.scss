@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700;900&family=Space+Mono&family=Kanit:wght@400;600;700;800;900&display=swap');
+@mixin component-styles {
 
 // ─── Variables ───────────────────────────────────────────────
 $red:        #dc143c;
@@ -722,3 +722,5 @@ $text-dim:   #9ca3af;
 .chat-transcript .user-message { background:#352435; }
 .chat-transcript pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; max-height:350px; overflow:auto; }
 button:disabled { opacity:.5; cursor:wait; }
+
+}

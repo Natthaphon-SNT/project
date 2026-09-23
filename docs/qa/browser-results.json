@@ -4,7 +4,7 @@
     "group": 1,
     "steps": "Guest เปิด /admin/products โดยตรง",
     "expected": "redirect login",
-    "actual": "http://127.0.0.1:55644/login",
+    "actual": "http://127.0.0.1:54359/login",
     "status": "Pass",
     "source": "It-shop/src/app/guards/admin.guard.ts",
     "fix": "",
@@ -15,7 +15,7 @@
     "group": 1,
     "steps": "customer เปิด /admin/users โดยตรง",
     "expected": "redirect หน้าแรก",
-    "actual": "http://127.0.0.1:55644/",
+    "actual": "http://127.0.0.1:54359/",
     "status": "Pass",
     "source": "It-shop/src/app/guards/admin.guard.ts",
     "fix": "",
@@ -314,7 +314,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/",
+      "url": "http://127.0.0.1:54359/",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nIT-RECOMMEND\n\nระบบแนะนำและจัดสเปคคอมพิวเตอร์\nเลือกชิ้นส่วนเองหรือให้ AI ช่วยจัดสเปคให้คุณ\n\nจัดสเปคด้วยตัวเอง\nให้ AI ช่วยจัดสเปค",
       "error_terms": [],
       "component_state": null,
@@ -364,7 +364,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /products",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/products",
+      "url": "http://127.0.0.1:54359/products",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nไม่สามารถโหลดสินค้าได้\nสินค้าทั้งหมด\nค้นหา\n\nไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้\n\nลองใหม่",
       "error_terms": [
         "ไม่สามารถ",
@@ -417,7 +417,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /category/CPU",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/category/CPU",
+      "url": "http://127.0.0.1:54359/category/CPU",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nไม่สามารถโหลดสินค้าได้\nCPU\nค้นหา\n\nไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้\n\nลองใหม่",
       "error_terms": [
         "ไม่สามารถ",
@@ -470,7 +470,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /product/qa-0",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/product/qa-0",
+      "url": "http://127.0.0.1:54359/product/qa-0",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\nไม่สามารถเชื่อมต่อเพื่อโหลดข้อมูลสินค้าได้\nลองใหม่",
       "error_terms": [
         "ไม่สามารถ",
@@ -523,7 +523,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /pc-builder",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/pc-builder",
+      "url": "http://127.0.0.1:54359/pc-builder",
       "text_excerpt": "ยบเทียบราคาแยก 3 ร้าน พร้อมระบบตรวจเช็คความเข้ากันได้\n\n❌\nไม่สามารถเชื่อมต่อเพื่อโหลดรายการสินค้าได้\nลองใหม่\n🔲\nCPU / Processor\n*\n＋\nคลิกเพื่อเลือก CPU / Processor\n🟦\nMainboard\n*\n＋\nคลิกเพื่อเลือก Mainboard\n🎮\nGPU / VGA\n＋\nคลิกเพื่อเลือก GPU / VGA\n📊\nRAM\n*\n＋\nคลิกเพื่อเลือก RAM\n💾\nSSD / M.2\n*\n＋\nคลิกเพื่อเลือก SSD / M.2\n⚡\nPower Supply\n*\n＋\nคลิกเพื่อเลือก Power Supply\n🖥️\nCase\n＋\nคลิกเพื่อเลือก Case\n❄️\nCPU Cooler\n＋\nคลิกเพื่อเลือก CPU Cooler\nสรุปสเปก\n🔲\nCPU / Processor\n—\n🟦\nMainboard\n—\n🎮\nGPU / VGA\n—\n📊\nRAM\n—\n💾\nSSD / M.2\n—\n⚡\nPower Supply\n—\n🖥️\nCase\n—\n❄️\nCPU Cooler\n—\nราคารวมเริ่มต้น (ต่ำสุด)\n0 ฿\n\nเลือกแล้ว 0 / 8 ชิ้น\n\n💾 บันทึกและดูสรุปสเปก (แยก 3 ร้าน)\nล้างทั้งหมด",
       "error_terms": [
         "ไม่สามารถ",
@@ -576,7 +576,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /history",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/history",
+      "url": "http://127.0.0.1:54359/history",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n📜 ประวัติการจัดสเปค\n\nดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน\n\n🛠️ จัดสเปกเองใหม่\n🤖 AI จัดสเปกใหม่\nทั้งหมด (0)\n🛠️ จัดสเปกเอง\n🤖 แนะนำสเปค\n⚖️ เปรียบเทียบ\n🔗 เช็คความเข้ากัน\n❌\nไม่สามารถเชื่อมต่อเพื่อโหลดประวัติได้\nลองใหม่",
       "error_terms": [
         "ไม่สามารถ",
@@ -629,7 +629,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /profile",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/profile",
+      "url": "http://127.0.0.1:54359/profile",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n\nไม่สามารถเชื่อมต่อเพื่อโหลดโปรไฟล์ได้\n\nลองใหม่",
       "error_terms": [
         "ไม่สามารถ",
@@ -682,7 +682,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /ai-recommend",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/ai-recommend",
+      "url": "http://127.0.0.1:54359/ai-recommend",
       "text_excerpt": "ิดอยู่ เข้าสู่ระบบใหม่\n\nLT PC BUILD · AI SPEC ADVISOR\nแนะนำสเปคคอม\nด้วย AI\n\nวิเคราะห์ความต้องการ · แนะนำสเปค · เช็คความเข้ากัน · เปรียบเทียบ\n\nAI Advisor\nประวัติของฉัน\nแนะนำสเปค\nเปรียบเทียบสเปค\nเช็คความเข้ากัน\nการใช้งานหลัก\n🎮\nเล่นเกม\nAAA / Esports / Streaming\n💼\nทำงานออฟฟิศ\nExcel / Zoom / เอกสาร\n🎬\nตัดต่อวิดีโอ\nPremiere / DaVinci / After Effects\n🧊\n3D / Render\nBlender / Maya / Cinema4D\n🤖\nAI / ML\nTraining / Stable Diffusion\n🖥️\nใช้งานทั่วไป\nท่องเน็ต / ดูหนัง / เรียน\nงบประมาณ\nต่ำกว่า 10,000 ฿\n10,000 – 15,000 ฿\n15,000 – 20,000 ฿\n20,000 – 30,000 ฿\n30,000 – 50,000 ฿\n50,000 - 100,000 ฿\n100,000 ฿ ขึ้นไป\nความต้องการเพิ่มเติม (ไม่บังคับ)\n🤖 ให้ AI แนะนำสเปค",
       "error_terms": [
         "ปิดอยู่"
@@ -734,7 +734,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /admin/products",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/admin/products",
+      "url": "http://127.0.0.1:54359/admin/products",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n📦 จัดการสินค้า (Admin)\n➕ เพิ่มสินค้าใหม่\nชื่อสินค้า\nราคา (บาท)\nหมวดหมู่\nCPU\nMainboard\nGPU / VGA\nRAM\nM.2 / SSD\nPSU\nCase\nLiquid Cooler\nAir Cooler\nคำอธิบายสินค้า\nURL รูปภาพ\n➕ เพิ่มสินค้า\nรายการสินค้าทั้งหมด (0 รายการ)\nค้นหา\nไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้ ลองใหม่",
       "error_terms": [
         "ไม่สามารถ",
@@ -789,7 +789,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /admin/users",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/admin/users",
+      "url": "http://127.0.0.1:54359/admin/users",
       "text_excerpt": "ยินดีต้อนรับ QA Alice\n|\nจัดการสินค้า\n|\nจัดการผู้ใช้\n|\nออกจากระบบ\nIT-RECOMMEND\nทั้งหมด\nPC Components ▾\nGaming Gear ▾\nเฟอร์นิเจอร์ ▾\nเซ็ตคอม\n🛠️ จัดสเปกเอง\nAI จัดสเปก\n👥 จัดการผู้ใช้งาน\n\nดูและจัดการบัญชีผู้ใช้ทั้งหมดในระบบ\n\n0\nทั้งหมด\n0\nAdmin\n\nไม่สามารถเชื่อมต่อเพื่อโหลดผู้ใช้งานได้\n\nลองใหม่\n🔍\nทุก Role\nCustomer\nAdmin\nStaff",
       "error_terms": [
         "ไม่สามารถ",
@@ -842,7 +842,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /login",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/login",
+      "url": "http://127.0.0.1:54359/login",
       "text_excerpt": "💻\nเข้าสู่ระบบ\n\nIT-RECOMMEND\n\nอีเมลหรือชื่อผู้ใช้\n👤\nรหัสผ่าน\n🔒\n👁️\nเข้าสู่ระบบ\nยังไม่มีบัญชี?สมัครสมาชิกที่นี่\n← กลับหน้าแรก",
       "error_terms": [],
       "component_state": null,
@@ -892,7 +892,7 @@
     "steps": "จำลอง API connection refused แล้วเปิด /register",
     "expected": "หน้าที่โหลด API แสดง error ที่เข้าใจได้; login/register ยังแสดง form",
     "actual": {
-      "url": "http://127.0.0.1:55644/register",
+      "url": "http://127.0.0.1:54359/register",
       "text_excerpt": "🖥️\nสร้างบัญชีใหม่\n\nIT-RECOMMEND\n\nชื่อผู้ใช้ *\n👤\nอีเมล *\n📧\nเบอร์โทรศัพท์ *\n📱\nวันเกิด *\n🎂\nรหัสผ่าน *\n🔒\n👁️\nยืนยันรหัสผ่าน *\n🔐\n👁️\nสมัครสมาชิก\nมีบัญชีอยู่แล้ว?เข้าสู่ระบบที่นี่\n← กลับหน้าแรก",
       "error_terms": [],
       "component_state": null,
@@ -998,34 +998,10 @@
   {
     "id": "UI19-firefox",
     "group": 9,
-    "steps": "เปิด PC Builder และ AI บน firefox ที่390/768px พร้อม mock API",
-    "expected": "components แสดงได้ ไม่มี uncaught error",
-    "actual": {
-      "views": [
-        {
-          "path": "pc-builder",
-          "width": 390,
-          "visible": true
-        },
-        {
-          "path": "pc-builder",
-          "width": 768,
-          "visible": true
-        },
-        {
-          "path": "ai-recommend",
-          "width": 390,
-          "visible": true
-        },
-        {
-          "path": "ai-recommend",
-          "width": 768,
-          "visible": true
-        }
-      ],
-      "pageerrors": []
-    },
-    "status": "Pass",
+    "steps": "launch firefox",
+    "expected": "มี browser runtime สำหรับ cross-browser smoke",
+    "actual": "Browser.new_page: Cannot read properties of undefined (reading '_page')",
+    "status": "Blocked",
     "source": "",
     "fix": "",
     "severity": ""
@@ -1033,32 +1009,10 @@
   {
     "id": "UI19-webkit",
     "group": 9,
-    "steps": "เปิด PC Builder และ AI บน webkit ที่390/768px พร้อม mock API",
-    "expected": "components แสดงได้ ไม่มี uncaught error",
+    "steps": "เปิด AI guest บน webkit",
+    "expected": "หน้าแสดงได้",
     "actual": {
-      "views": [
-        {
-          "path": "pc-builder",
-          "width": 390,
-          "visible": true
-        },
-        {
-          "path": "pc-builder",
-          "width": 768,
-          "visible": true
-        },
-        {
-          "path": "ai-recommend",
-          "width": 390,
-          "visible": true
-        },
-        {
-          "path": "ai-recommend",
-          "width": 768,
-          "visible": true
-        }
-      ],
-      "pageerrors": []
+      "visible": true
     },
     "status": "Pass",
     "source": "It-shop/src/app/pages/ai-recommend",

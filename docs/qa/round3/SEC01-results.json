@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-09-14T18:32:40+07:00",
+  "revision": "5722fd7a7e1a659fd924a74fa6d2989e5d5a3739",
+  "working_tree": {
+    "google_key_pattern_matches": 0,
+    "nonempty_ai_secret_assignments": 7,
+    "matched_file_count": 4,
+    "matched_files": [
+      {
+        "path": ".env",
+        "tracked": false,
+        "ignored": true,
+        "google_pattern_count": 0,
+        "nonplaceholder_assignment_count": 1,
+        "contains_historical_key": false
+      },
+      {
+        "path": "main.py",
+        "tracked": true,
+        "ignored": false,
+        "google_pattern_count": 0,
+        "nonplaceholder_assignment_count": 0,
+        "contains_historical_key": false
+      },
+      {
+        "path": "README.md",
+        "tracked": true,
+        "ignored": false,
+        "google_pattern_count": 0,
+        "nonplaceholder_assignment_count": 3,
+        "contains_historical_key": false
+      },
+      {
+        "path": "venv\\Lib\\site-packages\\google\\genai\\tests\\client\\test_client_initialization.py",
+        "tracked": true,
+        "ignored": false,
+        "google_pattern_count": 0,
+        "nonplaceholder_assignment_count": 2,
+        "contains_historical_key": false
+      }
+    ]
+  },
+  "git_history": {
+    "full_history_exit_code": 0,
+    "full_history_error": "",
+    "commits_touching_env": 2,
+    "unique_google_key_pattern_matches": 3,
+    "nonempty_ai_secret_assignment_occurrences": 8,
+    "contains_target_commit": true
+  },
+  "old_key_live_request": {
+    "attempted": false,
+    "reason": "credential transmission not authorized; offline scan only",
+    "rejected": false,
+    "strict_prompt_status_met": false
+  },
+  "new_key_restrictions_verified": false,
+  "new_key_restrictions_reason": "requires authorized Google Cloud Console evidence; no new key is read or logged",
+  "rotation_owner_and_timestamp_verified": false,
+  "remote_history_rewrite_verified": false,
+  "report_contains_secret_values": false
+}

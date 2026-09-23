@@ -19,6 +19,9 @@ class AiSessionTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory()
         os.chdir(cls.temp.name)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
+        os.environ.setdefault(
+            "JWT_SECRET", "qa-ai-sessions-secret-012345678901234567890123"
+        )
         with contextlib.redirect_stdout(io.StringIO()):
             cls.api = importlib.import_module('shop_api')
         cls.api.Base.metadata.create_all(cls.api.engine)

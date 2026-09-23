@@ -1,0 +1,137 @@
+{
+  "phase": "S01",
+  "generated_at": "2026-09-14T11:53:32+07:00",
+  "observed_separate_elapsed_seconds": 521.803,
+  "combined_deadline_seconds": 842,
+  "cases": [
+    {
+      "phase": "S01",
+      "label": "advice",
+      "stores": [
+        "advice"
+      ],
+      "pages_per_category": 3,
+      "fetch_details": false,
+      "started_at": "2026-09-14T11:35:50+07:00",
+      "elapsed_seconds": 49.026,
+      "deadline_seconds": 600,
+      "exit_code": 0,
+      "completed": true,
+      "error_marker_count": 0,
+      "retry_marker_count": 0,
+      "stats": {
+        "per_store": {
+          "advice": {
+            "products": 319,
+            "with_description": 319,
+            "with_image": 319
+          }
+        },
+        "integrity": "ok"
+      },
+      "status": "Pass",
+      "reasons": [],
+      "log": "docs\\qa\\round3\\S01-advice.log"
+    },
+    {
+      "phase": "S01",
+      "label": "jib",
+      "stores": [
+        "jib"
+      ],
+      "pages_per_category": 3,
+      "fetch_details": false,
+      "started_at": "2026-09-14T11:36:39+07:00",
+      "elapsed_seconds": 418.045,
+      "deadline_seconds": 600,
+      "exit_code": 0,
+      "completed": true,
+      "error_marker_count": 0,
+      "retry_marker_count": 0,
+      "stats": {
+        "per_store": {
+          "jib": {
+            "products": 865,
+            "with_description": 0,
+            "with_image": 865
+          }
+        },
+        "integrity": "ok"
+      },
+      "status": "Pass",
+      "reasons": [],
+      "log": "docs\\qa\\round3\\S01-jib.log"
+    },
+    {
+      "phase": "S01",
+      "label": "ihavecpu",
+      "stores": [
+        "ihavecpu"
+      ],
+      "pages_per_category": 3,
+      "fetch_details": false,
+      "started_at": "2026-09-14T11:43:37+07:00",
+      "elapsed_seconds": 54.732,
+      "deadline_seconds": 600,
+      "exit_code": 0,
+      "completed": true,
+      "error_marker_count": 0,
+      "retry_marker_count": 0,
+      "stats": {
+        "per_store": {
+          "ihavecpu": {
+            "products": 339,
+            "with_description": 153,
+            "with_image": 339
+          }
+        },
+        "integrity": "ok"
+      },
+      "status": "Pass",
+      "reasons": [],
+      "log": "docs\\qa\\round3\\S01-ihavecpu.log"
+    },
+    {
+      "phase": "S01",
+      "label": "combined",
+      "stores": [
+        "advice",
+        "jib",
+        "ihavecpu"
+      ],
+      "pages_per_category": 3,
+      "fetch_details": false,
+      "started_at": "2026-09-14T11:44:32+07:00",
+      "elapsed_seconds": 540.24,
+      "deadline_seconds": 842,
+      "exit_code": 0,
+      "completed": true,
+      "error_marker_count": 0,
+      "retry_marker_count": 0,
+      "stats": {
+        "per_store": {
+          "advice": {
+            "products": 311,
+            "with_description": 311,
+            "with_image": 311
+          },
+          "jib": {
+            "products": 869,
+            "with_description": 0,
+            "with_image": 869
+          },
+          "ihavecpu": {
+            "products": 344,
+            "with_description": 153,
+            "with_image": 344
+          }
+        },
+        "integrity": "ok"
+      },
+      "status": "Pass",
+      "reasons": [],
+      "log": "docs\\qa\\round3\\S01-combined.log"
+    }
+  ],
+  "status": "Pass"
+}

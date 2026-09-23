@@ -1,11 +1,81 @@
+import asyncio
 import json
 import sqlite3
 import unittest
+from unittest.mock import AsyncMock, patch
+
+import httpx
 
 import full_scraper as scraper
 
 
 class ScraperSourceDataTests(unittest.TestCase):
+    def test_transient_http_failures_retry_but_404_does_not(self):
+        request = httpx.Request("GET", "https://store.example/category")
+        rate_limited = httpx.Response(429, request=request)
+        success = httpx.Response(200, request=request, text="ok")
+        client = AsyncMock()
+        client.request.side_effect = [rate_limited, success]
+
+        with patch.object(scraper.asyncio, "sleep", AsyncMock()) as sleep:
+            response = asyncio.run(
+                scraper.request_with_retry(client, "GET", str(request.url))
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(client.request.await_count, 2)
+        sleep.assert_awaited_once_with(5.0)
+
+        not_found = httpx.Response(404, request=request)
+        client = AsyncMock()
+        client.request.return_value = not_found
+        response = asyncio.run(
+            scraper.request_with_retry(client, "GET", str(request.url))
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(client.request.await_count, 1)
+
+    def test_complete_store_payload_skips_redundant_detail_request(self):
+        self.assertFalse(scraper.source_payload_needs_detail("x" * 30, "https://img"))
+        self.assertTrue(scraper.source_payload_needs_detail("short", "https://img"))
+        self.assertTrue(scraper.source_payload_needs_detail("x" * 30, ""))
+
+    def test_relevant_spec_beats_larger_related_product_container(self):
+        name = "CPU AMD RYZEN 5 5600 3.5 GHz SOCKET AM4"
+        unrelated = "CPU INTEL CORE I9 14900K " + ("related product " * 300)
+        specs = (
+            "Model Ryzen 5 Brand AMD Socket AM4 CPU Core 6 Cores 12 Threads "
+            "Frequency 3.5 GHz Turbo 4.4 GHz Cache L3 32 MB TDP 65 W"
+        )
+        selected = scraper.select_best_relevant_description(
+            [(5000, unrelated), (900, specs)], name, "CPU"
+        )
+        self.assertEqual(selected, specs)
+
+    def test_jib_http_detail_uses_server_rendered_spec_block(self):
+        request = httpx.Request("GET", "https://jib.example/product/52538")
+        html = """
+        <html><head><meta property="og:image" content="https://img.example/cpu.jpg"></head>
+        <body>
+          <div class="detail">CPU INTEL CORE I9 14900K related product related product</div>
+          <div id="product_specification">
+            Model Ryzen 5 Brand AMD Socket AM4 CPU Core 6 Cores 12 Threads
+            Frequency 3.5 GHz Turbo 4.4 GHz Cache L3 32 MB TDP 65 W
+          </div>
+        </body></html>
+        """
+        client = AsyncMock()
+        client.request.return_value = httpx.Response(
+            200, request=request, text=html
+        )
+        desc, image = asyncio.run(scraper.fetch_jib_detail_http(
+            client, str(request.url),
+            "CPU AMD RYZEN 5 5600 3.5 GHz SOCKET AM4", "CPU",
+        ))
+        self.assertIn("Socket AM4", desc)
+        self.assertIn("TDP 65 W", desc)
+        self.assertEqual(image, "https://img.example/cpu.jpg")
+
     def test_ihavecpu_next_payload_produces_structured_specs(self):
         product = {
             "product_id": 24243,
@@ -30,6 +100,20 @@ class ScraperSourceDataTests(unittest.TestCase):
         self.assertIn("Default TDP: 65W", description)
         self.assertIn("Summary: Socket : AM5 6 cores 12 threads", description)
         self.assertIn("/product/24243/", scraper.ihc_product_url(24243, product["name_th"]))
+
+    def test_ihavecpu_image_only_description_uses_source_meta_description(self):
+        product = {
+            "product_id": 44014,
+            "name_th": "SILICONE ARCTIC THERMAL MX-7 2G",
+            "description_th": '<p><img src="https://img.example/detail.jpg"></p>',
+            "meta_description_th": "SILICONE ARCTIC THERMAL MX-7 2G",
+        }
+        description = scraper.ihc_product_description(product)
+        self.assertEqual(
+            description,
+            "Meta description: SILICONE ARCTIC THERMAL MX-7 2G",
+        )
+        self.assertGreaterEqual(len(description), 30)
 
     def test_gpu_installment_amount_is_not_accepted_as_price(self):
         self.assertFalse(scraper.valid_product_price("GPU", 500))
@@ -86,6 +170,24 @@ class ScraperSourceDataTests(unittest.TestCase):
             scraper.detect_obvious_category("Apple Magic Keyboard with Touch ID", "Mainboard"),
             "Keyboard",
         )
+        self.assertEqual(
+            scraper.detect_jib_cat("CPU AIR COOLER NOCTUA NH-D12L"),
+            "Air Cooler",
+        )
+
+    def test_broad_search_accessory_urls_are_out_of_scope(self):
+        self.assertTrue(scraper.source_url_is_out_of_scope(
+            "https://www.advice.co.th/product/gaming-microphone/gaming-microphone/microphone-razer"
+        ))
+        self.assertTrue(scraper.source_url_is_out_of_scope(
+            "https://www.advice.co.th/product/cctv-accessories/power-supply/unit"
+        ))
+        self.assertTrue(scraper.source_url_is_out_of_scope(
+            "https://www.advice.co.th/product/ups-เครื่องสำรองไฟ-/1000-va/unit"
+        ))
+        self.assertFalse(scraper.source_url_is_out_of_scope(
+            "https://www.advice.co.th/product/power-supply/850w/corsair-rm850"
+        ))
 
     def test_repair_recalculates_lowest_price(self):
         conn = sqlite3.connect(":memory:")
@@ -102,6 +204,118 @@ class ScraperSourceDataTests(unittest.TestCase):
             "SELECT price_advice, price_ihavecpu, p_price FROM products WHERE product_id='gpu1'"
         ).fetchone()
         self.assertEqual(row, (0, 17490, 17490))
+        conn.close()
+
+
+class _FakePage:
+    async def close(self):
+        return None
+
+
+class _FakeContext:
+    async def new_page(self):
+        return _FakePage()
+
+
+class DetailQueueTests(unittest.IsolatedAsyncioTestCase):
+    def connection(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE products (product_id TEXT PRIMARY KEY)")
+        scraper.setup_db(conn)
+        return conn
+
+    async def test_jib_queue_is_bounded_and_reports_throughput(self):
+        conn = self.connection()
+        active = 0
+        max_active = 0
+
+        async def fake_fetch(*_args, **_kwargs):
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.02)
+            active -= 1
+            return "d" * 40, "https://img.example/item.jpg"
+
+        items = [
+            {"url": f"https://jib.example/{n}", "name": f"item {n}", "category": "CPU"}
+            for n in range(8)
+        ]
+        with patch.object(scraper, "fetch_detail_page", side_effect=fake_fetch):
+            results, metrics = await scraper.fetch_browser_detail_queue(
+                _FakeContext(), conn, "jib", items, concurrency=4
+            )
+        self.assertEqual(len(results), 8)
+        self.assertEqual(max_active, 4)
+        self.assertEqual(metrics["concurrency"], 4)
+        self.assertGreater(metrics["pages_per_second"], 0)
+        conn.close()
+
+    async def test_cancel_then_resume_uses_checkpoint_and_leaves_no_tasks(self):
+        conn = self.connection()
+        items = [
+            {"url": f"https://jib.example/{n}", "name": f"item {n}", "category": "CPU"}
+            for n in range(4)
+        ]
+        second_started = asyncio.Event()
+        calls = 0
+
+        async def interrupted_fetch(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return "d" * 40, "https://img.example/1.jpg"
+            second_started.set()
+            await asyncio.sleep(60)
+            return "d" * 40, "https://img.example/later.jpg"
+
+        with patch.object(scraper, "fetch_detail_page", side_effect=interrupted_fetch):
+            task = asyncio.create_task(
+                scraper.fetch_browser_detail_queue(
+                    _FakeContext(), conn, "jib", items, concurrency=1
+                )
+            )
+            await second_started.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        completed_before_resume = conn.execute(
+            "SELECT count(*) FROM scrape_detail_checkpoint WHERE status='success'"
+        ).fetchone()[0]
+        self.assertEqual(completed_before_resume, 1)
+
+        resume_calls = 0
+
+        async def resumed_fetch(*_args, **_kwargs):
+            nonlocal resume_calls
+            resume_calls += 1
+            await asyncio.sleep(0.005)
+            return "d" * 40, "https://img.example/resumed.jpg"
+
+        with patch.object(scraper, "fetch_detail_page", side_effect=resumed_fetch):
+            results, metrics = await scraper.fetch_browser_detail_queue(
+                _FakeContext(), conn, "jib", items, concurrency=1
+            )
+        self.assertEqual(len(results), 4)
+        self.assertEqual(resume_calls, 3)
+        self.assertEqual(metrics["checkpoint_hits"], 1)
+        self.assertFalse(any(
+            task.get_name().startswith("jib-detail-")
+            for task in asyncio.all_tasks() if task is not asyncio.current_task()
+        ))
+        conn.close()
+
+    async def test_advice_circuit_opens_after_two_recent_429s(self):
+        limiter = scraper.AdaptiveRateLimiter(
+            "advice", threshold=2, base_cooldown_seconds=20
+        )
+        before = scraper.time.monotonic()
+        await limiter.record_status(429)
+        await limiter.record_status(429)
+        self.assertEqual(limiter.metrics()["http_429"], 2)
+        self.assertEqual(limiter.metrics()["circuit_open"], 1)
+        self.assertGreaterEqual(limiter.pause_until, before + 19)
 
 
 if __name__ == "__main__":
