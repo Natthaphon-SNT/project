@@ -40,6 +40,125 @@ class ScraperSourceDataTests(unittest.TestCase):
         self.assertTrue(scraper.source_payload_needs_detail("short", "https://img"))
         self.assertTrue(scraper.source_payload_needs_detail("x" * 30, ""))
 
+    def test_ihavecpu_full_catalog_uses_all_requested_groups_and_low_price_gear(self):
+        self.assertEqual(len(scraper.IHC_FULL_CATS), 12)
+        self.assertIn(
+            ("Gaming Gear", "https://ihavecpu.com/category/gaming-gear"),
+            scraper.IHC_FULL_CATS,
+        )
+        self.assertIn(
+            ("Gaming Chair", "https://ihavecpu.com/category/gaming-chair"),
+            scraper.IHC_FULL_CATS,
+        )
+        self.assertIn(
+            ("Gaming Desk", "https://ihavecpu.com/category/gaming-desk"),
+            scraper.IHC_FULL_CATS,
+        )
+        self.assertEqual(
+            scraper.ihc_full_category("GAMING CHAIR TEST", "Gaming Chair"),
+            "Gaming Chair",
+        )
+        self.assertEqual(
+            scraper.ihc_full_category("GAMING DESK TEST", "Gaming Desk"),
+            "Gaming Desk",
+        )
+        self.assertEqual(scraper.parse_price("129.00", min_price=1), 129)
+        self.assertEqual(scraper.ihc_full_category("MOUSE PAD FANTECH MP78", "Gaming Gear"),
+                         "Gaming Gear")
+        self.assertEqual(scraper.ihc_full_category("MOUSE LOGITECH B100", "Gaming Gear"),
+                         "Mouse")
+        payload = {"props": {"pageProps": {"product": {"row": 791, "data": [{}]}}}}
+        document = '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(payload) + '</script>'
+        self.assertEqual(scraper.ihc_listing_total(document), 791)
+
+    def test_ihavecpu_image_only_description_keeps_source_detail_image(self):
+        product = {
+            "description_th": '<p><img src="https://img.example/detail.jpg"></p>',
+        }
+        self.assertEqual(
+            scraper.ihc_product_description(product),
+            "Detail image: https://img.example/detail.jpg",
+        )
+
+    def test_advice_psu_summary_without_connectors_needs_spec_table(self):
+        summary = "750W / 80 PLUS BRONZE / Full Modular"
+        detail = "PCIe Power Connector: (6+2 Pin) x 4 Connector"
+        self.assertTrue(scraper.source_payload_needs_detail(
+            summary, "https://img", "PSU", "advice"
+        ))
+        self.assertFalse(scraper.source_payload_needs_detail(
+            summary + "\n" + detail, "https://img", "PSU", "advice"
+        ))
+        self.assertEqual(scraper.select_best_relevant_description(
+            [(5000, summary), (1500, detail + "\nPower Capacity: 750W")],
+            "POWER SUPPLY 750W DTECH PW071A", "PSU",
+        ), detail + "\nPower Capacity: 750W")
+
+    def test_advice_listing_update_keeps_saved_psu_connector_details(self):
+        conn = sqlite3.connect(":memory:")
+        conn.executescript("""
+            CREATE TABLE products (
+                product_id TEXT PRIMARY KEY, p_name TEXT, p_description TEXT,
+                p_price REAL, price_advice REAL, price_jib REAL, price_ihavecpu REAL,
+                url_advice TEXT, url_jib TEXT, url_ihavecpu TEXT,
+                desc_advice TEXT, desc_jib TEXT, desc_ihavecpu TEXT,
+                p_stock INTEGER, cid TEXT, category TEXT, img_url TEXT, specs TEXT,
+                created_at TEXT, updated_at TEXT
+            );
+            CREATE TABLE price_history (
+                product_id TEXT, store TEXT, price REAL, captured_at TEXT
+            );
+            INSERT INTO products (product_id, p_name, p_price, price_advice,
+                                  category, desc_advice, specs) VALUES
+                ('psu', 'POWER SUPPLY 750W DTECH PW071A', 1450, 1450,
+                 'PSU', 'PCIe Power Connector: (6+2 Pin) x 4 Connector', '');
+        """)
+        matcher = scraper.SmartMatcher(conn.cursor())
+        scraper.upsert_product(conn.cursor(), matcher, {
+            "name": "POWER SUPPLY 750W DTECH PW071A", "category": "PSU",
+            "store": "advice", "price": 1450,
+            "description": "750W / 80 PLUS BRONZE / Full Modular",
+        })
+        saved = conn.execute("SELECT desc_advice FROM products WHERE product_id='psu'").fetchone()[0]
+        self.assertIn("PCIe Power Connector: (6+2 Pin) x 4 Connector", saved)
+        conn.close()
+
+    def test_ihavecpu_full_catalog_does_not_merge_distinct_source_ids(self):
+        conn = sqlite3.connect(":memory:")
+        conn.executescript("""
+            CREATE TABLE products (
+                product_id TEXT PRIMARY KEY, p_name TEXT, p_description TEXT,
+                p_price REAL, price_advice REAL, price_jib REAL, price_ihavecpu REAL,
+                url_advice TEXT, url_jib TEXT, url_ihavecpu TEXT,
+                desc_advice TEXT, desc_jib TEXT, desc_ihavecpu TEXT,
+                p_stock INTEGER, cid TEXT, category TEXT, img_url TEXT, specs TEXT,
+                created_at TEXT, updated_at TEXT
+            );
+            CREATE TABLE price_history (
+                product_id TEXT, store TEXT, price REAL, captured_at TEXT
+            );
+            INSERT INTO products (product_id, p_name, p_price, price_ihavecpu,
+                                  category, url_ihavecpu) VALUES
+                ('old', 'KEYCAP LOGA RED', 100, 100, 'Gaming Gear',
+                 'https://ihavecpu.com/product/123/keycap-loga-red');
+        """)
+        matcher = scraper.SmartMatcher(conn.cursor())
+        matcher.find = lambda name, category: "old"
+        scraper.upsert_product(conn.cursor(), matcher, {
+            "name": "KEYCAP LOGA BLUE", "category": "Gaming Gear", "store": "ihavecpu",
+            "price": 100, "full_catalog": True,
+            "url": "https://ihavecpu.com/product/456/keycap-loga-blue",
+            "description": "Color: Blue", "img_url": "https://img.example/blue.jpg",
+        })
+        rows = conn.execute(
+            "SELECT product_id, url_ihavecpu FROM products ORDER BY product_id"
+        ).fetchall()
+        self.assertEqual(rows, [
+            ("ihc_456", "https://ihavecpu.com/product/456/keycap-loga-blue"),
+            ("old", "https://ihavecpu.com/product/123/keycap-loga-red"),
+        ])
+        conn.close()
+
     def test_relevant_spec_beats_larger_related_product_container(self):
         name = "CPU AMD RYZEN 5 5600 3.5 GHz SOCKET AM4"
         unrelated = "CPU INTEL CORE I9 14900K " + ("related product " * 300)

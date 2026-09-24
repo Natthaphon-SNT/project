@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
+import { AuthService } from '../../services/auth';
 
 export interface SpecHistoryItem {
   id: number;
@@ -42,14 +43,15 @@ export class HistoryComponent implements OnInit {
 
   private readonly API = 'http://localhost:3000';
 
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef,
+              private auth: AuthService) {}
 
   ngOnInit() {
     this.fetchHistory();
   }
 
   private getHeaders(): HttpHeaders {
-    const token = localStorage.getItem('lt_token') || '';
+    const token = this.auth.getToken();
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
   }
 
@@ -105,7 +107,11 @@ export class HistoryComponent implements OnInit {
           }
           this.cdr.detectChanges();
         },
-        error: () => {
+        error: (err) => {
+          if (err.status === 401) {
+            this.auth.handleUnauthorized('/history');
+            return;
+          }
           this.isLoading = false;
           this.loadError = true;
           this.historyList = [];
@@ -125,7 +131,9 @@ export class HistoryComponent implements OnInit {
           }
           this.cdr.detectChanges();
         },
-        error: () => {}
+        error: (err) => {
+          if (err.status === 401) this.auth.handleUnauthorized('/history');
+        }
       });
   }
 

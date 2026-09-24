@@ -138,13 +138,67 @@ TDP Source URL: https://example.test/product/9000"""
         result = ce.check_gpu_power_connectors([gpu, psu])
         self.assertEqual(result['severity'], 'PASS')
 
+    def test_hx1500i_retail_connector_format_is_fully_parsed(self):
+        details = ('PCIe Connector: 5 x 6+2-pin, '
+                   '2 x 12V-2x6 (12+4) Pin')
+        psu = sp.parse_part('PSU', 'PSU CORSAIR HX1500I 1500W', details)
+        self.assertEqual(psu['power_connectors'], {
+            'PCIe 8-pin': 5, '12V-2x6': 2,
+        })
+        gpu = sp.parse_part('GPU', 'VGA XFX RADEON RX 9070 GRE',
+                            'Power Connectors: 2 x PCIe 8-pin')
+        result = ce.check_gpu_power_connectors([gpu, psu])
+        self.assertEqual(result['severity'], 'PASS')
+
+    def test_flattened_jib_p650ss_table_keeps_pcie_separate_from_cpu(self):
+        details = (
+            'Model GP-P650SS Brand Gigabyte specification '
+            'PCI Ex Connector 2x 6+2 Pin CPU Connector 2x 4+4 Pin '
+            'Mainboard Connector 1x 20+4 Pin กำลังไฟสูงสุด 650 W'
+        )
+        psu = sp.parse_part('PSU', 'POWER SUPPLY GIGABYTE GP-P650SS 650W', details)
+        self.assertEqual(psu['power_connectors'], {'PCIe 8-pin': 2})
+        gpu = sp.parse_part('GPU', 'VGA XFX RADEON RX 9070 GRE',
+                            'Power Connectors: 2 x PCIe 8-pin')
+        self.assertEqual(ce.check_gpu_power_connectors([gpu, psu])['severity'], 'PASS')
+
+    def test_advice_aerocool_lux_summary_has_two_gpu_connectors(self):
+        details = ('750W / 80 PLUS BRONZE / Non Modular / Length 160mm / '
+                   '1xCPU / 0xPCIe (16 Pin) / 2xPCIe (6+2 Pin)')
+        facts = sp.extract_detail_facts('PSU', details)
+        self.assertEqual(facts['power_connectors'], {'PCIe 8-pin': 2})
+        psu = sp.parse_part('PSU', 'POWER SUPPLY 750W AEROCOOL LUX',
+                            'Power Connectors: 2 x 6+2 Pin')
+        gpu = sp.parse_part('GPU', 'VGA XFX RADEON RX 9070 GRE',
+                            'Power Connectors: 2 x PCIe 8-pin')
+        self.assertEqual(ce.check_gpu_power_connectors([gpu, psu])['severity'], 'PASS')
+
+    def test_advice_postfix_connector_count(self):
+        details = 'PCIe Power Connector: (6+2 Pin) x 2 Connectors'
+        psu = sp.parse_part('PSU', 'PSU 750W', details)
+        self.assertEqual(psu['power_connectors'], {'PCIe 8-pin': 2})
+
+    def test_unlisted_connector_type_is_unknown_not_absent(self):
+        gpu = sp.parse_part('GPU', 'VGA XFX RADEON RX 9070 GRE',
+                            'Power Connectors: 2 x PCIe 8-pin')
+        psu = sp.parse_part('PSU', 'PSU 1500W',
+                            'Power Connectors: 2 x 12V-2x6')
+        result = ce.check_gpu_power_connectors([gpu, psu])
+        self.assertEqual(result['severity'], 'UNKNOWN')
+        self.assertNotIn('ไม่มีหัวต่อ', result['detail'])
+
     def test_missing_or_insufficient_connector_never_passes(self):
         gpu = sp.parse_part('GPU', 'RTX 5050')
         missing = ce.check_gpu_power_connectors([gpu, sp.parse_part('PSU', 'PSU 550W')])
         self.assertEqual(missing['severity'], 'UNKNOWN')
-        insufficient = sp.parse_part('PSU', 'PSU 550W', 'PCIe Connector: 1 x 6 pin')
-        result = ce.check_gpu_power_connectors([gpu, insufficient])
-        self.assertEqual(result['severity'], 'ERROR')
+        unlisted = sp.parse_part('PSU', 'PSU 550W', 'PCIe Connector: 1 x 6 pin')
+        self.assertEqual(ce.check_gpu_power_connectors([gpu, unlisted])['severity'], 'UNKNOWN')
+        gpu_needing_two = sp.parse_part('GPU', 'RTX 5050',
+                                        'Power Connectors: 2 x PCIe 8-pin')
+        one_eight_pin = sp.parse_part('PSU', 'PSU 550W',
+                                      'PCIe Connector: 1 x 6+2-pin')
+        result = ce.check_gpu_power_connectors([gpu_needing_two, one_eight_pin])
+        self.assertEqual(result['severity'], 'UNKNOWN')
 
 
 if __name__ == '__main__':

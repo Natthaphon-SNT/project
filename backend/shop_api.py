@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, ForeignKey, func, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, ForeignKey, func, text, or_
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship
 import bcrypt
 import jwt
@@ -368,7 +368,18 @@ def run_migrations(db_engine):
             ("c14", "Monitor",       "Gaming Monitor / LED Monitor"),
             ("c15", "Gaming Chair",  "Ergonomic Chair / Gaming Chair"),
             ("c16", "Gaming Desk",   "Gaming Desk / Adjustable Desk"),
+            ("c17", "Gaming Gear",   "Gaming accessories and peripherals"),
             ("c18", "PC Set",        "ชุดคอมประกอบสำเร็จรูปจากร้าน iHaveCPU / JIB / Advice"),
+            ("c19", "HDD",           "Internal hard disk drives"),
+            ("c20", "External Storage", "External SSD and HDD devices"),
+            ("c21", "Keyboard Accessories", "Keycaps and keyboard accessories"),
+            ("c22", "Cooling Accessories", "Cooling fittings, blocks and thermal accessories"),
+            ("c23", "PC Components", "Other PC components"),
+            ("c24", "Storage Accessories", "Storage enclosures and accessories"),
+            ("c25", "Monitor Accessories", "Monitor mounts and accessories"),
+            ("c26", "Case Accessories", "Case bags and other case accessories"),
+            ("c27", "Keypad", "Numeric and macro keypads"),
+            ("c28", "Graphic Tablet", "Pen and display tablets"),
         ]
         for cid, name, desc in new_cats:
             try:
@@ -699,20 +710,140 @@ def login(request: Request, body: LoginBody, db: Session = Depends(get_db)):
 # ─────────────────────────────────────────
 # Products
 # ─────────────────────────────────────────
+BUILDER_COMPONENT_RULES = {
+    "cpu": {
+        "categories": ("CPU",),
+        "required": re.compile(
+            r"\b(?:RYZEN|THREADRIPPER|ATHLON|XEON|CORE\s+(?:I[3579]|ULTRA)|"
+            r"INTEL\s+(?:CORE|PENTIUM|CELERON))\b", re.I
+        ),
+        "forbidden": re.compile(
+            r"\b(?:COOLER|MAINBOARD|MOTHERBOARD|DESKTOP|MINI\s*PC|PC\s*SET)\b|"
+            r"\bAIO\b.*\b(?:IDEACENTRE|THINKCENTRE|ASPIRE|ALL[ -]?IN[ -]?ONE)\b", re.I
+        ),
+    },
+    "mb": {
+        "categories": ("Mainboard",),
+        "required": re.compile(r"\b(?:MAINB(?:OARD|AORD)|MOTHERBOARD)\b", re.I),
+    },
+    "gpu": {
+        "categories": ("GPU",),
+        "required": re.compile(
+            r"\b(?:VGA|GRAPHICS?\s*CARD|GEFORCE|RADEON|RTX\s*\d|GTX\s*\d|"
+            r"ARC\s+[AB]\d)\b", re.I
+        ),
+    },
+    "ram": {
+        "categories": ("RAM",),
+        "required": re.compile(r"\bRAM\b|\bDDR[345]\b", re.I),
+        "forbidden": re.compile(r"\b(?:GDDR\d?|VGA|GPU|GRAPHICS?\s*CARD)\b", re.I),
+    },
+    "ssd": {
+        "categories": ("SSD",),
+        "required": re.compile(r"\bSSD\b|\bM\.?2\b|\bNVME\b|SOLID\s*STATE", re.I),
+        "forbidden": re.compile(
+            r"\b(?:HDD|HARD\s*DISK|EXTERNAL|PORTABLE|ENCLOSURE|DOCK)\b", re.I
+        ),
+    },
+    "hdd": {
+        "categories": ("SSD", "HDD"),
+        "required": re.compile(r"\bHDD\b|\bHARD\s*DISK\b|\bHARDDISK\b", re.I),
+        "forbidden": re.compile(
+            r"\b(?:EXT|EXTERNAL|PORTABLE|ENCLOSURE|DOCK|TRAY|DVD|CADDY)\b", re.I
+        ),
+    },
+    "psu": {
+        "categories": ("PSU",),
+        "required": re.compile(r"\bPSU\b|\bPOWER\s*SUPPLY\b", re.I),
+        "forbidden": re.compile(r"\b(?:UPS|POWER\s*BANK|POWER\s*STATION|ADAPTER|CHARGER)\b", re.I),
+    },
+    "case": {
+        "categories": ("Case",),
+        "required": re.compile(r"\bCASE\b|เคส", re.I),
+        "forbidden": re.compile(
+            r"\b(?:CASE\s*FAN|FAN\s*CASE|CABLE|BRACKET|STAND|PHONE|TABLET)\b", re.I
+        ),
+    },
+    "cooler": {
+        "categories": ("Air Cooler", "Liquid Cooler"),
+        "required": re.compile(
+            r"\b(?:AIR\s*COOLER|CPU\s*(?:AIR\s*)?COOLER|LIQUID\s*COOL(?:ER|ING)|"
+            r"WATER\s*COOL(?:ER|ING)|AIO\s*COOLER|HEATSINK)\b", re.I
+        ),
+        "forbidden": re.compile(
+            r"\b(?:COOLER\s*PAD|NOTEBOOK\s*COOLER|LAPTOP\s*COOLER|CASE\s*FAN|"
+            r"FAN\s*CASE|FAN\s*PACK)\b|\bAIO\b.*\b(?:IDEACENTRE|THINKCENTRE|ASPIRE)\b", re.I
+        ),
+    },
+}
+
+BUILDER_COMPONENT_ALIASES = {
+    "mainboard": "mb",
+    "motherboard": "mb",
+    "vga": "gpu",
+    "power_supply": "psu",
+    "air_cooler": "cooler",
+    "liquid_cooler": "cooler",
+}
+
+
+def normalize_builder_component(component: str) -> str:
+    key = re.sub(r"[\s-]+", "_", (component or "").strip().lower())
+    return BUILDER_COMPONENT_ALIASES.get(key, key)
+
+
+def product_matches_builder_component(product: Product, component: str) -> bool:
+    """Strict PC Builder filter for catalog rows whose stored category is dirty."""
+    key = normalize_builder_component(component)
+    rule = BUILDER_COMPONENT_RULES.get(key)
+    if not rule:
+        return False
+
+    valid_categories = {category.casefold() for category in rule["categories"]}
+    if (product.category or "").casefold() not in valid_categories:
+        return False
+
+    name = product.p_name or ""
+    if not rule["required"].search(name):
+        return False
+    forbidden = rule.get("forbidden")
+    return not forbidden or not forbidden.search(name)
+
+
 @app.get("/api/products")
 def get_products(
     category: str = "", cid: str = "", search: str = "", name: str = "",
+    component: str = "",
     page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
     q = db.query(Product)
+    component_key = normalize_builder_component(component)
+    component_rule = BUILDER_COMPONENT_RULES.get(component_key) if component else None
+    if component and not component_rule:
+        raise HTTPException(400, "Unsupported PC Builder component")
+    if component_rule:
+        q = q.filter(func.lower(Product.category).in_(
+            [value.lower() for value in component_rule["categories"]]
+        ))
+        q = q.filter(or_(Product.price_advice > 0, Product.price_jib > 0,
+                         Product.price_ihavecpu > 0))
     if category:
         q = q.filter(func.lower(Product.category) == category.lower())
     if cid:      q = q.filter(Product.cid == cid)
     if search:   q = q.filter(Product.p_name.contains(search) | Product.p_description.contains(search))
     if name:     q = q.filter(Product.p_name.contains(name))
-    total = q.count()
-    products = q.order_by(Product.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    if component_rule:
+        matching_products = [
+            product for product in q.order_by(Product.created_at.desc()).all()
+            if product_matches_builder_component(product, component_key)
+        ]
+        total = len(matching_products)
+        start = (page - 1) * limit
+        products = matching_products[start:start + limit]
+    else:
+        total = q.count()
+        products = q.order_by(Product.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     return {
         "status": "success",
         "data": [product_to_dict(p) for p in products],
@@ -928,7 +1059,13 @@ def change_password(body: PasswordChangeBody, user: User = Depends(get_current_u
     db_user.token_version = (db_user.token_version or 0) + 1
     db_user.u_updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.commit()
-    return {"status": "success", "message": "เปลี่ยนรหัสผ่านสำเร็จ"}
+    # The old token is revoked; replace it for this verified session.
+    token = create_token({
+        "uid": db_user.uid,
+        "role": db_user.u_role,
+        "token_version": db_user.token_version,
+    })
+    return {"status": "success", "message": "เปลี่ยนรหัสผ่านสำเร็จ", "token": token}
 
 @app.post("/api/profile/upload-image")
 async def upload_profile_image(

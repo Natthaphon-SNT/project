@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { AuthService } from '../../services/auth';
-import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-profile',
@@ -45,21 +44,20 @@ export class ProfileComponent implements OnInit {
   constructor(
     private http: HttpClient,
     private auth: AuthService,
-    private router: Router,
     private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit() {
     this.currentUser = this.auth.currentUserSubject.value;
-    if (!this.currentUser) {
-      this.router.navigate(['/login']);
+    if (!this.auth.isLoggedIn()) {
+      this.auth.handleUnauthorized('/profile');
       return;
     }
     this.loadProfile();
   }
 
   private getHeaders(): HttpHeaders {
-    const token = localStorage.getItem('lt_token') || '';
+    const token = this.auth.getToken();
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
   }
 
@@ -79,7 +77,11 @@ export class ProfileComponent implements OnInit {
         this.isLoading = false;
         this.cdr.detectChanges();
       },
-      error: () => {
+      error: (err) => {
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
         this.isLoading = false;
         this.loadError = true;
         this.profileData = null;
@@ -129,6 +131,10 @@ export class ProfileComponent implements OnInit {
       },
       error: (err) => {
         this.isSaving = false;
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
         this.showMessage('❌ ' + (err.error?.detail || 'ไม่สามารถบันทึกได้'), 'error');
         this.cdr.detectChanges();
       }
@@ -153,6 +159,7 @@ export class ProfileComponent implements OnInit {
       next: (res) => {
         this.isChangingPassword = false;
         if (res.status === 'success') {
+          if (res.token) this.auth.updateToken(res.token);
           this.showMessage('✅ เปลี่ยนรหัสผ่านสำเร็จ!', 'success');
           this.passwordForm = { current_password: '', new_password: '', confirm_password: '' };
           this.showPasswordForm = false;
@@ -163,6 +170,10 @@ export class ProfileComponent implements OnInit {
       },
       error: (err) => {
         this.isChangingPassword = false;
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
         this.showMessage('❌ ' + (err.error?.detail || 'รหัสผ่านปัจจุบันไม่ถูกต้อง'), 'error');
         this.cdr.detectChanges();
       }
@@ -190,6 +201,10 @@ export class ProfileComponent implements OnInit {
       },
       error: (err) => {
         this.uploadingImage = false;
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
         this.showMessage('❌ ' + (err.error?.detail || 'อัปโหลดไม่สำเร็จ'), 'error');
         this.cdr.detectChanges();
       }

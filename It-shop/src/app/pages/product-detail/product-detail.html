@@ -37,8 +37,8 @@
 
       <!-- ราคาต่ำสุด -->
       <div class="price-hero">
-        <span class="price-from">เริ่มต้นที่</span>
-        <span class="price-main">{{ getMinPrice() | number }} ฿</span>
+        <span class="price-from" *ngIf="getMinPrice() > 0">เริ่มต้นที่</span>
+        <span class="price-main">{{ getMinPrice() > 0 ? ((getMinPrice() | number) + ' ฿') : 'สอบถามราคา' }}</span>
       </div>
 
       <!-- Data freshness + price trend -->

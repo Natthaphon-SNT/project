@@ -12,9 +12,34 @@ export class AuthService {
 
   constructor(private http: HttpClient, private router: Router) {
     const savedUser = localStorage.getItem('lt_user');
-    if (savedUser) {
-      this.currentUserSubject.next(JSON.parse(savedUser));
+    const token = localStorage.getItem('lt_token') || '';
+    if (savedUser && this.hasUsableToken(token)) {
+      try {
+        this.currentUserSubject.next(JSON.parse(savedUser));
+      } catch {
+        this.clearSession();
+      }
+    } else {
+      this.clearSession();
     }
+  }
+
+  private hasUsableToken(token: string): boolean {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return false;
+      const encoded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=')));
+      return typeof payload.exp === 'number' && payload.exp * 1000 > Date.now();
+    } catch {
+      return false;
+    }
+  }
+
+  private clearSession(): void {
+    localStorage.removeItem('lt_user');
+    localStorage.removeItem('lt_token');
+    this.currentUserSubject.next(null);
   }
 
   login(credentials: any): Observable<any> {
@@ -58,21 +83,42 @@ export class AuthService {
   }
 
   // เซฟข้อมูลเมื่อล็อกอินผ่าน (เก็บ JWT token ด้วย)
-  saveUser(userData: any, token?: string) {
+  saveUser(userData: any, token: string) {
+    if (!this.hasUsableToken(token)) {
+      this.clearSession();
+      return;
+    }
     localStorage.setItem('lt_user', JSON.stringify(userData));
-    if (token) localStorage.setItem('lt_token', token);
+    localStorage.setItem('lt_token', token);
     this.currentUserSubject.next(userData);
   }
 
+  updateToken(token: string): void {
+    if (this.hasUsableToken(token)) {
+      localStorage.setItem('lt_token', token);
+    } else {
+      this.handleUnauthorized();
+    }
+  }
+
+  handleUnauthorized(redirect = this.router.url): void {
+    this.clearSession();
+    const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//')
+      ? redirect : '/';
+    this.router.navigate(['/login'], { queryParams: { redirect: safeRedirect } });
+  }
+
   logout() {
-    localStorage.removeItem('lt_user');
-    localStorage.removeItem('lt_token');
-    this.currentUserSubject.next(null);
+    this.clearSession();
     this.router.navigate(['/login']);
   }
 
   isLoggedIn(): boolean {
-    return !!this.currentUserSubject.value;
+    if (!this.currentUserSubject.value || !this.hasUsableToken(this.getToken())) {
+      this.clearSession();
+      return false;
+    }
+    return true;
   }
 
   getToken(): string {

@@ -202,12 +202,20 @@ def check_gpu_power_connectors(parts) -> Optional[dict]:
                 "detail": "ไม่พบข้อมูลหัวต่อไฟจากสเปก PSU จึงยืนยันความเข้ากันไม่ได้",
                 "required_connectors": required}
     missing = []
+    insufficient = []
     for label, count in required.items():
-        if _connector_count(available, label) < count:
+        actual = _connector_count(available, label)
+        if actual == 0:
             missing.append(f"{label} x{count}")
+        elif actual < count:
+            insufficient.append(f"{label} x{count} (ข้อมูล PSU ระบุ x{actual})")
+    if insufficient:
+        return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "UNKNOWN",
+                "detail": f"จำนวนหัวต่อที่พบในข้อมูล PSU ยังไม่พอยืนยันสำหรับ GPU: {', '.join(insufficient)}; ตรวจจำนวนหัวต่อจากสเปกสินค้าจริง",
+                "required_connectors": required, "available_connectors": available}
     if missing:
-        return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "ERROR",
-                "detail": f"PSU ไม่มีหัวต่อที่ GPU ต้องใช้: {', '.join(missing)}",
+        return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": False, "severity": "UNKNOWN",
+                "detail": f"ข้อมูล PSU ยังไม่ระบุหัวต่อที่ GPU ต้องใช้: {', '.join(missing)}; ต้องตรวจสเปกหัวต่อเพิ่ม",
                 "required_connectors": required, "available_connectors": available}
     return {"rule": "R8 GPU ↔ PSU Power Connector", "ok": True, "severity": "PASS",
             "detail": "หัวต่อไฟ GPU และ PSU ตรงกันตามข้อมูลสเปก",

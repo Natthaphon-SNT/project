@@ -68,6 +68,7 @@ export interface CompatibilityResult {
 }
 
 const API = 'http://localhost:3000';
+const PENDING_BUILD_KEY = 'lt_pending_manual_build';
 
 @Component({
   selector: 'app-pc-builder',
@@ -83,9 +84,10 @@ export class PcBuilderComponent implements OnInit {
     { key: 'gpu',     label: 'GPU / VGA',         icon: '🎮', category: 'gpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
     { key: 'ram',     label: 'RAM',               icon: '📊', category: 'ram',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
     { key: 'ssd',     label: 'SSD / M.2',         icon: '💾', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'hdd',     label: 'HDD / Hard Disk',   icon: '🗄️', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
     { key: 'psu',     label: 'Power Supply',      icon: '⚡', category: 'psu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
     { key: 'case',    label: 'Case',              icon: '🖥️', category: 'case',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
-    { key: 'cooler',  label: 'CPU Cooler',        icon: '❄️', category: 'liquid cooler', selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'cooler',  label: 'CPU Cooler (Air / Liquid)', icon: '❄️', category: 'cooler', selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
   ];
 
   toastMessage = '';
@@ -106,7 +108,39 @@ export class PcBuilderComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    this.restorePendingBuild();
     this.reloadCatalog();
+  }
+
+  private restorePendingBuild(): void {
+    const draft = sessionStorage.getItem(PENDING_BUILD_KEY);
+    if (!draft) return;
+    sessionStorage.removeItem(PENDING_BUILD_KEY);
+    try {
+      const parts: Array<{ key: string; product: Product }> = JSON.parse(draft);
+      if (!Array.isArray(parts)) return;
+      for (const part of parts) {
+        const slot = this.slots.find(s => s.key === part.key);
+        if (slot && part.product?.product_id) slot.selected = part.product;
+      }
+      if (this.getSelectedCount() > 0) {
+        this.checkCompatibility();
+        this.showToast('กู้คืนสเปกแล้ว กดบันทึกอีกครั้ง', 'success');
+      }
+    } catch {
+      // A malformed or stale browser draft should not block the builder.
+    }
+  }
+
+  private requestLoginForSave(): void {
+    try {
+      sessionStorage.setItem(PENDING_BUILD_KEY, JSON.stringify(
+        this.slots.filter(s => s.selected).map(s => ({ key: s.key, product: s.selected }))
+      ));
+    } catch {
+      // Authentication still takes priority if browser storage is unavailable.
+    }
+    this.auth.handleUnauthorized('/pc-builder');
   }
 
   reloadCatalog() {
@@ -117,39 +151,13 @@ export class PcBuilderComponent implements OnInit {
   // ─── Load products for a slot ───
   loadSlotProducts(slot: BuildSlot, search: string = '') {
     slot.isLoading = true;
-    const params: any = { category: slot.category, page: '1', limit: '100' };
+    const params: any = { component: slot.key, page: '1', limit: '100' };
     if (search) params['search'] = search;
 
     const query = new URLSearchParams(params).toString();
     this.http.get<any>(`${API}/api/products?${query}`).subscribe({
       next: (res) => {
-        let products: Product[] = res.status === 'success' ? res.data : [];
-        
-        // Filter out non-hardware items
-        products = products.filter(p => !p.p_name.toLowerCase().includes('vacuum') && !p.p_name.toLowerCase().includes('เครื่องดูดฝุ่น'));
-
-        // สำหรับ cooler รวม air + liquid
-        if (slot.key === 'cooler') {
-          this.http.get<any>(`${API}/api/products?category=air+cooler&page=1&limit=100`).subscribe({
-            next: (res2) => {
-              const extra = (res2.status === 'success' ? res2.data : []).filter(
-                (p: Product) => !p.p_name.toLowerCase().includes('vacuum') && !p.p_name.toLowerCase().includes('เครื่องดูดฝุ่น')
-              );
-              slot.products = [...products, ...extra];
-              slot.isLoading = false;
-              this.cdr.detectChanges();
-            },
-            error: () => {
-              slot.products = products;
-              slot.isLoading = false;
-              this.catalogLoadError = true;
-              this.cdr.detectChanges();
-            }
-          });
-          return;
-        }
-
-        slot.products = products;
+        slot.products = res.status === 'success' ? res.data : [];
         slot.isLoading = false;
         this.cdr.detectChanges();
       },
@@ -215,6 +223,16 @@ export class PcBuilderComponent implements OnInit {
         }
         break;
       }
+      case 'hdd': {
+        add('HDD');
+        if (facts.capacity_gb) {
+          const capacity = facts.capacity_gb >= 1024
+            ? `${Math.round(facts.capacity_gb / 1024)}TB`
+            : `${facts.capacity_gb}GB`;
+          add(capacity);
+        }
+        break;
+      }
       case 'psu':
         add(facts.watt ? `${facts.watt}W` : undefined);
         break;
@@ -223,7 +241,7 @@ export class PcBuilderComponent implements OnInit {
         add(facts.recommended_psu_watt ? `PSU ≥${facts.recommended_psu_watt}W` : undefined);
         break;
       case 'case':
-        add(facts.form_factor);
+        add(facts.supports_ff?.length ? facts.supports_ff.join(', ') : facts.form_factor);
         break;
       default:
         break;
@@ -266,16 +284,13 @@ export class PcBuilderComponent implements OnInit {
     }
 
     this.isCheckingCompat = true;
+    const categoryBySlot: Record<string, string> = {
+      cpu: 'CPU', mb: 'Mainboard', gpu: 'GPU', ram: 'RAM',
+      ssd: 'SSD', hdd: 'HDD', psu: 'PSU', case: 'Case'
+    };
     const parts = selected.map(s => ({
       product_id: s.selected!.product_id,
-      category: s.label.includes('CPU') && !s.label.includes('Cooler') ? 'CPU' :
-                s.label.includes('Mainboard') ? 'Mainboard' :
-                s.label.includes('GPU') ? 'GPU' :
-                s.label.includes('RAM') ? 'RAM' :
-                s.label.includes('SSD') ? 'SSD' :
-                s.label.includes('Power') ? 'PSU' :
-                s.label.includes('Case') ? 'Case' :
-                s.label.includes('Cooler') ? 'Liquid Cooler' : s.category,
+      category: categoryBySlot[s.key] || s.selected!.category || s.category,
       name: s.selected!.p_name,
       price: this.getMinPrice(s.selected!)
     }));
@@ -363,6 +378,11 @@ export class PcBuilderComponent implements OnInit {
       return;
     }
 
+    if (!this.auth.isLoggedIn()) {
+      this.requestLoginForSave();
+      return;
+    }
+
     let uid = '';
     let username = '';
     try {
@@ -432,8 +452,12 @@ export class PcBuilderComponent implements OnInit {
           this.router.navigate(['/history']);
         }, 1000);
       },
-      error: () => {
+      error: (err) => {
         this.isSaving = false;
+        if (err.status === 401) {
+          this.requestLoginForSave();
+          return;
+        }
         this.showToast('เกิดข้อผิดพลาดในการบันทึกสเปก', 'error');
       }
     });

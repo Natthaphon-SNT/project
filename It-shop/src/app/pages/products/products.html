@@ -40,7 +40,7 @@
       <div class="product-info">
         <h3 class="product-name" [title]="p.p_name">{{ p.p_name }}</h3>
 
-        <div class="product-price">{{ getMinPrice(p) | number }} ฿</div>
+        <div class="product-price">{{ getMinPrice(p) > 0 ? ((getMinPrice(p) | number) + ' ฿') : 'สอบถามราคา' }}</div>
 
         <!-- ราคาเปรียบเทียบ 3 ร้าน -->
         <div class="price-compare" *ngIf="p.price_advice || p.price_jib || p.price_ihavecpu">

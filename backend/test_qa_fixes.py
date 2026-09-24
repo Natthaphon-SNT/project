@@ -273,6 +273,13 @@ class QaFixTests(unittest.TestCase):
             ))
             db.commit()
         old_headers = self.auth("qa-password")
+        self.assertEqual(self.client.get("/api/profile", headers=old_headers).status_code, 200)
+        updated = self.client.put(
+            "/api/profile", headers=old_headers,
+            json={"u_name": "qa_password", "u_phone": "0812345678"},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["data"]["u_phone"], "0812345678")
         changed = self.client.put(
             "/api/profile/password",
             headers=old_headers,
@@ -284,6 +291,16 @@ class QaFixTests(unittest.TestCase):
         )
         self.assertEqual(changed.status_code, 200)
         self.assertEqual(self.client.get("/api/profile", headers=old_headers).status_code, 401)
+        replacement = changed.json().get("token")
+        self.assertTrue(replacement)
+        new_headers = {"Authorization": f"Bearer {replacement}"}
+        self.assertEqual(self.client.get("/api/profile", headers=new_headers).status_code, 200)
+        saved = self.client.post(
+            "/api/spec-history", headers=new_headers,
+            json={"type": "manual", "title": "QA build", "result_data": {"parts": []}},
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["data"]["uid"], "qa-password")
         login = self.client.post(
             "/api/login", json={"email": "qa-password@example.com", "password": "new-pass"}
         )
@@ -393,6 +410,45 @@ class QaFixTests(unittest.TestCase):
             result = asyncio.run(rec.compare_specs("Spec A", "Spec B", api_key="test"))
         self.assertNotIn("invented market price", result)
         self.assertIn("ไม่มีแหล่งข้อมูลยืนยัน", result)
+
+    def test_pc_builder_catalog_only_accepts_the_requested_component(self):
+        accepted = [
+            ("cpu", "CPU AMD RYZEN 5 9600", "CPU"),
+            ("mb", "MAINBAORD AM4 ASROCK B550M", "Mainboard"),
+            ("gpu", "VGA ASUS GEFORCE RTX 5070", "GPU"),
+            ("ram", "RAM KINGSTON 32GB DDR5", "RAM"),
+            ("ssd", "M.2 SAMSUNG 990 PRO NVME SSD", "SSD"),
+            ("hdd", "4 TB HDD SEAGATE BARRACUDA", "SSD"),
+            ("psu", "PSU CORSAIR RM850E 850W", "PSU"),
+            ("case", "CASE CORSAIR 4000D ATX", "Case"),
+            ("cooler", "CPU AIR COOLER NOCTUA NH-D15", "Air Cooler"),
+            ("cooler", "LIQUID COOLER DEEPCOOL LE720", "Liquid Cooler"),
+        ]
+        rejected = [
+            ("cpu", "AIO Lenovo ThinkCentre Neo 55a", "CPU"),
+            ("mb", "Keypad ELGATO STREAM DECK", "Mainboard"),
+            ("ssd", "4 TB HDD SEAGATE BARRACUDA", "SSD"),
+            ("hdd", "1 TB EXT HDD SEAGATE ONE TOUCH", "SSD"),
+            ("hdd", "Tray DVD Drive For HDD N/B", "SSD"),
+            ("psu", "ATX CASE ANTEC C5 ARGB", "PSU"),
+            ("case", "CASE FAN 120MM ARGB", "Case"),
+            ("cooler", "Cooler Pad OKER C-818", "Air Cooler"),
+            ("cooler", "FAN iHAVECPU FLOE 120 PACK3", "Liquid Cooler"),
+            ("cooler", "AIO Lenovo IdeaCentre AIO 24IRH9", "Liquid Cooler"),
+        ]
+
+        for component, name, category in accepted:
+            with self.subTest(component=component, name=name, accepted=True):
+                product = self.api.Product(p_name=name, category=category)
+                self.assertTrue(
+                    self.api.product_matches_builder_component(product, component)
+                )
+        for component, name, category in rejected:
+            with self.subTest(component=component, name=name, accepted=False):
+                product = self.api.Product(p_name=name, category=category)
+                self.assertFalse(
+                    self.api.product_matches_builder_component(product, component)
+                )
 
 
 if __name__ == "__main__":

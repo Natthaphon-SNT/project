@@ -198,6 +198,20 @@ IHC_CATS = [
     ("Mouse",        "https://www.ihavecpu.com/category/mouse"),
     ("Keyboard",     "https://www.ihavecpu.com/category/keyboard"),
 ]
+IHC_FULL_CATS = [
+    ("CPU", "https://ihavecpu.com/category/cpu"),
+    ("GPU", "https://ihavecpu.com/category/graphic-card"),
+    ("Mainboard", "https://ihavecpu.com/category/mainboard"),
+    ("RAM", "https://ihavecpu.com/category/ram"),
+    ("SSD", "https://ihavecpu.com/category/storage"),
+    ("PSU", "https://ihavecpu.com/category/power-supply"),
+    ("Case", "https://ihavecpu.com/category/case"),
+    ("Cooler", "https://ihavecpu.com/category/heat-sink"),
+    ("Gaming Gear", "https://ihavecpu.com/category/gaming-gear"),
+    ("Monitor", "https://ihavecpu.com/category/monitor"),
+    ("Gaming Chair", "https://ihavecpu.com/category/gaming-chair"),
+    ("Gaming Desk", "https://ihavecpu.com/category/gaming-desk"),
+]
 IHC_SKIP = [
     "MOUSE PAD", "MOUSEPAD", "WEBCAM", "GAMEPAD", "JOYSTICK", "SPEAKER",
     "EXTERNAL HDD", "EXTERNAL SSD", "PROJECTOR", "PRINTER", "SCANNER",
@@ -209,11 +223,14 @@ CID_MAP = {
     "cpu": "c01", "mainboard": "c02", "gpu": "c03", "vga": "c03",
     "ram": "c04", "ssd": "c05", "psu": "c06", "case": "c07",
     "liquid": "c08", "air cooler": "c09", "cooler": "c09",
-    "mouse": "c10", "keyboard": "c11", "headset": "c12",
-    "microphone": "c13", "monitor": "c14",
+    "mouse": "c10", "keyboard accessories": "c21", "keyboard": "c11", "headset": "c12",
+    "microphone": "c13", "monitor accessories": "c25", "monitor": "c14",
     "gaming chair": "c15", "chair": "c15",
-    "gaming desk": "c16", "desk": "c16",
+    "gaming desk": "c16", "desk": "c16", "gaming gear": "c17",
     "pc set": "c18", "computer set": "c18",
+    "hdd": "c19", "external storage": "c20", "cooling accessories": "c22",
+    "pc components": "c23", "storage accessories": "c24",
+    "case accessories": "c26", "keypad": "c27", "graphic tablet": "c28",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -238,7 +255,7 @@ def is_pc_set_name(name: str) -> bool:
     ))
 
 
-def parse_price(text: str) -> int:
+def parse_price(text: str, min_price: int = 200) -> int:
     if not text:
         return 0
     text = text.strip().replace(",", "").replace("฿", "").replace("THB", "").replace("baht", "").strip()
@@ -249,7 +266,7 @@ def parse_price(text: str) -> int:
         n = int(float(m.group(0)))
     except Exception:
         return 0
-    return n if 200 <= n <= 500_000 else 0
+    return n if min_price <= n <= 500_000 else 0
 
 
 PRICE_FLOORS = {
@@ -322,6 +339,9 @@ def ihc_product_description(product: dict) -> str:
             if line not in seen:
                 seen.add(line)
                 lines.append(line)
+    has_meta_text = any(_plain_html(product.get(key) or "") for key in (
+        "meta_description_th", "meta_description_gb",
+    ))
     for label, field in (
         ("Summary", "size_guide_th"),
         ("Description", "description_th"),
@@ -331,7 +351,18 @@ def ihc_product_description(product: dict) -> str:
         ("Meta description", "meta_description_th"),
         ("Meta description", "meta_description_gb"),
     ):
-        value = _plain_html(product.get(field) or "")
+        raw_value = product.get(field) or ""
+        value = _plain_html(raw_value)
+        if label == "Description" and not value and raw_value and not has_meta_text:
+            # A few iHaveCPU listings provide their description only as an
+            # image. Preserve that source asset instead of silently dropping it.
+            for image in BeautifulSoup(raw_value, "html.parser").select("img[src]"):
+                image_url = (image.get("src") or "").strip()
+                if image_url.startswith(("https://", "http://")):
+                    line = f"Detail image: {image_url}"
+                    if line not in seen:
+                        seen.add(line)
+                        lines.append(line)
         if value and not (label == "Description" and len(value) < 10):
             line = f"{label}: {value}"
             if line not in seen:
@@ -344,6 +375,32 @@ def ihc_listing_products(document: str) -> list[dict]:
     data = extract_next_data(document)
     product = data.get("props", {}).get("pageProps", {}).get("product", {})
     return product.get("data", []) if isinstance(product, dict) else []
+
+
+def ihc_listing_total(document: str) -> int:
+    """The Next.js `row` field is the total across every category page."""
+    product = extract_next_data(document).get("props", {}).get("pageProps", {}).get("product", {})
+    try:
+        return max(0, int(product.get("row") or 0))
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
+def ihc_full_category(name: str, listing_category: str) -> str:
+    """Keep requested listing groups without misfiling gaming accessories."""
+    upper = (name or "").upper()
+    if listing_category == "Gaming Gear":
+        for prefix, category in (
+            ("MOUSE PAD", "Gaming Gear"), ("MOUSE", "Mouse"),
+            ("KEYBOARD", "Keyboard"), ("HEADSET", "Headset"),
+            ("HEADPHONE", "Headset"), ("EARPHONE", "Headset"),
+            ("MICROPHONE", "Microphone"), ("GAMING CHAIR", "Gaming Chair"),
+            ("GAMING DESK", "Gaming Desk"),
+        ):
+            if upper.startswith(prefix):
+                return category
+        return "Gaming Gear"
+    return "PC Set" if is_pc_set_name(name) else listing_category
 
 
 def ihc_detail_product(document: str) -> dict:
@@ -394,6 +451,8 @@ def advice_api_items(payload: dict) -> list[dict]:
 
 def get_cid(category: str) -> str:
     c = category.lower()
+    if c in CID_MAP:
+        return CID_MAP[c]
     for k, v in CID_MAP.items():
         if k in c:
             return v
@@ -745,6 +804,25 @@ def source_url_is_out_of_scope(url: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 def setup_db(conn: sqlite3.Connection):
     cur = conn.cursor()
+    if cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories'"
+    ).fetchone():
+        cur.executemany(
+            "INSERT OR IGNORE INTO categories (cid, c_name, c_description) VALUES (?, ?, ?)",
+            [
+                ("c17", "Gaming Gear", "iHaveCPU gaming-gear products"),
+                ("c19", "HDD", "Internal hard disk drives"),
+                ("c20", "External Storage", "External SSD and HDD devices"),
+                ("c21", "Keyboard Accessories", "Keycaps and keyboard accessories"),
+                ("c22", "Cooling Accessories", "Cooling fittings, blocks and thermal accessories"),
+                ("c23", "PC Components", "Other PC components"),
+                ("c24", "Storage Accessories", "Storage enclosures and accessories"),
+                ("c25", "Monitor Accessories", "Monitor mounts and accessories"),
+                ("c26", "Case Accessories", "Case bags and other case accessories"),
+                ("c27", "Keypad", "Numeric and macro keypads"),
+                ("c28", "Graphic Tablet", "Pen and display tablets"),
+            ],
+        )
     new_cols = [
         ("url_advice",    "TEXT DEFAULT ''"),
         ("url_jib",       "TEXT DEFAULT ''"),
@@ -792,6 +870,21 @@ def setup_db(conn: sqlite3.Connection):
         "CREATE INDEX IF NOT EXISTS idx_detail_checkpoint_status "
         "ON scrape_detail_checkpoint(store, status)"
     )
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ihavecpu_scrape_inventory (
+            category_url TEXT NOT NULL,
+            source_product_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            image_url TEXT NOT NULL,
+            description TEXT NOT NULL,
+            product_url TEXT NOT NULL,
+            db_product_id TEXT NOT NULL DEFAULT '',
+            scraped_at TEXT NOT NULL,
+            PRIMARY KEY (category_url, source_product_id)
+        )
+    """)
     conn.commit()
 
 
@@ -991,19 +1084,23 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
     img   = (p.get("img_url") or "").strip()
     url   = (p.get("url") or "").strip()
     desc  = (p.get("description") or "").strip()
+    full_ihc = store == "ihavecpu" and bool(p.get("full_catalog"))
+    full_jib = store == "jib" and bool(p.get("full_catalog"))
+    full_source = full_ihc or full_jib
 
-    if url and source_url_conflicts(name, url, cat):
+    if url and not full_jib and source_url_conflicts(name, url, cat):
         log(f"    [url mismatch] {store}: {name[:70]} -> {_source_slug(url)[:90]}")
         url = ""
 
     if not name or not price:
         return False
-    if should_skip(name):
+    if should_skip(name) and not full_source:
         return False
     if source_url_is_out_of_scope(url):
         log(f"    [out of scope] {store}: {name[:65]}")
         return False
-    if not valid_product_price(cat, price):
+    price_ok = (1 <= price <= 500_000) if full_source else valid_product_price(cat, price)
+    if not price_ok:
         log(f"    [invalid price] {store}: {cat} {name[:65]} -> {price:,} B")
         return False
 
@@ -1013,9 +1110,58 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
     url_col   = {"advice": "url_advice",   "jib": "url_jib",   "ihavecpu": "url_ihavecpu"}.get(store, "url_advice")
     desc_col  = {"advice": "desc_advice",  "jib": "desc_jib",  "ihavecpu": "desc_ihavecpu"}.get(store, "desc_advice")
 
-    pid = matcher.find(name, cat)
+    source_row = cur.execute(
+        f"SELECT product_id FROM products WHERE {url_col} = ? LIMIT 1", (url,)
+    ).fetchone() if url else None
+    ihc_source_id = ""
+    if full_ihc:
+        source_match = re.search(r"/product/(\d+)/", url)
+        ihc_source_id = source_match.group(1) if source_match else ""
+        if ihc_source_id and not source_row:
+            source_row = cur.execute(
+                "SELECT product_id FROM products WHERE url_ihavecpu LIKE ? LIMIT 1",
+                (f"%/product/{ihc_source_id}/%",),
+            ).fetchone()
+    jib_source_id = ""
+    if full_jib:
+        source_match = re.search(r"/readProduct/(\d+)/", url)
+        jib_source_id = source_match.group(1) if source_match else ""
+        if jib_source_id and not source_row:
+            source_row = cur.execute(
+                "SELECT product_id FROM products WHERE url_jib LIKE ? LIMIT 1",
+                (f"%/readProduct/{jib_source_id}/%",),
+            ).fetchone()
+    pid = source_row[0] if source_row else matcher.find(name, cat)
+    if full_source and pid and not source_row:
+        candidate = cur.execute(
+            f"SELECT p_name, {url_col} FROM products WHERE product_id = ?", (pid,)
+        ).fetchone()
+        # A fuzzy name match must not combine two distinct retailer product IDs.
+        if (not candidate or candidate[0].strip().upper() != name.strip().upper()
+                or (candidate[1] or "").strip()):
+            pid = None
 
     if pid:
+        if full_source and source_row:
+            # Source-only rows may carry a stale title from an earlier fuzzy
+            # merge. The retailer's ID and current listing are authoritative.
+            cur.execute(f"""
+                UPDATE products SET p_name=?, category=?, cid=?,
+                    img_url=CASE WHEN ? != '' THEN ? ELSE img_url END
+                WHERE product_id=? AND COALESCE(price_advice, 0)=0
+                    AND COALESCE(price_{'jib' if store == 'ihavecpu' else 'ihavecpu'}, 0)=0
+            """, (name, cat, get_cid(cat), img, img, pid))
+        # A later listing-only scrape must not replace a PSU's verified
+        # connector table with Advice's short wattage/modularity summary.
+        if store == "advice" and cat == "PSU" and desc:
+            import spec_parser
+            previous = cur.execute(
+                f"SELECT {desc_col} FROM products WHERE product_id = ?", (pid,)
+            ).fetchone()
+            old_desc = (previous[0] or "") if previous else ""
+            if (spec_parser.extract_detail_facts("PSU", old_desc).get("power_connectors")
+                    and not spec_parser.extract_detail_facts("PSU", desc).get("power_connectors")):
+                desc = combine_descriptions(desc, old_desc)
         cur.execute(f"""
             UPDATE products SET
                 {price_col} = ?,
@@ -1041,7 +1187,12 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
         _record_price_history(cur, pid, store, price)
         return False
     else:
-        pid = make_pid(name, store)
+        if full_ihc and ihc_source_id:
+            pid = f"ihc_{ihc_source_id}"
+        elif full_jib and jib_source_id:
+            pid = f"jib_{jib_source_id}"
+        else:
+            pid = make_pid(name, store)
         cur.execute("""
             INSERT OR IGNORE INTO products
             (product_id, p_name, p_description, p_price,
@@ -1093,7 +1244,7 @@ def needs_detail(cur: sqlite3.Cursor, matcher: SmartMatcher,
     ).fetchone()
     if not row:
         return True
-    return len((row[0] or "").strip()) < 30 or not (row[1] or "").strip()
+    return source_payload_needs_detail(row[0] or "", row[1] or "", category, store)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1148,7 +1299,8 @@ class AdaptiveRateLimiter:
     def __init__(self, store: str, *, threshold: int = 2,
                  window_seconds: float = 60.0,
                  base_cooldown_seconds: float = 15.0,
-                 max_cooldown_seconds: float = 120.0):
+                 max_cooldown_seconds: float = 120.0,
+                 min_interval_seconds: float = 0.0):
         self.store = store
         self.threshold = threshold
         self.window_seconds = window_seconds
@@ -1158,13 +1310,20 @@ class AdaptiveRateLimiter:
         self.pause_until = 0.0
         self.total_429 = 0
         self.circuit_open_count = 0
+        self.min_interval_seconds = min_interval_seconds
+        self.next_request_at = 0.0
         self._lock = asyncio.Lock()
 
     async def before_request(self) -> None:
         async with self._lock:
-            delay = max(0.0, self.pause_until - time.monotonic())
-        if delay:
+            now = time.monotonic()
+            circuit_delay = max(0.0, self.pause_until - now)
+            start_at = max(now, self.pause_until, self.next_request_at)
+            delay = start_at - now
+            self.next_request_at = start_at + self.min_interval_seconds
+        if circuit_delay:
             log(f"    [circuit wait] store={self.store} seconds={delay:.1f}")
+        if delay:
             await asyncio.sleep(delay)
 
     async def record_status(self, status_code: int) -> None:
@@ -1279,9 +1438,17 @@ async def goto_with_retry(page, url: str, *, timeout_ms: int,
     raise last_error
 
 
-def source_payload_needs_detail(description: str, image_url: str) -> bool:
+def source_payload_needs_detail(description: str, image_url: str,
+                                category: str = "", store: str = "") -> bool:
     """Return true only when a store listing lacks usable detail evidence."""
-    return len((description or "").strip()) < 30 or not (image_url or "").strip()
+    if len((description or "").strip()) < 30 or not (image_url or "").strip():
+        return True
+    if store == "advice" and category == "PSU":
+        import spec_parser
+        return not spec_parser.extract_detail_facts(
+            "PSU", description
+        ).get("power_connectors")
+    return False
 
 
 def detail_description_is_relevant(name: str, description: str, category: str) -> bool:
@@ -1335,6 +1502,14 @@ def select_best_relevant_description(
         item for item in candidates
         if detail_description_is_relevant(name, item[1], category)
     ]
+    if category == "PSU":
+        import spec_parser
+        with_connectors = [
+            item for item in relevant
+            if spec_parser.extract_detail_facts("PSU", item[1]).get("power_connectors")
+        ]
+        if with_connectors:
+            relevant = with_connectors
     return max(relevant, key=lambda item: item[0])[1] if relevant else ""
 
 
@@ -1360,20 +1535,32 @@ async def fetch_ihc_detail_http(client: httpx.AsyncClient, url: str,
 
 
 async def fetch_jib_detail_http(client: httpx.AsyncClient, url: str,
-                                expected_name: str, category: str) -> tuple[str, str]:
+                                expected_name: str, category: str,
+                                *, rate_limiter: AdaptiveRateLimiter | None = None,
+                                strict_block: bool = False) -> tuple[str, str]:
     """Extract JIB's server-rendered spec without Chromium per product."""
     try:
-        response = await request_with_retry(client, "GET", url)
+        response = await request_with_retry(
+            client, "GET", url, rate_limiter=rate_limiter,
+        )
+        if strict_block and response.status_code in (403, 429):
+            raise PermissionError(f"JIB blocked detail request: HTTP {response.status_code}")
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
+        # JIB's own specification pane is tied to this readProduct page.
+        # Generic name-vs-spec identity checks can falsely reject RAM kits:
+        # the title says 32 GB while the table also says 16 GB per DIMM.
+        own_spec = soup.find(id="specspecial")
+        own_description = own_spec.get_text("\n", strip=True) if own_spec else ""
         candidates: list[tuple[int, str]] = []
-        for selector in _DESC_SELECTORS:
+        for selector in (() if len(own_description) >= 30 else _DESC_SELECTORS):
             try:
                 elements = soup.select(selector)
             except Exception:
                 continue
             for element in elements:
-                text_value = element.get_text(" ", strip=True)
+                # Keep table cell boundaries for compatibility fact parsing.
+                text_value = element.get_text("\n", strip=True)
                 if len(text_value) < 30:
                     continue
                 if len(text_value) > 18000:
@@ -1397,9 +1584,8 @@ async def fetch_jib_detail_http(client: httpx.AsyncClient, url: str,
                 if selector in ("table", "div.table-wrapper", "[id*='spec']"):
                     score += 350
                 candidates.append((score, text_value))
-        desc = select_best_relevant_description(
-            candidates, expected_name, category
-        )
+        desc = (own_description if len(own_description) >= 30 else
+                select_best_relevant_description(candidates, expected_name, category))
         if not desc:
             for script in soup.select("script[type='application/ld+json']"):
                 try:
@@ -1414,8 +1600,18 @@ async def fetch_jib_detail_http(client: httpx.AsyncClient, url: str,
                         break
                 if desc:
                     break
-        img = ""
-        for selector in _IMG_SELECTORS:
+        if not desc:
+            meta = soup.select_one("meta[name='description']")
+            meta_text = (meta.get("content") or "").strip() if meta else ""
+            if len(meta_text) >= 30 and not any(
+                word in meta_text.lower() for word in ("cookie", "privacy policy")
+            ):
+                desc = meta_text
+        image_meta = soup.find("meta", attrs={"property": "og:image"})
+        img = (image_meta.get("content") or "").strip() if image_meta else ""
+        if not img.startswith("http"):
+            img = ""
+        for selector in (() if img else _IMG_SELECTORS):
             try:
                 element = soup.select_one(selector)
             except Exception:
@@ -1436,6 +1632,12 @@ async def fetch_jib_detail_http(client: httpx.AsyncClient, url: str,
                 img = value
         return desc, img
     except Exception as exc:
+        if strict_block and (
+            isinstance(exc, PermissionError) or
+            isinstance(exc, httpx.HTTPStatusError) and
+            exc.response.status_code in (403, 429)
+        ):
+            raise PermissionError(f"JIB blocked detail request: {exc}") from exc
         log(f"      [JIB HTTP detail err] {str(exc)[:100]}")
         return "", ""
 
@@ -1916,7 +2118,9 @@ async def scrape_advice(conn: sqlite3.Connection, matcher: SmartMatcher,
                         item for item in normalized
                         if (fetch_details and item["url"] and
                             not item["url"].startswith("https://www.advice.co.th/search") and
-                            source_payload_needs_detail(item["api_spec"], item["img"]) and
+                            source_payload_needs_detail(
+                                item["api_spec"], item["img"], item["category"], "advice"
+                            ) and
                             needs_detail(cur, matcher, item["name"], item["category"], "advice"))
                     ]
                     detail_results: dict[str, tuple[str, str]] = {}
@@ -2135,7 +2339,9 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
 # Scraper: iHaveCPU (HTML category pages)
 # ─────────────────────────────────────────────────────────────────────────────
 async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
-                          pages: int = 3, fetch_details: bool = False):
+                          pages: int = 3, fetch_details: bool = False,
+                          full_catalog: bool = False,
+                          categories: list[tuple[str, str]] | None = None):
     """Scrape iHaveCPU from its server-rendered Next.js JSON payload.
 
     The storefront no longer renders `/product/` anchors reliably to headless
@@ -2155,12 +2361,19 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
     async with httpx.AsyncClient(
         headers=headers, follow_redirects=True, timeout=timeout
     ) as client:
-        for cat_name, configured_url in IHC_CATS:
+        for cat_name, configured_url in (
+            categories if categories is not None else
+            (IHC_FULL_CATS if full_catalog else IHC_CATS)
+        ):
             base_url = configured_url.replace("www.ihavecpu.com", "ihavecpu.com")
             cat_new = cat_upd = 0
             seen_ids: set[int] = set()
+            pn = 1
+            page_limit = pages if not full_catalog else None
+            reported_total = 0
+            full_page_safety_limit = 0
 
-            for pn in range(1, pages + 1):
+            while page_limit is None or pn <= page_limit:
                 url = base_url if pn == 1 else f"{base_url}?page={pn}"
                 log(f"  [iHaveCPU] {cat_name} p{pn}")
                 try:
@@ -2171,8 +2384,42 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                     log(f"    [iHaveCPU HTTP err] {str(e)[:120]}")
                     break
                 if not items:
+                    if full_catalog and len(seen_ids) < reported_total:
+                        raise RuntimeError(
+                            f"iHaveCPU ended {cat_name} at {len(seen_ids)}/{reported_total} products"
+                        )
                     log("    no structured products")
                     break
+
+                if full_catalog and not reported_total:
+                    reported_total = ihc_listing_total(response.text)
+                    if not reported_total:
+                        raise RuntimeError(f"iHaveCPU did not provide a product total: {url}")
+                    # Pages overlap by 12 items even though each renders 24.
+                    # Drive completion by unique product IDs, not a guessed page count.
+                    full_page_safety_limit = reported_total + 2
+                    log(f"    {reported_total} listing products; scanning until all IDs are seen")
+
+                page_ids = {item.get("product_id") for item in items if item.get("product_id")}
+                if full_catalog and page_ids and page_ids.issubset(seen_ids):
+                    raise RuntimeError(f"iHaveCPU repeated a category page: {url}")
+
+                detail_results = {}
+                if full_catalog:
+                    detail_items = []
+                    for item in items:
+                        raw_name = (item.get("name_th") or item.get("name_gb") or "").strip()
+                        if not item.get("product_id") or not raw_name:
+                            continue
+                        item_name = clean_ihc_name(raw_name)
+                        detail_items.append({
+                            "url": ihc_product_url(item["product_id"], item_name),
+                            "name": item_name,
+                            "category": ihc_full_category(item_name, cat_name),
+                        })
+                    detail_results, _metrics = await fetch_http_detail_queue(
+                        client, conn, "ihavecpu", detail_items, concurrency=4,
+                    )
 
                 count = 0
                 for item in items:
@@ -2181,11 +2428,17 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                         continue
                     seen_ids.add(product_id)
                     raw = (item.get("name_th") or item.get("name_gb") or "").strip()
-                    if not raw or should_skip(raw) or any(s in raw.upper() for s in IHC_SKIP):
+                    if not raw or (not full_catalog and (
+                            should_skip(raw) or any(s in raw.upper() for s in IHC_SKIP))):
                         continue
                     name = clean_ihc_name(raw)
-                    price = parse_price(str(item.get("price_sale") or item.get("price_before") or ""))
-                    actual_cat = "PC Set" if is_pc_set_name(name) else cat_name
+                    price = parse_price(
+                        str(item.get("price_sale") or item.get("price_before") or ""),
+                        min_price=1 if full_catalog else 200,
+                    )
+                    actual_cat = ihc_full_category(name, cat_name) if full_catalog else (
+                        "PC Set" if is_pc_set_name(name) else cat_name
+                    )
                     if cat_name == "Cooler":
                         low = name.lower()
                         actual_cat = "Liquid Cooler" if any(k in low for k in (
@@ -2207,7 +2460,11 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                     prod_url = ihc_product_url(product_id, name)
                     img = (item.get("image800") or item.get("image") or "").strip()
                     desc = ihc_product_description(item)
-                    if (fetch_details and prod_url and
+                    if full_catalog:
+                        det_desc, det_img = detail_results.get(prod_url, ("", ""))
+                        desc = combine_descriptions(det_desc, desc)
+                        img = det_img or img
+                    elif (fetch_details and prod_url and
                             source_payload_needs_detail(desc, img) and
                             needs_detail(cur, matcher, name, actual_cat, "ihavecpu")):
                         try:
@@ -2230,7 +2487,33 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                         "name": name, "price": price, "img_url": img,
                         "url": prod_url, "category": actual_cat,
                         "store": "ihavecpu", "description": desc,
+                        "full_catalog": full_catalog,
                     })
+                    if full_catalog:
+                        stored = cur.execute(
+                            "SELECT product_id FROM products WHERE url_ihavecpu LIKE ? LIMIT 1",
+                            (f"%/product/{int(product_id)}/%",),
+                        ).fetchone()
+                        cur.execute("""
+                            INSERT INTO ihavecpu_scrape_inventory
+                                (category_url, source_product_id, category, product_name,
+                                 price, image_url, description, product_url,
+                                 db_product_id, scraped_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(category_url, source_product_id) DO UPDATE SET
+                                category=excluded.category,
+                                product_name=excluded.product_name,
+                                price=excluded.price,
+                                image_url=excluded.image_url,
+                                description=excluded.description,
+                                product_url=excluded.product_url,
+                                db_product_id=excluded.db_product_id,
+                                scraped_at=excluded.scraped_at
+                        """, (
+                            base_url, int(product_id), actual_cat, name, price,
+                            img, desc, prod_url, stored[0] if stored else "",
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        ))
                     if is_new:
                         cat_new += 1
                     else:
@@ -2238,9 +2521,16 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                     count += 1
 
                 conn.commit()
-                log(f"    -> {count} structured products processed")
-                if count == 0 or len(items) < 24:
+                log(f"    -> {count} structured products processed; {len(seen_ids)}/{reported_total or '?'} unique IDs")
+                if not full_catalog and (count == 0 or len(items) < 24):
                     break
+                if full_catalog and len(seen_ids) >= reported_total:
+                    break
+                pn += 1
+                if full_catalog and pn > full_page_safety_limit:
+                    raise RuntimeError(
+                        f"iHaveCPU pagination stalled: {cat_name} {len(seen_ids)}/{reported_total}"
+                    )
 
             total_new += cat_new
             total_upd += cat_upd
@@ -2336,8 +2626,11 @@ async def backfill_missing_details(conn: sqlite3.Connection, stores: list[str]):
         ).fetchall()
         for row in rows:
             _pid, _name, _category, _url, _desc = row
-            if (len((_desc or '').strip()) < 30 or
-                    not detail_description_is_relevant(_name or '', _desc or '', _category or '')):
+            if (source_payload_needs_detail(
+                    _desc or '', 'present', _category or '', store
+                ) or not detail_description_is_relevant(
+                    _name or '', _desc or '', _category or ''
+                )):
                 pending[store].append(row)
 
     pending_count = sum(len(rows) for rows in pending.values())
@@ -2557,6 +2850,14 @@ def main():
         help="Visit each product page to fetch description + full image (slow, ~3-5s per product)",
     )
     parser.add_argument(
+        "--ihavecpu-full", action="store_true", default=False,
+        help="Scrape every page of the twelve iHaveCPU categories and visit every product",
+    )
+    parser.add_argument(
+        "--ihavecpu-categories", nargs="+", metavar="SLUG",
+        help="With --ihavecpu-full, scrape only these category URL slugs",
+    )
+    parser.add_argument(
         "--backfill-only", action="store_true", default=False,
         help="Skip listing pages and fetch details for existing store URLs with missing descriptions",
     )
@@ -2567,6 +2868,42 @@ def main():
     args = parser.parse_args()
 
     stores = ["advice", "jib", "ihavecpu"] if "all" in args.stores else args.stores
+
+    if args.ihavecpu_full:
+        if args.backfill_only:
+            parser.error("--ihavecpu-full cannot be combined with --backfill-only")
+        category_by_slug = {
+            url.rsplit("/", 1)[-1]: (name, url) for name, url in IHC_FULL_CATS
+        }
+        selected_categories = IHC_FULL_CATS
+        if args.ihavecpu_categories:
+            unknown = sorted(set(args.ihavecpu_categories) - category_by_slug.keys())
+            if unknown:
+                parser.error(f"Unknown iHaveCPU category slug(s): {', '.join(unknown)}")
+            selected_categories = [
+                category_by_slug[slug] for slug in dict.fromkeys(args.ihavecpu_categories)
+            ]
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            setup_db(conn)
+            matcher = SmartMatcher(conn.cursor())
+            asyncio.run(scrape_ihavecpu(
+                conn, matcher, pages=0, fetch_details=True, full_catalog=True,
+                categories=selected_categories,
+            ))
+        finally:
+            conn.close()
+        if not args.skip_compat_training:
+            trainer = os.path.join(os.path.dirname(__file__), "train_compat_knowledge.py")
+            completed = subprocess.run(
+                [sys.executable, "-X", "utf8", trainer, "--apply"], check=False
+            )
+            if completed.returncode != 0:
+                log("[Compat Knowledge] Training failed; raw scraped details remain intact")
+        return
+
+    if args.ihavecpu_categories:
+        parser.error("--ihavecpu-categories requires --ihavecpu-full")
 
     if args.details:
         log("[WARNING] --details เปิดอยู่ — จะ visit หน้าสินค้าทุกชิ้น (ใช้เวลาหลายชั่วโมง)")

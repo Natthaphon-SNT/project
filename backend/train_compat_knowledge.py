@@ -355,9 +355,101 @@ def run(apply: bool) -> dict:
     }
 
 
+def repair_psu_connector_facts(apply: bool) -> dict:
+    """Normalize sourced PSU PCIe 8-pin facts missing from stored facts."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM products WHERE category = 'PSU' ORDER BY product_id"
+    ).fetchall()
+    repaired = []
+    try:
+        for row in rows:
+            current = spec_parser.parse_part(
+                "PSU", row["p_name"] or "", row["specs"] or ""
+            ).get("power_connectors") or {}
+            if current.get("PCIe 8-pin", 0) and (
+                row["specs"] or ""
+            ).startswith("[Normalized compatibility facts]"):
+                continue
+            facts, _sources, _rejected = collect_product_facts(row)
+            sourced = facts.get("power_connectors")
+            if not sourced or not sourced[0].get("PCIe 8-pin", 0):
+                continue
+            repaired.append(row["product_id"])
+            if apply:
+                conn.execute(
+                    "UPDATE products SET specs=?, updated_at=? WHERE product_id=?",
+                    (canonical_specs(facts, row["specs"] or ""),
+                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["product_id"]),
+                )
+        if apply:
+            conn.commit()
+        else:
+            conn.rollback()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"mode": "apply" if apply else "dry-run",
+            "psu_rows_scanned": len(rows), "psu_connector_facts_rebuilt": len(repaired),
+            "product_ids": repaired}
+
+
+def repair_case_form_factors(apply: bool) -> dict:
+    """Refresh case motherboard support from the saved retailer specifications."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM products WHERE category = 'Case' ORDER BY product_id"
+    ).fetchall()
+    repaired = []
+    try:
+        for row in rows:
+            facts, _sources, _rejected = collect_product_facts(row)
+            sourced = facts.get("supports_ff")
+            if not sourced:
+                continue
+            current = spec_parser.parse_part(
+                "Case", row["p_name"] or "", row["specs"] or ""
+            ).get("supports_ff") or []
+            if current == sourced[0]:
+                continue
+            repaired.append(row["product_id"])
+            if apply:
+                conn.execute(
+                    "UPDATE products SET specs=?, updated_at=? WHERE product_id=?",
+                    (canonical_specs(facts, row["specs"] or ""),
+                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["product_id"]),
+                )
+        if apply:
+            conn.commit()
+        else:
+            conn.rollback()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"mode": "apply" if apply else "dry-run",
+            "case_rows_scanned": len(rows), "case_form_factors_rebuilt": len(repaired),
+            "product_ids": repaired}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true", help="write normalized facts to shop.db")
+    parser.add_argument("--repair-psu-connectors", action="store_true",
+                        help="normalize PSU rows with PCIe 8-pin facts missing from stored facts")
+    parser.add_argument("--repair-case-form-factors", action="store_true",
+                        help="refresh case motherboard support from saved retailer details")
     args = parser.parse_args()
-    for key, value in run(args.apply).items():
+    if args.repair_psu_connectors:
+        result = repair_psu_connector_facts(args.apply)
+    elif args.repair_case_form_factors:
+        result = repair_case_form_factors(args.apply)
+    else:
+        result = run(args.apply)
+    for key, value in result.items():
         print(f"{key}: {value}")

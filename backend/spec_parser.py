@@ -125,11 +125,12 @@ def parse_mainboard(name: str) -> dict:
         # else: truly unknown (e.g. very old or no chipset found)
 
     ff = "mATX"
-    if re.search(r"\bMINI[- ]?ITX\b|\(ITX\)|\bITX\b", u): ff = "ITX"
+    if re.search(r"\bE[- ]?ATX\b", u): ff = "E-ATX"
+    elif re.search(r"\bMINI[- ]?ITX\b|\(ITX\)|\bITX\b", u): ff = "ITX"
     elif re.search(r"\(ATX\)|\bATX\b", u) and "MATX" not in u.replace("M-ATX", "MATX"): ff = "ATX"
     elif re.search(r"M[- ]?ATX|MICRO[- ]?ATX|\(MATX\)", u): ff = "mATX"
     # explicit ATX token check (avoid mATX false positive handled above)
-    if re.search(r"\(ATX\)|\bE[- ]?ATX\b", u): ff = "ATX"
+    if re.search(r"\(ATX\)", u): ff = "ATX"
 
     return {"category": "Mainboard", "socket": socket,
             "ram_support": sorted(ram_support) or None, "form_factor": ff}
@@ -193,14 +194,38 @@ def parse_psu(name: str) -> dict:
     return result
 
 
+FORM_FACTOR_ORDER = ("E-ATX", "ATX", "mATX", "ITX")
+
+
+def extract_form_factors(value: str) -> list[str]:
+    """Read motherboard sizes without treating E-ATX or Micro-ATX as ATX."""
+    u = (value or "").upper()
+    found = set()
+    if re.search(r"\bE[- ]?ATX\b", u):
+        found.add("E-ATX")
+    if re.search(r"(?<![A-Z-])ATX\b", u):
+        found.add("ATX")
+    if re.search(r"\b(?:MICRO[- ]?ATX|M[- ]?ATX|MATX)\b", u):
+        found.add("mATX")
+    if re.search(r"\b(?:MINI[- ]?ITX|ITX)\b", u):
+        found.add("ITX")
+    return [factor for factor in FORM_FACTOR_ORDER if factor in found]
+
+
 def parse_case(name: str) -> dict:
     u = name.upper()
-    ff = "mATX"
-    if re.search(r"\bMINI[- ]?ITX\b|\(ITX\)", u): ff = "ITX"
-    elif re.search(r"\(ATX\)|\bFULL TOWER\b|\bMID TOWER\b|\bE[- ]?ATX\b", u): ff = "ATX"
-    elif re.search(r"M[- ]?ATX|MICRO[- ]?ATX|\(MATX\)", u): ff = "mATX"
-    supports = {"ITX": {"ITX"}, "mATX": {"mATX", "ITX"}, "ATX": {"ATX", "mATX", "ITX"}}[ff]
-    return {"category": "Case", "form_factor": ff, "supports_ff": sorted(supports)}
+    factors = extract_form_factors(u)
+    ff = factors[0] if factors else None
+    if not ff and re.search(r"\b(?:FULL|MID)\s*TOWER\b", u):
+        ff = "ATX"
+    supported_by_size = {
+        "E-ATX": list(FORM_FACTOR_ORDER),
+        "ATX": ["ATX", "mATX", "ITX"],
+        "mATX": ["mATX", "ITX"],
+        "ITX": ["ITX"],
+    }
+    return {"category": "Case", "form_factor": ff,
+            "supports_ff": supported_by_size.get(ff)}
 
 
 COOLER_RATING_HINTS = [
@@ -265,11 +290,22 @@ def normalize_label(label: str) -> str:
 def _parse_power_connectors(value: str) -> dict:
     """Normalize common GPU/PSU connector descriptions into connector counts."""
     text = re.sub(r"\s+", " ", value.upper().replace("×", "X")).strip()
+    # Advice summaries put the count before PCIe, while its specification
+    # table puts the count after the pin type. Canonicalize both forms before
+    # applying the ordinary connector patterns below.
+    text = re.sub(
+        r"\b(\d+)\s*X\s*PCI[ -]?E\s*\(\s*((?:6\s*\+\s*2|8|6|16)\s*[- ]?PIN)\s*\)",
+        r"\1 X \2", text,
+    )
+    text = re.sub(
+        r"\(\s*((?:6\s*\+\s*2|8|6|16)\s*[- ]?PIN)\s*\)\s*X\s*(\d+)(?:\s+CONNECTORS?)?",
+        r"\2 X \1", text,
+    )
     found = {}
     patterns = [
         ("12V-2x6", r"12V\s*[- ]?2X6|12V2X6"),
         ("12VHPWR", r"12VHPWR|12V\s*HIGH\s*POWER|(?<!\d)16\s*[- ]?PIN"),
-        ("PCIe 8-pin", r"(?:PCI[ -]?E|PCIE)?\s*(?<!\d)8\s*[- ]?PIN|(?<!\d)6\s*\+\s*2\s*PIN|(?<!\d)8\s*\+\s*2\s*PIN"),
+        ("PCIe 8-pin", r"(?:PCI[ -]?E|PCIE)?\s*(?<!\d)8\s*[- ]?PIN|(?<!\d)6\s*\+\s*2\s*[- ]?PIN|(?<!\d)8\s*\+\s*2\s*[- ]?PIN"),
         ("PCIe 6-pin", r"(?:PCI[ -]?E|PCIE)?\s*(?<!\d)6\s*[- ]?PIN"),
     ]
     for label, pattern in patterns:
@@ -278,7 +314,7 @@ def _parse_power_connectors(value: str) -> dict:
             found[label] = max(found.get(label, 0), int(match.group(1)))
         elif re.search(pattern, text):
             found[label] = max(found.get(label, 0), 1)
-    return found
+    return {label: count for label, count in found.items() if count > 0}
 
 
 _DETAIL_LABELS = {
@@ -307,7 +343,8 @@ _DETAIL_LABELS = {
         "supplementary power", "ขั้วต่อไฟ", "หัวต่อไฟ",
     ),
     "form_factor": (
-        "form factor", "form-factor", "supported motherboard", "รองรับเมนบอร์ด",
+        "form factor", "form-factor", "supported motherboard", "mainboard support",
+        "motherboard support", "รองรับเมนบอร์ด",
     ),
     "psu_watt": (
         "wattage", "watt", "total power", "total output", "power output",
@@ -451,15 +488,14 @@ def _parse_specs_text(specs: str, category: str = "") -> dict:
                 result["tdp"] = max(result.get("tdp", 0), int(m.group(1)))
 
         # Form factor
-        if any(k in key for k in ("form factor", "form-factor", "supported motherboard")):
-            if "MINI-ITX" in val or "MINI ITX" in val or "ITX" in val:
-                result["form_factor"] = "ITX"
-            elif "E-ATX" in val or "EATX" in val:
-                result["form_factor"] = "ATX"
-            elif "ATX" in val and "MATX" not in val and "MICRO" not in val:
-                result["form_factor"] = "ATX"
-            elif "MATX" in val or "MICRO-ATX" in val or "MICRO ATX" in val:
-                result["form_factor"] = "mATX"
+        if any(k in key for k in ("form factor", "form-factor", "supported motherboard",
+                                    "mainboard support", "motherboard support")):
+            factors = extract_form_factors(val)
+            if factors:
+                if category == "Case":
+                    result["supports_ff"] = factors
+                else:
+                    result["form_factor"] = factors[0]
 
         # PSU Wattage
         if key in ("wattage", "watt", "total power", "total output", "power output", "rated power", "continuous power", "output wattage"):
@@ -509,13 +545,7 @@ def _parse_specs_text(specs: str, category: str = "") -> dict:
                 for connector, count in connectors.items():
                     current[connector] = max(current.get(connector, 0), count)
         elif kind == "form_factor":
-            supported = []
-            for token, normalized in (
-                (r"E[- ]?ATX", "ATX"), (r"MICRO[- ]?ATX|M[- ]?ATX", "mATX"),
-                (r"MINI[- ]?ITX|\bITX\b", "ITX"), (r"\bATX\b", "ATX"),
-            ):
-                if re.search(token, val) and normalized not in supported:
-                    supported.append(normalized)
+            supported = extract_form_factors(val)
             if category == "Case" and supported:
                 result["supports_ff"] = supported
             elif supported:
@@ -533,6 +563,37 @@ def _parse_specs_text(specs: str, category: str = "") -> dict:
                 m = re.search(r"(\d{2,3})\s*MM", val)
                 if m:
                     result["height_mm"] = int(m.group(1))
+
+    # Older JIB records flattened specification tables into one long line.
+    # Limit extraction to the PCIe row so CPU 4+4-pin plugs cannot be counted
+    # as GPU power plugs.
+    if category in ("PSU", "GPU"):
+        flat = re.sub(r"\s+", " ", specs)
+        legacy_pcie = re.search(
+            r"\bPCI(?:E|[ -]?E| EX| EXPRESS)\s+CONNECTOR\b\s*:?[ \t]*"
+            r"(.{0,160}?)\s+(?=(?:CPU|MAINBOARD|MOTHERBOARD|MOLEX|SATA)\s+CONNECTOR\b|"
+            r"POWER FACTOR CORRECTION\b|FAN SIZE\b|กำลังไฟสูงสุด)",
+            flat, re.I,
+        )
+        if legacy_pcie:
+            connectors = _parse_power_connectors(legacy_pcie.group(1))
+            if connectors:
+                current = result.setdefault("power_connectors", {})
+                for connector, count in connectors.items():
+                    current[connector] = max(current.get(connector, 0), count)
+
+    # Advice's saved short description is slash-separated rather than a
+    # key/value table (for example "2xPCIe (6+2 Pin)"). Only inspect explicit
+    # PCIe clauses so other pin counts cannot be mistaken for GPU power.
+    if category == "PSU":
+        for match in re.finditer(
+            r"\b\d+\s*[X×]\s*PCI[ -]?E\s*\(\s*(?:6\s*\+\s*2|8|6|16)\s*[- ]?PIN\s*\)",
+            specs, re.I,
+        ):
+            connectors = _parse_power_connectors(match.group())
+            current = result.setdefault("power_connectors", {})
+            for connector, count in connectors.items():
+                current[connector] = max(current.get(connector, 0), count)
 
     return result
 

@@ -11,6 +11,8 @@ describe('Profile', () => {
 
   beforeEach(async () => {
     localStorage.setItem('lt_user', JSON.stringify({ uid: 'test-user', role: 'customer' }));
+    const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }));
+    localStorage.setItem('lt_token', `header.${payload}.signature`);
     await TestBed.configureTestingModule({
       imports: [ProfileComponent],
       providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
@@ -26,5 +28,8 @@ describe('Profile', () => {
     expect(component).toBeTruthy();
   });
 
-  afterEach(() => localStorage.removeItem('lt_user'));
+  afterEach(() => {
+    localStorage.removeItem('lt_user');
+    localStorage.removeItem('lt_token');
+  });
 });
