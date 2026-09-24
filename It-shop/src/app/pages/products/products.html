@@ -82,11 +82,41 @@
     <button (click)="searchQuery = ''; onSearch()" class="btn-clear">ล้างการค้นหา</button>
   </div>
 
-  <div *ngIf="!isLoading && !loadError && totalProducts > pageSize" class="modal-actions">
-    <button class="btn-clear" [disabled]="page <= 1" (click)="loadProducts(page - 1)">ก่อนหน้า</button>
-    <span>หน้า {{ page }} / {{ totalPages }}</span>
-    <button class="btn-clear" [disabled]="page >= totalPages" (click)="loadProducts(page + 1)">ถัดไป</button>
-  </div>
+  <!-- Pagination -->
+  <nav *ngIf="!isLoading && !loadError && totalProducts > pageSize" class="pagination" aria-label="Page navigation">
+    <button
+      class="page-btn page-arrow"
+      [disabled]="page <= 1"
+      (click)="loadProducts(page - 1)"
+      aria-label="Previous page">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+
+    <ng-container *ngFor="let pg of getPageNumbers()">
+      <span *ngIf="pg === -1" class="page-ellipsis">...</span>
+      <button
+        *ngIf="pg !== -1"
+        class="page-btn page-number"
+        [class.active]="pg === page"
+        (click)="loadProducts(pg)">
+        {{ pg }}
+      </button>
+    </ng-container>
+
+    <button
+      class="page-btn page-arrow"
+      [disabled]="page >= totalPages"
+      (click)="loadProducts(page + 1)"
+      aria-label="Next page">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
+
+    <span class="page-info">{{ page }} / {{ totalPages }}</span>
+  </nav>
 
   <!-- Modal แก้ไขสินค้า (Admin) -->
   <div class="modal-overlay" *ngIf="showEditModal" (click)="closeModal()">

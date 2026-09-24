@@ -815,9 +815,20 @@ def get_products(
     category: str = "", cid: str = "", search: str = "", name: str = "",
     component: str = "",
     page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_optional_user),
 ):
+    is_admin = user and user.u_role == "admin"
     q = db.query(Product)
+
+    # Non-admin: hide products with no price from any store (out of stock)
+    if not is_admin:
+        q = q.filter(or_(
+            Product.price_advice > 0,
+            Product.price_jib > 0,
+            Product.price_ihavecpu > 0,
+        ))
+
     component_key = normalize_builder_component(component)
     component_rule = BUILDER_COMPONENT_RULES.get(component_key) if component else None
     if component and not component_rule:
