@@ -30,6 +30,7 @@ COMPAT_CATEGORIES = {
 }
 FIELD_LABELS = {
     "socket": "Socket",
+    "sockets": "Supported Sockets",
     "ram_support": "Supported Memory",
     "ddr_gen": "Memory Type",
     "tdp": "TDP",
@@ -103,6 +104,14 @@ def choose_fact(field: str, candidates: list[tuple[object, str, str]], name: str
                 merged[connector] = max(merged.get(connector, 0), count)
         value, store, url = max(candidates, key=lambda item: len(item[0]))
         return merged, store, url
+    if field == "sockets":
+        merged = []
+        for value, _store, _url in candidates:
+            for socket in value:
+                if socket not in merged:
+                    merged.append(socket)
+        _value, store, url = max(candidates, key=lambda item: len(item[0]))
+        return merged, store, url
     counts = Counter(value_key(item[0]) for item in candidates)
     selected, count = counts.most_common(1)[0]
     # Conflicting single-source scalar claims are unsafe; let name parsing or
@@ -117,7 +126,7 @@ def format_value(field: str, value) -> str:
         return f"{value} W"
     if field == "height_mm":
         return f"{value} mm"
-    if field in ("ram_support", "supports_ff"):
+    if field in ("ram_support", "supports_ff", "sockets"):
         return ", ".join(value)
     if field == "power_connectors":
         return ", ".join(f"{count} x {name}" for name, count in sorted(value.items()))

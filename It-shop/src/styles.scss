@@ -2,6 +2,7 @@
 @use './app/pages/pc-builder/pc-builder' as pcBuilder;
 @use './app/pages/history/history' as history;
 @use './app/pages/admin-users/admin-users' as adminUsers;
+@use './app/pages/admin-products/admin-products' as adminProducts;
 
 // Load all application font families once. Component-level imports duplicated
 // font CSS in production and counted against each component style budget.
@@ -14,6 +15,7 @@ app-ai-recommend { @include aiRecommend.component-styles; }
 app-pc-builder { @include pcBuilder.component-styles; }
 app-history { @include history.component-styles; }
 app-admin-users { @include adminUsers.component-styles; }
+app-admin-products { @include adminProducts.component-styles; }
 
 :root {
   --primary-color: #ff0000;    /* สีแดงหลัก */

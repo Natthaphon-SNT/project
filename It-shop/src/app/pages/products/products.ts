@@ -25,6 +25,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   'CPU':           'https://cdn-icons-png.flaticon.com/512/2991/2991100.png',
   'Mainboard':     'https://cdn-icons-png.flaticon.com/512/2091/2091665.png',
   'GPU':           'https://cdn-icons-png.flaticon.com/512/4429/4429085.png',
+  'GPU Accessories': 'https://cdn-icons-png.flaticon.com/512/4429/4429085.png',
   'RAM':           'https://cdn-icons-png.flaticon.com/512/984/984196.png',
   'M.2':           'https://cdn-icons-png.flaticon.com/512/2740/2740832.png',
   'SSD':           'https://cdn-icons-png.flaticon.com/512/2740/2740832.png',
@@ -33,6 +34,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   'Storage Accessories': 'https://cdn-icons-png.flaticon.com/512/2740/2740832.png',
   'PSU':           'https://cdn-icons-png.flaticon.com/512/1048/1048328.png',
   'Case':          'https://cdn-icons-png.flaticon.com/512/3034/3034157.png',
+  'Case Fan':      'https://cdn-icons-png.flaticon.com/512/814/814975.png',
   'Case Accessories': 'https://cdn-icons-png.flaticon.com/512/3034/3034157.png',
   'Liquid Cooler': 'https://cdn-icons-png.flaticon.com/512/814/814970.png',
   'Air Cooler':    'https://cdn-icons-png.flaticon.com/512/814/814975.png',
@@ -44,8 +46,15 @@ const CATEGORY_ICONS: Record<string, string> = {
   'Graphic Tablet': 'https://cdn-icons-png.flaticon.com/512/2977/2977807.png',
   'Keyboard Accessories': 'https://cdn-icons-png.flaticon.com/512/2977/2977807.png',
   'Headset':       'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
+  'Gaming Headset': 'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
+  'Wireless Headset': 'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
+  'In-Ear Headphone': 'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
+  'True Wireless Earbuds': 'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
   'Microphone':    'https://cdn-icons-png.flaticon.com/512/906/906794.png',
   'Monitor':       'https://cdn-icons-png.flaticon.com/512/2093/2093156.png',
+  'Dual Mode Monitor': 'https://cdn-icons-png.flaticon.com/512/2093/2093156.png',
+  'Portable Monitor': 'https://cdn-icons-png.flaticon.com/512/2093/2093156.png',
+  'Curved Monitor': 'https://cdn-icons-png.flaticon.com/512/2093/2093156.png',
   'Monitor Accessories': 'https://cdn-icons-png.flaticon.com/512/2093/2093156.png',
   'Gaming Chair':  'https://cdn-icons-png.flaticon.com/512/4099/4099711.png',
   'Gaming Desk':   'https://cdn-icons-png.flaticon.com/512/1034/1034659.png',
@@ -97,14 +106,13 @@ export class ProductsComponent implements OnInit, OnDestroy {
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
   }
 
-  private readonly PROXY = 'http://localhost:3000/api/image-proxy?url=';
   private readonly FALLBACK_ICON = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
 
   getProductImage(p: Product): string {
-    if (p.img_url && p.img_url.startsWith('http')) {
-      return this.PROXY + encodeURIComponent(p.img_url);
-    }
-    return CATEGORY_ICONS[p.category] || this.FALLBACK_ICON;
+    return this.api.resolveProductImage(
+      p.img_url,
+      CATEGORY_ICONS[p.category] || this.FALLBACK_ICON
+    );
   }
 
   getMinPrice(p: Product): number {
@@ -133,7 +141,10 @@ export class ProductsComponent implements OnInit, OnDestroy {
     ]).subscribe(([params, qp]) => {
       this.category    = params.get('type') || '';
       this.searchQuery = qp.get('search') || '';
-      this.loadProducts();
+      // Angular reuses this component when navigating between categories.
+      // Always reset pagination so a page from the previous category cannot
+      // request an out-of-range page and make the new category look empty.
+      this.loadProducts(1);
     });
   }
 

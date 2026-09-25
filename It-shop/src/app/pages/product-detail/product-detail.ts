@@ -156,15 +156,11 @@ export class ProductDetail implements OnInit {
     }
   }
 
-  private readonly PROXY = 'http://localhost:3000/api/image-proxy?url=';
   private readonly FALLBACK = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
 
   getProductImage(): string {
     const raw = this.product?.img_url || '';
-    if (raw && raw.startsWith('http')) {
-      return this.PROXY + encodeURIComponent(raw);
-    }
-    return this.FALLBACK;
+    return this.api.resolveProductImage(raw, this.FALLBACK);
   }
 
   onImgError(event: Event) {

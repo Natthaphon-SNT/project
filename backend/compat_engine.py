@@ -233,13 +233,39 @@ def check_cooler_tdp(parts) -> Optional[dict]:
     if socket_result and socket_result.get("severity") == "ERROR":
         return socket_result
     rating, tdp = cooler.get("rating_watt"), cpu.get("tdp")
-    if rating is None or tdp is None:
+    estimated_range = cooler.get("estimated_watt_range")
+    if tdp is None:
         return {"rule": "R4 CPU Cooler TDP", "ok": True, "severity": "UNKNOWN",
-                "detail": "ข้ามการตรวจ (ประเมิน TDP/cooler rating ไม่ได้จากชื่อสินค้า)"}
-    ok = rating >= tdp
-    return {"rule": "R4 CPU Cooler TDP", "ok": ok,
+                "detail": "ข้ามการตรวจ (ไม่พบ CPU TDP สำหรับเปรียบเทียบ)"}
+    if rating is not None:
+        ok = rating >= tdp
+        return {"rule": "R4 CPU Cooler TDP", "ok": ok,
+                "severity": "PASS" if ok else "WARNING",
+                "detail": f"Cooler ~{rating}W vs CPU ~{tdp}W" + ("" if ok else " → เสี่ยง thermal throttling")}
+    if estimated_range:
+        low, high = estimated_range
+        ok = tdp <= high
+        detail = (
+            f"Cooler tier {cooler.get('tdp_tier')} ประเมินรองรับ {low}-{high}W / CPU {tdp}W"
+            if ok else
+            f"cooler นี้อาจไม่พอสำหรับ CPU {tdp}W (ประเมินช่วงรองรับ {low}-{high}W)"
+        )
+        return {
+            "rule": "R4 CPU Cooler TDP",
+            "ok": ok,
             "severity": "PASS" if ok else "WARNING",
-            "detail": f"Cooler ~{rating}W vs CPU ~{tdp}W" + ("" if ok else " → เสี่ยง thermal throttling")}
+            "detail": detail,
+            "tdp_tier": cooler.get("tdp_tier"),
+            "estimated_watt_range": estimated_range,
+            "confidence": cooler.get("confidence", "unknown"),
+        }
+    return {
+        "rule": "R4 CPU Cooler TDP",
+        "ok": True,
+        "severity": "UNKNOWN",
+        "detail": cooler.get("skip_reason") or
+                  "ข้ามการตรวจ (ประเมิน TDP/cooler rating ไม่ได้จากชื่อสินค้า)",
+    }
 
 
 def check_cooler_socket(parts) -> Optional[dict]:
@@ -272,6 +298,25 @@ def check_case_ff(parts) -> Optional[dict]:
             "detail": f"Case รองรับ {', '.join(supports)} / Mainboard = {mff}" + ("" if ok else " → ใส่ไม่ลงเคส")}
 
 
+def check_case_radiator(parts) -> Optional[dict]:
+    case, cooler = _get(parts, "Case"), _get(parts, "Cooler")
+    if not case or not cooler:
+        return None
+    size = cooler.get("radiator_size_mm")
+    if not size:
+        return None
+    supported = case.get("radiator_support_mm")
+    if not supported:
+        return {"rule": "R9 Case ↔ Radiator Size", "ok": False,
+                "severity": "UNKNOWN",
+                "detail": "ไม่มีข้อมูลขนาดหม้อน้ำที่เคสรองรับจากสเปกสินค้า จึงยังยืนยันไม่ได้"}
+    ok = size in supported
+    return {"rule": "R9 Case ↔ Radiator Size", "ok": ok,
+            "severity": "PASS" if ok else "ERROR",
+            "detail": f"หม้อน้ำ {size} มม. / เคสระบุรองรับ {', '.join(map(str, supported))} มม."
+                      + ("" if ok else " → ไม่อยู่ในขนาดที่สเปกสินค้าเคสระบุ")}
+
+
 def check_budget(parts_with_price, budget) -> Optional[dict]:
     if not budget:
         return None
@@ -286,9 +331,51 @@ def check_budget(parts_with_price, budget) -> Optional[dict]:
 
 ALL_CHECKS = [check_socket, check_ram_gen, check_psu_watt,
               check_gpu_tier_psu, check_gpu_power_connectors,
-              check_cooler_socket, check_cooler_tdp, check_case_ff]
+              check_cooler_socket, check_cooler_tdp, check_case_ff,
+              check_case_radiator]
 
 _SEV_ORDER = {"ERROR": 3, "WARNING": 2, "UNKNOWN": 1, "PASS": 0}
+
+# Scoring severity is deliberately separate from the existing result severity.
+# PASS/ERROR/WARNING/UNKNOWN remains the compatibility verdict consumed by the
+# UI, while this definition tells the ranking engine how costly a failed rule
+# is.  This keeps all R1-R9 check logic and API compatibility intact.
+RULE_DEFINITIONS = {
+    "R1": {"severity": "critical", "description": "CPU and mainboard socket"},
+    "R2": {"severity": "warning", "description": "RAM and mainboard DDR generation"},
+    "R3": {"severity": "warning", "description": "PSU wattage"},
+    "R4": {"severity": "warning", "description": "CPU cooler thermal capacity"},
+    "R4S": {"severity": "critical", "description": "CPU cooler socket"},
+    "R5": {"severity": "warning", "description": "Case and mainboard form factor"},
+    "R6": {"severity": "warning", "description": "High-tier GPU PSU headroom"},
+    "R7": {"severity": "warning", "description": "Budget"},
+    "R8": {"severity": "critical", "description": "GPU and PSU power connectors"},
+    "R9": {"severity": "warning", "description": "Case radiator support"},
+}
+
+
+def _rule_code(check: dict) -> str:
+    return str(check.get("rule") or "").split(maxsplit=1)[0].upper()
+
+
+def score_severity_for(check: dict) -> str:
+    """Return critical/warning severity used only by recommendation scoring.
+
+    A missing datum is not a confirmed physical mismatch, even for a rule whose
+    definition is normally critical.  R8 becomes critical when both the GPU
+    requirement and PSU connector inventory are known and do not match.
+    """
+    code = _rule_code(check)
+    result_status = str(check.get("severity") or "UNKNOWN").upper()
+    if result_status == "PASS":
+        return RULE_DEFINITIONS.get(code, {}).get("severity", "warning")
+    if code in ("R1", "R4S") and result_status != "ERROR":
+        return "warning"
+    if code == "R8" and not (
+        check.get("required_connectors") and check.get("available_connectors")
+    ):
+        return "warning"
+    return RULE_DEFINITIONS.get(code, {}).get("severity", "warning")
 
 # ─────────────────────────────────────────
 # Public API
@@ -304,11 +391,13 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
     for fn in ALL_CHECKS:
         result = fn(parts)
         if result:
+            result["score_severity"] = score_severity_for(result)
             checks.append(result)
 
     if isinstance(budget, (int, float)) and budget > 0:
         b = check_budget(parts, budget)
         if b:
+            b["score_severity"] = score_severity_for(b)
             checks.append(b)
 
     worst = "ok"
@@ -348,6 +437,8 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
             suggestions.append("ใช้ CPU cooler ที่รองรับ socket ของ CPU โดยตรง")
         elif e["rule"].startswith("R4"):
             suggestions.append("ใช้ CPU cooler ที่ rated TDP สูงกว่า CPU")
+        elif e["rule"].startswith("R9"):
+            suggestions.append("เลือกหม้อน้ำตามขนาดที่เคสระบุรองรับ หรือตรวจคู่มือเคสและตำแหน่งติดตั้ง")
 
     # Frontend shape: item/ok/detail
     fe_checks = [{**c, "item": c["rule"], "ok": c.get("severity") == "PASS"} for c in checks]
@@ -365,5 +456,10 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
             "warnings": len(warnings),
             "unknown": len(unknowns),
             "deterministic": True,
+            "score_policy": {
+                "method": "severity-based",
+                "critical_failure_cap": 50,
+                "rule_definitions": RULE_DEFINITIONS,
+            },
         },
     }

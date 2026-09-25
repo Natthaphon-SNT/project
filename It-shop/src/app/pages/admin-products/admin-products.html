@@ -1,26 +1,52 @@
-<div class="admin-container">
-  <div class="admin-header">
-    <h1>📦 จัดการสินค้า (Admin)</h1>
-  </div>
+<main class="admin-container">
+  <header class="admin-header">
+    <div>
+      <span class="eyebrow">ADMIN / PRODUCT CATALOG</span>
+      <h1>จัดการสินค้า</h1>
+      <p>เพิ่ม แก้ไข และตรวจสอบสินค้าในแคตตาล็อก IT-RECOMMEND</p>
+    </div>
+    <div class="catalog-stat" aria-label="จำนวนสินค้าในผลลัพธ์">
+      <strong>{{ totalProducts | number }}</strong>
+      <span>สินค้าในผลลัพธ์</span>
+    </div>
+  </header>
 
-  <!-- ฟอร์มเพิ่ม / แก้ไขสินค้า -->
-  <div class="form-card">
-    <h2>{{ editMode ? '✏️ แก้ไขสินค้า' : '➕ เพิ่มสินค้าใหม่' }}</h2>
+  <section class="form-card" [class.is-editing]="editMode">
+    <div class="section-heading">
+      <div class="section-icon" aria-hidden="true">{{ editMode ? '✎' : '+' }}</div>
+      <div>
+        <span class="section-kicker">{{ editMode ? 'EDIT PRODUCT' : 'NEW PRODUCT' }}</span>
+        <h2>{{ editMode ? 'แก้ไขข้อมูลสินค้า' : 'เพิ่มสินค้าใหม่' }}</h2>
+      </div>
+    </div>
+
+    <div *ngIf="notice" class="notice" [class.notice-error]="noticeType === 'error'" role="status">
+      <span aria-hidden="true">{{ noticeType === 'success' ? '✓' : '!' }}</span>
+      {{ notice }}
+    </div>
+
     <div class="form-grid">
-
-      <div class="form-group col-2">
-        <label>ชื่อสินค้า</label>
-        <input type="text" [(ngModel)]="formProduct.name" placeholder="เช่น Intel Core i9-14900K">
+      <div class="form-group col-full">
+        <label for="product-name">ชื่อสินค้า <em>*</em></label>
+        <input id="product-name" type="text" [(ngModel)]="formProduct.name"
+          placeholder="เช่น Intel Core i9-14900K" autocomplete="off">
       </div>
 
       <div class="form-group">
-        <label>ราคา (บาท)</label>
-        <input type="number" [(ngModel)]="formProduct.price" placeholder="0">
+        <label for="product-price">ราคา (บาท) <em>*</em></label>
+        <input id="product-price" type="number" min="0" step="0.01"
+          [(ngModel)]="formProduct.price" placeholder="0">
       </div>
 
       <div class="form-group">
-        <label>หมวดหมู่</label>
-        <select [(ngModel)]="formProduct.category">
+        <label for="product-stock">จำนวนคงเหลือ <em>*</em></label>
+        <input id="product-stock" type="number" min="0" step="1"
+          [(ngModel)]="formProduct.stock" placeholder="1">
+      </div>
+
+      <div class="form-group">
+        <label for="product-category">หมวดหมู่</label>
+        <select id="product-category" [(ngModel)]="formProduct.category">
           <option value="c01">CPU</option>
           <option value="c02">Mainboard</option>
           <option value="c03">GPU / VGA</option>
@@ -33,81 +59,110 @@
         </select>
       </div>
 
-      <div class="form-group col-2">
-        <label>คำอธิบายสินค้า</label>
-        <textarea [(ngModel)]="formProduct.description" placeholder="รายละเอียดสินค้า..." rows="3"></textarea>
+      <div class="form-group col-full">
+        <label for="product-description">รายละเอียด / สเปกสินค้า</label>
+        <textarea id="product-description" [(ngModel)]="formProduct.description"
+          placeholder="ระบุรุ่น ซ็อกเก็ต ขนาด หรือรายละเอียดที่ใช้ค้นหา..." rows="4"></textarea>
       </div>
 
-      <div class="form-group col-2">
-        <label>URL รูปภาพ</label>
-        <input type="text" [(ngModel)]="formProduct.image" placeholder="https://... หรือ assets/...">
+      <div class="form-group col-full">
+        <label for="product-image">URL รูปภาพ</label>
+        <input id="product-image" type="url" [(ngModel)]="formProduct.image"
+          placeholder="https://... หรือ assets/...">
+        <small>หากไม่ระบุ ระบบจะแสดงรูปเริ่มต้น</small>
       </div>
-
     </div>
 
     <div class="form-actions">
-      <button (click)="submitForm()" class="btn-save">
-        {{ editMode ? '💾 บันทึกการแก้ไข' : '➕ เพิ่มสินค้า' }}
+      <button type="button" class="btn-primary" (click)="submitForm()" [disabled]="isSubmitting">
+        <span aria-hidden="true">{{ editMode ? '✓' : '+' }}</span>
+        {{ isSubmitting ? 'กำลังบันทึก...' : (editMode ? 'บันทึกการแก้ไข' : 'เพิ่มสินค้า') }}
       </button>
-      <button *ngIf="editMode" (click)="cancelEdit()" class="btn-cancel">
-        ✖ ยกเลิก
-      </button>
+      <button *ngIf="editMode" type="button" class="btn-secondary" (click)="cancelEdit()"
+        [disabled]="isSubmitting">ยกเลิก</button>
     </div>
-  </div>
+  </section>
 
-  <!-- ตารางสินค้า -->
-  <div class="table-card">
+  <section class="table-card">
     <div class="table-header-row">
-      <h2>รายการสินค้าทั้งหมด ({{ totalProducts }} รายการ)</h2>
       <div>
-        <input type="search" [(ngModel)]="searchQuery" (keyup.enter)="applySearch()" placeholder="ค้นหาสินค้า">
-        <button type="button" class="btn-edit" (click)="applySearch()">ค้นหา</button>
+        <span class="section-kicker">CATALOG</span>
+        <h2>รายการสินค้าทั้งหมด</h2>
+      </div>
+      <div class="search-box">
+        <span aria-hidden="true">⌕</span>
+        <input type="search" [(ngModel)]="searchQuery" (keyup.enter)="applySearch()"
+          placeholder="ค้นหาชื่อหรือรายละเอียดสินค้า" aria-label="ค้นหาสินค้า">
+        <button *ngIf="searchQuery" type="button" class="clear-search" (click)="clearSearch()"
+          aria-label="ล้างคำค้นหา">×</button>
+        <button type="button" class="btn-search" (click)="applySearch()">ค้นหา</button>
       </div>
     </div>
 
-    <div *ngIf="loadError" class="empty-state" role="alert">
-      ไม่สามารถเชื่อมต่อเพื่อโหลดสินค้าได้
-      <button type="button" class="btn-edit" (click)="loadProducts(page)">ลองใหม่</button>
+    <div *ngIf="isLoading" class="empty-state">
+      <span class="loader" aria-hidden="true"></span>
+      กำลังโหลดสินค้า...
     </div>
 
-    <div class="table-wrapper" *ngIf="!loadError">
+    <div *ngIf="loadError && !isLoading" class="empty-state error-state" role="alert">
+      <strong>โหลดรายการสินค้าไม่สำเร็จ</strong>
+      <span>ตรวจสอบการเชื่อมต่อกับ API แล้วลองอีกครั้ง</span>
+      <button type="button" class="btn-secondary" (click)="loadProducts(page)">ลองใหม่</button>
+    </div>
+
+    <div class="table-wrapper" *ngIf="!loadError && !isLoading && products.length">
       <table>
         <thead>
           <tr>
-            <th>รูป</th>
-            <th>ชื่อสินค้า</th>
+            <th>สินค้า</th>
             <th>หมวดหมู่</th>
             <th>ราคา</th>
-            <th>Stock</th>
-            <th class="text-center">จัดการ</th>
+            <th>คงเหลือ</th>
+            <th class="text-right">จัดการ</th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let p of visibleProducts">
+          <tr *ngFor="let product of visibleProducts; trackBy: trackProduct">
             <td>
-              <img [src]="p.img_url || 'assets/default.png'" class="product-thumb" [alt]="p.p_name">
+              <div class="product-summary">
+                <img [src]="product.img_url || fallbackImage" class="product-thumb"
+                  [alt]="product.p_name" (error)="imageFallback($event)">
+                <div>
+                  <strong>{{ product.p_name }}</strong>
+                  <span>ID: {{ product.product_id }}</span>
+                </div>
+              </div>
             </td>
-            <td class="product-name-cell">{{ p.p_name }}</td>
-            <td><span class="badge">{{ getCategoryName(p.cid) }}</span></td>
-            <td class="price-cell">{{ p.p_price | number }} ฿</td>
-            <td>{{ p.p_stock }}</td>
+            <td><span class="badge">{{ getCategoryName(product.cid) }}</span></td>
+            <td class="price-cell">{{ product.p_price | number:'1.0-2' }} ฿</td>
+            <td>
+              <span class="stock" [class.out-of-stock]="product.p_stock <= 0">
+                {{ product.p_stock > 0 ? (product.p_stock | number) + ' ชิ้น' : 'หมด' }}
+              </span>
+            </td>
             <td class="action-cell">
-              <button (click)="editProduct(p)" class="btn-edit">✏️ แก้ไข</button>
-              <button (click)="deleteProduct(p.product_id)" class="btn-delete">🗑️ ลบ</button>
+              <button type="button" (click)="editProduct(product)" class="btn-edit">แก้ไข</button>
+              <button type="button" (click)="deleteProduct(product)" class="btn-delete">ลบ</button>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div *ngIf="!loadError && products.length === 0" class="empty-state">
-      ยังไม่มีสินค้าในระบบ
+    <div *ngIf="!loadError && !isLoading && products.length === 0" class="empty-state">
+      <strong>{{ searchQuery ? 'ไม่พบสินค้าที่ค้นหา' : 'ยังไม่มีสินค้าในระบบ' }}</strong>
+      <span *ngIf="searchQuery">ลองเปลี่ยนคำค้นหา หรือล้างคำค้นหาเพื่อดูสินค้าทั้งหมด</span>
+      <button *ngIf="searchQuery" type="button" class="btn-secondary" (click)="clearSearch()">
+        ล้างคำค้นหา
+      </button>
     </div>
-    <div *ngIf="!loadError && totalProducts > pageSize" class="form-actions">
-      <button type="button" class="btn-cancel" [disabled]="page <= 1" (click)="loadProducts(page - 1)">ก่อนหน้า</button>
-      <span>หน้า {{ page }} / {{ totalPages }}</span>
-      <button type="button" class="btn-save" [disabled]="page >= totalPages" (click)="loadProducts(page + 1)">ถัดไป</button>
-    </div>
-  </div>
 
-</div>
+    <footer *ngIf="!loadError && !isLoading && totalProducts > pageSize" class="pagination">
+      <button type="button" class="page-button" [disabled]="page <= 1"
+        (click)="loadProducts(page - 1)">← ก่อนหน้า</button>
+      <span>หน้า <strong>{{ page }}</strong> จาก {{ totalPages }}</span>
+      <button type="button" class="page-button" [disabled]="page >= totalPages"
+        (click)="loadProducts(page + 1)">ถัดไป →</button>
+    </footer>
+  </section>
+</main>

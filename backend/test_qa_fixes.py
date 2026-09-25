@@ -262,6 +262,33 @@ class QaFixTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/products?page=-1&limit=0").status_code, 422)
         self.assertEqual(self.client.get("/api/products?page=abc&limit=xyz").status_code, 422)
 
+    def test_admin_created_product_is_searchable_after_save(self):
+        payload = {
+            "product_id": "admin-qa-searchable",
+            "p_name": "QA Admin Searchable CPU",
+            "p_price": 4590,
+            "p_stock": 3,
+            "cid": "c01",
+            "category": "CPU",
+            "p_description": "Manual catalog item",
+        }
+        created = self.client.post(
+            "/api/products", headers=self.auth("qa-admin"), json=payload
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["data"]["p_name"], payload["p_name"])
+
+        for headers in ({}, self.auth("qa-admin")):
+            with self.subTest(authenticated=bool(headers)):
+                result = self.client.get(
+                    "/api/products?search=QA%20Admin%20Searchable", headers=headers
+                )
+                self.assertEqual(result.status_code, 200)
+                self.assertEqual(
+                    [item["product_id"] for item in result.json()["data"]],
+                    [payload["product_id"]],
+                )
+
     def test_password_change_revokes_existing_tokens(self):
         with self.api.SessionLocal() as db:
             db.add(self.api.User(

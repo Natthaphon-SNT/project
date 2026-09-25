@@ -16,6 +16,10 @@ Produces Top-3 ranked builds under different strategies:
 
 The LLM only EXPLAINS the ranking afterwards — every number here is
 computed by code and reproducible.
+
+Compatibility uses a severity-based policy: every failed/unknown rule lowers
+the score proportionally, and a confirmed critical failure caps that component
+at 50/100 regardless of how many other rules pass.
 """
 import re
 from typing import Optional
@@ -37,6 +41,17 @@ STRATEGIES = [
     ("value",       "#2 Best Value",  "คุ้มค่าที่สุดเมื่อเทียบราคา"),
     ("upgrade",     "#3 Upgrade Path", "รองรับการอัปเกรดในอนาคต"),
 ]
+
+COMPATIBILITY_SCORE_POLICY = {
+    "method": "severity-based",
+    "critical_failure_cap": 50,
+    "warning_formula": "100 * passed_rules / total_rules",
+}
+COMPATIBILITY_SCORE_DESCRIPTION = (
+    "Severity-based compatibility score: failed or unknown checks reduce the "
+    "score in proportion to total checks; a confirmed critical failure caps "
+    "the compatibility score at 50/100."
+)
 
 # ── Deterministic performance tables ───────────────────────────────
 GPU_PERF_TABLE = [
@@ -99,10 +114,21 @@ def score_budget(total: float, budget: Optional[float]) -> float:
 
 
 def score_compatibility(compat_result: dict) -> float:
-    eng = compat_result.get("_engine", {})
-    return round(_clamp(
-        100 - 50 * eng.get("errors", 0) - 15 * eng.get("warnings", 0)
-            - 5 * eng.get("unknown", 0)), 1)
+    """Score existing compatibility results without changing any rule verdict."""
+    checks = compat_result.get("checks") or []
+    if not checks:
+        return 100.0
+
+    failed = [check for check in checks
+              if str(check.get("severity") or "UNKNOWN").upper() != "PASS"]
+    score = 100.0 * (len(checks) - len(failed)) / len(checks)
+    has_critical_failure = any(
+        (check.get("score_severity") or ce.score_severity_for(check)) == "critical"
+        for check in failed
+    )
+    if has_critical_failure:
+        score = min(score, COMPATIBILITY_SCORE_POLICY["critical_failure_cap"])
+    return round(_clamp(score), 1)
 
 
 def score_preference(parsed_parts: list, budget: Optional[float], use_case: str) -> float:
@@ -154,11 +180,12 @@ def score_upgrade_path(parsed_parts: list) -> float:
 
 # ── Full scoring ────────────────────────────────────────────────────
 def score_build(parsed_parts: list, candidates_used: list,
-                budget: Optional[float], use_case: str) -> dict:
+                budget: Optional[float], use_case: str,
+                budget_ceiling: bool = True) -> dict:
     """Returns full breakdown + weighted total (all deterministic)."""
     from recommender import heuristic_build  # circular-safe import inside fn
 
-    compat = ce.check_build(parsed_parts, budget)
+    compat = ce.check_build(parsed_parts, budget if budget_ceiling else None)
     total = sum(p.get("price") or 0 for p in parsed_parts)
 
     breakdown = {
@@ -176,6 +203,8 @@ def score_build(parsed_parts: list, candidates_used: list,
         "weights": WEIGHTS,
         "total_price": total,
         "compat": compat,
+        "compatibility_score_policy": COMPATIBILITY_SCORE_POLICY,
+        "compatibility_score_description": COMPATIBILITY_SCORE_DESCRIPTION,
     }
 
 

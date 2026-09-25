@@ -296,8 +296,11 @@
               <tr *ngFor="let check of getChecks(item)">
                 <td>{{ check.item }}</td>
                 <td>
-                  <span class="check-badge" [class.check-ok]="check.ok" [class.check-fail]="!check.ok">
-                    {{ check.ok ? '✅ ผ่าน' : '❌ ไม่ผ่าน' }}
+                  <span class="check-badge"
+                    [class.check-ok]="check.severity === 'PASS' || (!check.severity && check.ok)"
+                    [class.check-warning]="check.severity === 'WARNING' || check.severity === 'UNKNOWN'"
+                    [class.check-fail]="check.severity === 'ERROR' || (!check.severity && !check.ok)">
+                    {{ check.severity === 'PASS' || (!check.severity && check.ok) ? '✅ ผ่าน' : check.severity === 'ERROR' || (!check.severity && !check.ok) ? '❌ ไม่ผ่าน' : '⚠️ ต้องตรวจเพิ่ม' }}
                   </span>
                 </td>
                 <td class="part-reason">{{ check.detail }}</td>

@@ -24,7 +24,7 @@
     <div class="nav-left">
       <a routerLink="/" class="nav-logo">IT-<span>RECOMMEND</span></a>
       <div class="nav-links">
-        <a routerLink="/products" class="nav-item">ทั้งหมด</a>
+        <a routerLink="/products" class="nav-item">ALL</a>
         <div class="nav-divider"></div>
 
         <!-- PC Components Dropdown -->
@@ -34,6 +34,7 @@
             <div class="dropdown-inner">
               <a routerLink="/category/cpu" class="dropdown-item">CPU / Processor</a>
               <a routerLink="/category/gpu" class="dropdown-item">GPU / Graphic Card</a>
+              <a routerLink="/category/gpu accessories" class="dropdown-item">GPU Accessories</a>
               <a routerLink="/category/mainboard" class="dropdown-item">Mainboard</a>
               <a routerLink="/category/ram" class="dropdown-item">RAM</a>
               <a routerLink="/category/ssd" class="dropdown-item">SSD / M.2</a>
@@ -42,6 +43,7 @@
               <a routerLink="/category/storage accessories" class="dropdown-item">Storage Accessories</a>
               <a routerLink="/category/psu" class="dropdown-item">PSU</a>
               <a routerLink="/category/case" class="dropdown-item">Case</a>
+              <a routerLink="/category/case fan" class="dropdown-item">Case Fan</a>
               <a routerLink="/category/case accessories" class="dropdown-item">Case Accessories</a>
               <a routerLink="/category/liquid cooler" class="dropdown-item">Liquid Cooler</a>
               <a routerLink="/category/air cooler" class="dropdown-item">Air Cooler</a>
@@ -62,8 +64,15 @@
               <a routerLink="/category/graphic tablet" class="dropdown-item">Graphic Tablet</a>
               <a routerLink="/category/keyboard accessories" class="dropdown-item">Keyboard Accessories</a>
               <a routerLink="/category/headset" class="dropdown-item">Headset</a>
+              <a routerLink="/category/gaming headset" class="dropdown-item">Gaming Headset</a>
+              <a routerLink="/category/wireless headset" class="dropdown-item">Wireless Headset</a>
+              <a routerLink="/category/in-ear headphone" class="dropdown-item">In-Ear Headphone</a>
+              <a routerLink="/category/true wireless earbuds" class="dropdown-item">True Wireless Earbuds</a>
               <a routerLink="/category/microphone" class="dropdown-item">Microphone</a>
               <a routerLink="/category/monitor" class="dropdown-item">Monitor</a>
+              <a routerLink="/category/dual mode monitor" class="dropdown-item">Dual Mode Monitor</a>
+              <a routerLink="/category/portable monitor" class="dropdown-item">Portable Monitor</a>
+              <a routerLink="/category/curved monitor" class="dropdown-item">Curved Monitor</a>
               <a routerLink="/category/monitor accessories" class="dropdown-item">Monitor Accessories</a>
             </div>
           </div>
@@ -71,7 +80,7 @@
 
         <!-- Furniture Dropdown -->
         <div class="nav-dropdown">
-          <span class="nav-item dropdown-trigger">เฟอร์นิเจอร์ ▾</span>
+          <span class="nav-item dropdown-trigger">Furniture ▾</span>
           <div class="dropdown-menu">
             <div class="dropdown-inner">
               <a routerLink="/category/gaming chair" class="dropdown-item">Gaming Chair</a>
@@ -81,9 +90,9 @@
         </div>
 
         <div class="nav-divider"></div>
-        <a routerLink="/category/pc set" class="nav-item pcset-btn">เซ็ตคอม</a>
-        <a routerLink="/pc-builder" class="nav-item pc-btn">🛠️ จัดสเปกเอง</a>
-        <a routerLink="/ai-recommend" class="nav-item ai-btn">AI จัดสเปก</a>
+        <a routerLink="/category/pc set" class="nav-item pcset-btn">PC Set</a>
+        <a routerLink="/pc-builder" class="nav-item pc-btn">Build Your Own</a>
+        <a routerLink="/ai-recommend" class="nav-item ai-btn">AI Recommendation</a>
       </div>
     </div>
 
@@ -107,6 +116,14 @@
     </div>
 
     <div class="nav-right">
+      <a *ngIf="auth.currentUserSubject | async" routerLink="/history" routerLinkActive="active"
+        class="nav-history" title="View build history">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>
+          <path d="M3 3v5h5M12 7v5l3 2"></path>
+        </svg>
+        <span>Build History</span>
+      </a>
       <a routerLink="/profile" class="nav-icon" title="โปรไฟล์ของฉัน">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
       </a>

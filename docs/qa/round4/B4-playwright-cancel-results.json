@@ -1,9 +1,0 @@
-{
-  "generated_at": "2026-09-14T19:16:07+07:00",
-  "cancel_runs": 3,
-  "real_playwright_pages": true,
-  "captured_loop_exception_count": 0,
-  "target_closed_error_count": 0,
-  "orphan_detail_task_count": 0,
-  "status": "Pass"
-}

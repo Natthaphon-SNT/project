@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnDestroy, OnInit, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AdminFilterPipe } from './admin-filter.pipe';
@@ -9,13 +9,20 @@ import { HttpClient } from '@angular/common/http';
 interface Part {
   type: string;
   name: string;
-  price: string;
+  price: string | number;
   reason: string;
   product_id?: string;
   real_price?: number;
   shop_prices?: Record<string, number>;
   shop_urls?: Record<string, string>;
   matched_real_product?: boolean;
+}
+
+interface BudgetAdjustment {
+  category: string;
+  from_name: string;
+  to_name: string;
+  message: string;
 }
 
 interface RecommendResult {
@@ -26,9 +33,14 @@ interface RecommendResult {
   performance: { gaming: string; productivity: string; upgrade: string };
   pros: string[];
   cons: string[];
+  warnings?: string[];
   ranking_explanation?: string;
+  budget_adjustments?: BudgetAdjustment[];
+  component_adjustments?: BudgetAdjustment[];
+  adjustments?: BudgetAdjustment[];
   compat?: { overall: string; summary: string; checks: CompatCheck[] };
   alternatives?: AltBuild[];
+  _meta?: { provider_fallback?: boolean; fallback_reason?: string };
 }
 
 interface AltBuild {
@@ -41,6 +53,9 @@ interface AltBuild {
   total_price: number;
   compat_overall: string;
   parts: Part[];
+  budget_adjustments?: BudgetAdjustment[];
+  component_adjustments?: BudgetAdjustment[];
+  adjustments?: BudgetAdjustment[];
 }
 
 interface CompareResult {
@@ -52,6 +67,7 @@ interface CompareResult {
   spec1Pros: string[];
   spec2Pros: string[];
   recommendation: string;
+  compatibilityWarnings?: { spec: string; message: string }[];
 }
 
 interface CompatCheck {
@@ -176,6 +192,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── Chat Sessions ────────────────────────────────────────────────────────────
   showHistorySidebar = false;
+  overlayTop = 80;
   chatSessions: ChatSession[] = [];
   activeSessionId: number | null = null;
   loadingSessions = false;
@@ -183,10 +200,8 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   // ─── Provider model catalogs ─────────────────────────────────────────────────
   readonly PROVIDER_MODELS: Record<string, AiModel[]> = {
     google: [
-      { id: 'gemini-2.5-pro',     name: 'Gemini 2.5 Pro (Best Coding + Reasoning)', badge: 'BEST', description: 'ความสามารถสูงสุด แนะนำสำหรับการจัดสเปกละเอียด' },
-      { id: 'gemini-2.0-flash',   name: 'Gemini 2.0 Flash',                         badge: 'FAST', description: 'เร็ว ฉลาด คุ้มค่า แนะนำเป็นค่าเริ่มต้น' },
-      { id: 'gemini-1.5-flash',   name: 'Gemini 1.5 Flash (Free Tier)',            badge: 'FREE', description: 'มีโควตาใช้งานฟรีใน Google AI Studio' },
-      { id: 'gemini-1.5-pro',     name: 'Gemini 1.5 Pro',                          badge: 'PAID', description: 'โมเดล Pro เสียเงิน' },
+      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', badge: 'FAST', description: 'ค่าเริ่มต้นที่ตรวจสอบกับ API แล้ว' },
+      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview', badge: 'PAID', description: 'รุ่น Pro; ความพร้อมใช้งานขึ้นกับบัญชีและโควตา' },
     ],
     openai: [
       { id: 'gpt-4o',             name: 'GPT-4o (Flagship)',                       badge: 'BEST', description: 'ฉลาดที่สุด วิเคราะห์สเปคคอมได้แม่นยำสูง' },
@@ -295,19 +310,23 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     return Number(part.shop_prices?.[shopKey] || 0);
   }
 
-  loadingSteps = [
-    '🔍 วิเคราะห์ความต้องการ...',
-    '🧠 เลือก CPU ที่เหมาะสม...',
-    '⚡ จับคู่ GPU และ RAM...',
-    '💾 เลือก Storage ที่คุ้มค่า...',
-    '💰 คำนวณงบประมาณรวม...',
-    '📊 ตรวจสอบความเข้ากัน...',
-    '✅ สรุปสเปคให้คุณ...',
-  ];
+  formatPartPrice(price: string | number): string {
+    if (typeof price === 'number') return `${price.toLocaleString('th-TH')} ฿`;
+    const trimmed = String(price || '').trim();
+    if (/^\d+(?:,\d{3})*(?:\.\d+)?$/.test(trimmed)) {
+      return `${Number(trimmed.replace(/,/g, '')).toLocaleString('th-TH')} ฿`;
+    }
+    return trimmed;
+  }
 
   private loadingInterval: any;
   private activeRequestController: AbortController | null = null;
-  readonly requestTimeoutMs = 60_000;
+  readonly requestTimeoutMs = 150_000;
+  loadingElapsedSeconds = 0;
+  get requestTimeoutSeconds(): number { return this.requestTimeoutMs / 1000; }
+  get loadingProgressPercent(): number {
+    return Math.min(100, this.loadingElapsedSeconds / this.requestTimeoutSeconds * 100);
+  }
 
   constructor(private cdr: ChangeDetectorRef, private http: HttpClient) {}
 
@@ -374,11 +393,33 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (!token || this.currentUser.uid === 'guest') { this.settingsSaved = true; return; }
     this.settingsSaving = true;
     this.http.put<any>('http://localhost:3000/api/ai/settings', this.aiSettings, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
-      next: () => { this.settingsSaving = false; this.settingsSaved = true; this.cdr.detectChanges(); },
+      next: () => {
+        this.settingsSaving = false;
+        this.settingsSaved = true;
+        this.showSettingsPanel = false;
+        this.cdr.detectChanges();
+      },
       error: () => { this.settingsSaving = false; this.settingsError = 'Unable to save settings. Please retry.'; this.cdr.detectChanges(); }
     });
   }
-  toggleSettingsPanel() { this.showSettingsPanel = !this.showSettingsPanel; }
+  private updateOverlayTop() {
+    const navbar = document.querySelector<HTMLElement>('.navbar-main');
+    this.overlayTop = Math.max(0, Math.ceil(navbar?.getBoundingClientRect().bottom ?? 80));
+  }
+
+  @HostListener('window:resize')
+  @HostListener('window:scroll')
+  syncOverlayWithNavbar() {
+    if (this.showSettingsPanel || this.showHistorySidebar) {
+      this.updateOverlayTop();
+    }
+  }
+
+  toggleSettingsPanel() {
+    const opening = !this.showSettingsPanel;
+    if (opening) this.updateOverlayTop();
+    this.showSettingsPanel = opening;
+  }
   selectProviderTab(tab: AiProviderSettings['provider']) {
     this.providerDrafts[this.aiSettings.provider] = {...this.aiSettings};
     this.aiSettings = {...(this.providerDrafts[tab] || {provider: tab, model: this.PROVIDER_MODELS[tab][0].id, api_key: '', custom_model: ''})};
@@ -411,7 +452,9 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
 
   toggleHistorySidebar() {
-    this.showHistorySidebar = !this.showHistorySidebar;
+    const opening = !this.showHistorySidebar;
+    if (opening) this.updateOverlayTop();
+    this.showHistorySidebar = opening;
     if (this.showHistorySidebar) {
       this.loadSessions();
     }
@@ -703,25 +746,52 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── Loading Animation ────────────────────────────────────────────────────────
   private startLoadingAnimation() {
-    let i = 0;
+    this.stopLoadingAnimation();
+    this.loadingElapsedSeconds = 0;
+    this.loadingText = this.mode === 'recommend' ? 'กำลังรอผลจัดสเปกจาก AI' :
+      this.mode === 'compare' ? 'กำลังรอผลเปรียบเทียบสเปกจาก AI' : 'กำลังตรวจความเข้ากันได้';
     this.loadingInterval = setInterval(() => {
-      this.loadingText = this.loadingSteps[i % this.loadingSteps.length];
+      this.loadingElapsedSeconds++;
       this.cdr.detectChanges();
-      i++;
-    }, 900);
+    }, 1000);
   }
 
   private stopLoadingAnimation() {
     if (this.loadingInterval) clearInterval(this.loadingInterval);
+    this.loadingInterval = null;
   }
 
   // ─── AI API ผ่าน FastAPI Proxy (Multi-Provider Support) ──────────────────────
   chatMessages: {role: string; content: string}[] = [];
+  readonly suggestedPrompts: ReadonlyArray<{
+    label: string;
+    prompt: string;
+    mode: 'recommend' | 'compare' | 'compat';
+  }> = [
+    {
+      label: 'แนะนำคอมเล่นเกมงบ 30,000',
+      prompt: 'แนะนำคอมสำหรับเล่นเกม งบประมาณ 30,000 บาท ตอบเป็นภาษาไทย',
+      mode: 'recommend',
+    },
+    {
+      label: 'เช็คว่าซีพียูนี้ใช้กับเมนบอร์ดได้ไหม',
+      prompt: 'ช่วยเช็คว่าซีพียูกับเมนบอร์ดที่ฉันกำลังเลือกใช้ร่วมกันได้ไหม และบอกข้อมูลที่ต้องส่งเพิ่ม',
+      mode: 'compat',
+    },
+    {
+      label: 'เทียบ RTX 4060 กับ RX 7600',
+      prompt: 'Spec 1: NVIDIA GeForce RTX 4060 | Spec 2: AMD Radeon RX 7600',
+      mode: 'compare',
+    },
+  ];
   formatChatContent(message: {role: string; content: string}): string {
     if (message.role !== 'assistant') return message.content;
     try {
       const d = this.parseJson(message.content);
-      return [d.summary || d.verdict, d.totalBudget, ...(d.parts || []).map((p: any) => p.type + ': ' + p.name + ' ' + p.price), d.recommendation, ...(d.suggestions || [])].filter(Boolean).join('\n') || JSON.stringify(d, null, 2);
+      return [d.summary || d.verdict, d.totalBudget,
+        Array.isArray(d.parts) ? `เลือก ${d.parts.length} ชิ้นส่วน — ดูรายละเอียดตรงกลางหน้า` : '',
+        d.recommendation || d.compat?.summary,
+      ].filter(Boolean).join('\n') || JSON.stringify(d, null, 2);
     } catch { return message.content; }
   }
   followUp = '';
@@ -762,7 +832,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         throw new Error(timedOut
-          ? 'คำขอ AI หมดเวลาหลัง 60 วินาที กรุณาลองใหม่'
+          ? `คำขอ AI หมดเวลาหลัง ${this.requestTimeoutSeconds} วินาที กรุณาลองใหม่`
           : 'ยกเลิกคำขอ AI แล้ว');
       }
       throw error;
@@ -778,7 +848,8 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   async handleRecommend() {
     if (!this.selectedUseCase || !this.selectedBudget) return;
     const budget = this.budgets.find(b => b.id === this.selectedBudget)?.label;
-    await this.runPrompt(`Recommend a PC for ${this.selectedUseCase}, budget ${budget} THB. ${this.extraDetail}. Answer in Thai.`);
+    const detail = this.extraDetail.trim();
+    await this.runPrompt(`Recommend a PC for ${this.selectedUseCase}, budget ${budget}.${detail ? ` ${detail}.` : ''} Answer in Thai.`);
   }
   async handleCompare() {
     if (this.spec1.trim() && this.spec2.trim()) await this.runPrompt(`Compare spec 1: ${this.spec1} with spec 2: ${this.spec2}`);
@@ -788,6 +859,12 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (!this.followUp.trim() || this.step === 2) return;
     await this.runPrompt(this.followUp);
     if (this.resultType !== 'error') this.followUp = '';
+  }
+  async sendSuggestedPrompt(prompt: string, mode: 'recommend' | 'compare' | 'compat') {
+    if (this.step === 2) return;
+    this.startNewChat();
+    this.mode = mode;
+    await this.runPrompt(prompt);
   }
   private async runPrompt(prompt: string) {
     if (this.step === 2) return;

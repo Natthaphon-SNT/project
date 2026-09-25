@@ -231,6 +231,11 @@ CID_MAP = {
     "hdd": "c19", "external storage": "c20", "cooling accessories": "c22",
     "pc components": "c23", "storage accessories": "c24",
     "case accessories": "c26", "keypad": "c27", "graphic tablet": "c28",
+    "case fan": "c29", "dual mode monitor": "c30",
+    "portable monitor": "c31", "curved monitor": "c32",
+    "gaming headset": "c33", "wireless headset": "c34",
+    "gpu accessories": "c35", "in-ear headphone": "c36",
+    "true wireless earbuds": "c37",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -427,6 +432,8 @@ def advice_api_items(payload: dict) -> list[dict]:
     """Normalize Advice's public product API response."""
     output: list[dict] = []
     groups = (payload.get("data") or {}).get("product") or []
+    if isinstance(groups, dict):
+        groups = groups.values()
     for group in groups:
         for product in group.get("product") or []:
             raw_url = (product.get("product_url") or "").strip()
@@ -438,7 +445,8 @@ def advice_api_items(payload: dict) -> list[dict]:
             output.append({
                 "code": code,
                 "name": (product.get("product") or product.get("name") or "").strip(),
-                "price": product.get("price_sale_true") or product.get("price_srp") or product.get("price") or 0,
+                "price": (product.get("price_sale_true") or product.get("price_sale")
+                          or product.get("price_srp") or product.get("price") or 0),
                 "url": url,
                 "img": product.get("pic_url") or (
                     f"https://img.advice.co.th/images_nas/pic_product4/{code}/{code}_1.jpg"
@@ -821,6 +829,15 @@ def setup_db(conn: sqlite3.Connection):
                 ("c26", "Case Accessories", "Case bags and other case accessories"),
                 ("c27", "Keypad", "Numeric and macro keypads"),
                 ("c28", "Graphic Tablet", "Pen and display tablets"),
+                ("c29", "Case Fan", "Case cooling fans"),
+                ("c30", "Dual Mode Monitor", "Dual-mode displays"),
+                ("c31", "Portable Monitor", "Portable displays"),
+                ("c32", "Curved Monitor", "Curved displays"),
+                ("c33", "Gaming Headset", "Wired gaming headsets"),
+                ("c34", "Wireless Headset", "Wireless gaming headsets"),
+                ("c35", "GPU Accessories", "GPU supports and riser cables"),
+                ("c36", "In-Ear Headphone", "In-ear gaming headphones"),
+                ("c37", "True Wireless Earbuds", "True wireless gaming earbuds"),
             ],
         )
     new_cols = [
@@ -929,6 +946,40 @@ def repair_obvious_product_categories(conn: sqlite3.Connection) -> int:
     if changed:
         conn.commit()
         log(f"  [repair] corrected categories for {changed} product rows")
+    return changed
+
+
+def sync_best_product_descriptions(conn: sqlite3.Connection) -> int:
+    """Fill legacy display descriptions from verified per-store detail text."""
+    changed = conn.execute("""
+        UPDATE products SET
+            p_description=CASE
+                WHEN length(trim(coalesce(desc_advice,''))) >=
+                     length(trim(coalesce(desc_jib,'')))
+                 AND length(trim(coalesce(desc_advice,''))) >=
+                     length(trim(coalesce(desc_ihavecpu,'')))
+                THEN desc_advice
+                WHEN length(trim(coalesce(desc_jib,''))) >=
+                     length(trim(coalesce(desc_ihavecpu,'')))
+                THEN desc_jib
+                ELSE desc_ihavecpu END,
+            specs=CASE
+                WHEN length(trim(coalesce(specs,''))) >= 30 THEN specs
+                WHEN length(trim(coalesce(desc_advice,''))) >=
+                     length(trim(coalesce(desc_jib,'')))
+                 AND length(trim(coalesce(desc_advice,''))) >=
+                     length(trim(coalesce(desc_ihavecpu,'')))
+                THEN desc_advice
+                WHEN length(trim(coalesce(desc_jib,''))) >=
+                     length(trim(coalesce(desc_ihavecpu,'')))
+                THEN desc_jib
+                ELSE desc_ihavecpu END
+        WHERE length(trim(coalesce(p_description,''))) < 30
+          AND max(length(trim(coalesce(desc_advice,''))),
+                  length(trim(coalesce(desc_jib,''))),
+                  length(trim(coalesce(desc_ihavecpu,'')))) >= 30
+    """).rowcount
+    conn.commit()
     return changed
 
 
@@ -1082,13 +1133,16 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
     store = p.get("store") or ""
     cat   = p.get("category") or ""
     img   = (p.get("img_url") or "").strip()
+    if is_placeholder_image_url(img):
+        img = ""
     url   = (p.get("url") or "").strip()
     desc  = (p.get("description") or "").strip()
     full_ihc = store == "ihavecpu" and bool(p.get("full_catalog"))
     full_jib = store == "jib" and bool(p.get("full_catalog"))
-    full_source = full_ihc or full_jib
+    full_advice = store == "advice" and bool(p.get("full_catalog"))
+    full_source = full_ihc or full_jib or full_advice
 
-    if url and not full_jib and source_url_conflicts(name, url, cat):
+    if url and not (full_jib or full_advice) and source_url_conflicts(name, url, cat):
         log(f"    [url mismatch] {store}: {name[:70]} -> {_source_slug(url)[:90]}")
         url = ""
 
@@ -1096,7 +1150,7 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
         return False
     if should_skip(name) and not full_source:
         return False
-    if source_url_is_out_of_scope(url):
+    if source_url_is_out_of_scope(url) and not full_advice:
         log(f"    [out of scope] {store}: {name[:65]}")
         return False
     price_ok = (1 <= price <= 500_000) if full_source else valid_product_price(cat, price)
@@ -1131,6 +1185,9 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
                 "SELECT product_id FROM products WHERE url_jib LIKE ? LIMIT 1",
                 (f"%/readProduct/{jib_source_id}/%",),
             ).fetchone()
+    advice_source_code = ""
+    if full_advice:
+        advice_source_code = re.sub(r"[^A-Za-z0-9]", "", p.get("source_code") or "")
     pid = source_row[0] if source_row else matcher.find(name, cat)
     if full_source and pid and not source_row:
         candidate = cur.execute(
@@ -1145,11 +1202,14 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
         if full_source and source_row:
             # Source-only rows may carry a stale title from an earlier fuzzy
             # merge. The retailer's ID and current listing are authoritative.
+            other_price_cols = [column for column in
+                                ("price_advice", "price_jib", "price_ihavecpu")
+                                if column != price_col]
             cur.execute(f"""
                 UPDATE products SET p_name=?, category=?, cid=?,
                     img_url=CASE WHEN ? != '' THEN ? ELSE img_url END
-                WHERE product_id=? AND COALESCE(price_advice, 0)=0
-                    AND COALESCE(price_{'jib' if store == 'ihavecpu' else 'ihavecpu'}, 0)=0
+                WHERE product_id=? AND COALESCE({other_price_cols[0]}, 0)=0
+                    AND COALESCE({other_price_cols[1]}, 0)=0
             """, (name, cat, get_cid(cat), img, img, pid))
         # A later listing-only scrape must not replace a PSU's verified
         # connector table with Advice's short wattage/modularity summary.
@@ -1168,7 +1228,13 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
                 {url_col}   = CASE WHEN ? != '' THEN ? ELSE {url_col} END,
                 {desc_col}  = CASE WHEN ? != '' THEN ? ELSE {desc_col} END,
                 p_price     = CASE WHEN p_price = 0 THEN ? ELSE p_price END,
-                img_url     = CASE WHEN ? != '' AND (img_url IS NULL OR img_url = '') THEN ? ELSE img_url END,
+                img_url     = CASE WHEN ? != '' AND
+                    (img_url IS NULL OR img_url = '' OR
+                     lower(img_url) LIKE '%/logos/android-chrome-%' OR
+                     lower(img_url) LIKE '%placeholder%' OR
+                     lower(img_url) LIKE '%nophoto%' OR
+                     lower(img_url) LIKE '%no-photo%')
+                    THEN ? ELSE img_url END,
                 p_description = CASE WHEN (p_description IS NULL OR p_description = '') AND ? != '' THEN ? ELSE p_description END,
                 specs       = CASE WHEN (specs IS NULL OR specs = '') AND COALESCE({desc_col}, '') != '' THEN {desc_col} ELSE specs END,
                 updated_at  = ?
@@ -1191,6 +1257,8 @@ def upsert_product(cur: sqlite3.Cursor, matcher: SmartMatcher, p: dict) -> bool:
             pid = f"ihc_{ihc_source_id}"
         elif full_jib and jib_source_id:
             pid = f"jib_{jib_source_id}"
+        elif full_advice and advice_source_code:
+            pid = f"adv_{advice_source_code}"
         else:
             pid = make_pid(name, store)
         cur.execute("""
@@ -1441,7 +1509,9 @@ async def goto_with_retry(page, url: str, *, timeout_ms: int,
 def source_payload_needs_detail(description: str, image_url: str,
                                 category: str = "", store: str = "") -> bool:
     """Return true only when a store listing lacks usable detail evidence."""
-    if len((description or "").strip()) < 30 or not (image_url or "").strip():
+    if (len((description or "").strip()) < 30
+            or not (image_url or "").strip()
+            or is_placeholder_image_url(image_url)):
         return True
     if store == "advice" and category == "PSU":
         import spec_parser
@@ -1449,6 +1519,21 @@ def source_payload_needs_detail(description: str, image_url: str,
             "PSU", description
         ).get("power_connectors")
     return False
+
+
+def is_placeholder_image_url(url: str) -> bool:
+    """Identify retailer/site chrome that must never be used as a product photo."""
+    value = (url or "").strip().lower().split("?", 1)[0]
+    return any(marker in value for marker in (
+        "/logos/android-chrome-",
+        "/logo/",
+        "/logos/",
+        "placeholder",
+        "no-photo",
+        "nophoto",
+        "no_image",
+        "no-image",
+    ))
 
 
 def detail_description_is_relevant(name: str, description: str, category: str) -> bool:
@@ -1514,9 +1599,15 @@ def select_best_relevant_description(
 
 
 async def fetch_ihc_detail_http(client: httpx.AsyncClient, url: str,
-                                expected_name: str = "", category: str = "") -> tuple[str, str]:
+                                expected_name: str = "", category: str = "",
+                                *, rate_limiter: AdaptiveRateLimiter | None = None,
+                                strict_block: bool = False) -> tuple[str, str]:
     try:
-        response = await request_with_retry(client, "GET", url)
+        response = await request_with_retry(
+            client, "GET", url, rate_limiter=rate_limiter,
+        )
+        if strict_block and response.status_code in (403, 429):
+            raise PermissionError(f"iHaveCPU blocked detail request: HTTP {response.status_code}")
         response.raise_for_status()
         product = ihc_detail_product(response.text)
         actual_name = product.get("name_th") or product.get("name_gb") or ""
@@ -1530,6 +1621,11 @@ async def fetch_ihc_detail_http(client: httpx.AsyncClient, url: str,
             img = pictures[0].get("pic_800") or pictures[0].get("pic_150") or ""
         return desc, img
     except Exception as e:
+        if strict_block and (
+            isinstance(e, PermissionError) or
+            isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (403, 429)
+        ):
+            raise PermissionError(f"iHaveCPU blocked detail request: {e}") from e
         log(f"      [iHaveCPU HTTP detail err] {str(e)[:100]}")
         return "", ""
 
@@ -1961,6 +2057,8 @@ async def fetch_http_detail_queue(
     items: list[dict],
     *,
     concurrency: int | None = None,
+    rate_limiter: AdaptiveRateLimiter | None = None,
+    strict_block: bool = False,
 ) -> tuple[dict[str, tuple[str, str]], dict]:
     """HTTP counterpart of the resumable browser queue (currently iHaveCPU)."""
     limit = max(1, concurrency or DETAIL_CONCURRENCY.get(store, 1))
@@ -1983,7 +2081,8 @@ async def fetch_http_detail_queue(
         async with semaphore:
             fetcher = fetch_jib_detail_http if store == "jib" else fetch_ihc_detail_http
             desc, img = await fetcher(
-                client, item["url"], item.get("name", ""), item.get("category", "")
+                client, item["url"], item.get("name", ""), item.get("category", ""),
+                rate_limiter=rate_limiter, strict_block=strict_block,
             )
             _write_detail_checkpoint(conn, store, item, desc, img)
             results[item["url"]] = (desc, img)
@@ -2341,7 +2440,8 @@ async def scrape_jib(conn: sqlite3.Connection, matcher: SmartMatcher,
 async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                           pages: int = 3, fetch_details: bool = False,
                           full_catalog: bool = False,
-                          categories: list[tuple[str, str]] | None = None):
+                          categories: list[tuple[str, str]] | None = None,
+                          full_interval_seconds: float = 1.5):
     """Scrape iHaveCPU from its server-rendered Next.js JSON payload.
 
     The storefront no longer renders `/product/` anchors reliably to headless
@@ -2358,6 +2458,10 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
         "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
     }
     timeout = httpx.Timeout(30.0, connect=15.0)
+    limiter = (AdaptiveRateLimiter(
+        "ihavecpu", threshold=2, base_cooldown_seconds=30,
+        max_cooldown_seconds=180, min_interval_seconds=full_interval_seconds,
+    ) if full_catalog else None)
     async with httpx.AsyncClient(
         headers=headers, follow_redirects=True, timeout=timeout
     ) as client:
@@ -2377,11 +2481,17 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                 url = base_url if pn == 1 else f"{base_url}?page={pn}"
                 log(f"  [iHaveCPU] {cat_name} p{pn}")
                 try:
-                    response = await request_with_retry(client, "GET", url)
+                    response = await request_with_retry(
+                        client, "GET", url, rate_limiter=limiter,
+                    )
+                    if full_catalog and response.status_code in (403, 429):
+                        raise PermissionError(f"iHaveCPU listing blocked: HTTP {response.status_code}")
                     response.raise_for_status()
                     items = ihc_listing_products(response.text)
                 except Exception as e:
                     log(f"    [iHaveCPU HTTP err] {str(e)[:120]}")
+                    if full_catalog:
+                        raise
                     break
                 if not items:
                     if full_catalog and len(seen_ids) < reported_total:
@@ -2418,7 +2528,8 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                             "category": ihc_full_category(item_name, cat_name),
                         })
                     detail_results, _metrics = await fetch_http_detail_queue(
-                        client, conn, "ihavecpu", detail_items, concurrency=4,
+                        client, conn, "ihavecpu", detail_items, concurrency=1,
+                        rate_limiter=limiter, strict_block=True,
                     )
 
                 count = 0
@@ -2858,6 +2969,10 @@ def main():
         help="With --ihavecpu-full, scrape only these category URL slugs",
     )
     parser.add_argument(
+        "--ihavecpu-interval", type=float, default=1.5,
+        help="Minimum seconds between iHaveCPU requests during a full scrape",
+    )
+    parser.add_argument(
         "--backfill-only", action="store_true", default=False,
         help="Skip listing pages and fetch details for existing store URLs with missing descriptions",
     )
@@ -2866,6 +2981,8 @@ def main():
         help="Do not normalize scraped details into compatibility facts after --details",
     )
     args = parser.parse_args()
+    if args.ihavecpu_interval < 0.8:
+        parser.error("--ihavecpu-interval must be at least 0.8 seconds")
 
     stores = ["advice", "jib", "ihavecpu"] if "all" in args.stores else args.stores
 
@@ -2890,6 +3007,7 @@ def main():
             asyncio.run(scrape_ihavecpu(
                 conn, matcher, pages=0, fetch_details=True, full_catalog=True,
                 categories=selected_categories,
+                full_interval_seconds=args.ihavecpu_interval,
             ))
         finally:
             conn.close()

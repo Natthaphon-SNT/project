@@ -1,43 +1,102 @@
 <div class="ai-container">
+<div class="ai-workspace">
+<aside class="ai-right-rail" *ngIf="activeTab === 'form'" aria-label="AI conversation and settings">
 <div class="ai-toolbar">
-<strong>IT-RECOMMEND AI</strong><span>{{ aiSettings.provider | uppercase }}</span>
-<button (click)="startNewChat()" [disabled]="step === 2">+ New chat</button>
-<button (click)="toggleHistorySidebar()">History</button>
-<button (click)="clearCurrentChat()" [disabled]="step === 2">Delete chat</button>
-<button (click)="toggleSettingsPanel()" [disabled]="step === 2">Settings</button>
+<div class="ai-toolbar-brand"><strong>IT-RECOMMEND AI</strong><span>{{ aiSettings.provider | uppercase }}</span></div>
+<div class="ai-toolbar-actions" aria-label="Chat actions">
+<button class="icon-btn" type="button" (click)="toggleHistorySidebar()" aria-label="ประวัติแชท" title="ประวัติแชท">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+</button>
+<button class="icon-btn" type="button" (click)="clearCurrentChat()" [disabled]="step === 2" aria-label="ลบแชท" title="ลบแชท">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+</button>
+<button class="icon-btn" type="button" (click)="toggleSettingsPanel()" [disabled]="step === 2" aria-label="ตั้งค่า AI" title="ตั้งค่า AI">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+</button>
+</div>
 </div>
 <p role="alert" *ngIf="errorMessage">{{ errorMessage }}</p>
 <p role="alert" *ngIf="authError">{{ authError }} <a href="/login">เข้าสู่ระบบใหม่</a></p>
-<div class="ai-overlay" *ngIf="showSettingsPanel" (click)="toggleSettingsPanel()">
-<section class="ai-panel" role="dialog" aria-modal="true" aria-label="AI Provider Settings" (click)="$event.stopPropagation()" (keydown.escape)="toggleSettingsPanel()">
-<button (click)="toggleSettingsPanel()">Close</button><h2>AI Provider Settings</h2>
-<div class="ai-toolbar"><button *ngFor="let tab of providerTabs" [class.active]="settingsTab === tab" (click)="selectProviderTab(tab)">{{ tab | titlecase }}</button></div>
-<ng-container>
-<label for="provider-key">API Key</label><input id="provider-key" autocomplete="off" [type]="showApiKey[settingsTab] ? 'text' : 'password'" [(ngModel)]="aiSettings.api_key">
-<button (click)="showApiKey[settingsTab] = !showApiKey[settingsTab]">{{ showApiKey[settingsTab] ? 'Hide key' : 'Show key' }}</button>
-<a [href]="settingsTab === 'google' ? 'https://aistudio.google.com/apikey' : settingsTab === 'openai' ? 'https://platform.openai.com/api-keys' : 'https://openrouter.ai/keys'" target="_blank" rel="noopener noreferrer">Get API key</a>
-</ng-container>
-<label for="provider-model">Model</label><select id="provider-model" [(ngModel)]="aiSettings.model"><option *ngFor="let model of PROVIDER_MODELS[settingsTab]" [value]="model.id">{{ model.name }} [{{ model.badge }}]</option></select>
-<label for="custom-model">Custom Model ID</label><input id="custom-model" [(ngModel)]="aiSettings.custom_model" placeholder="Optional model ID">
-<p>Model availability and free quotas depend on the provider.</p>
-<p *ngIf="currentUser.uid === 'guest'">Sign in to save settings and history. Guest keys stay on this page only.</p>
-<p role="alert" *ngIf="settingsError">{{ settingsError }}</p><p role="status" *ngIf="settingsSaved">Saved</p>
-<button (click)="saveAiSettings()" [disabled]="settingsSaving">{{ settingsSaving ? 'Saving...' : 'Save' }}</button>
+<div class="ai-overlay" *ngIf="showSettingsPanel" [style.top.px]="overlayTop" (click)="toggleSettingsPanel()">
+<section class="ai-panel settings-panel" role="dialog" aria-modal="true" aria-label="AI Provider Settings" (click)="$event.stopPropagation()" (keydown.escape)="toggleSettingsPanel()">
+<header class="panel-header">
+  <div><span>AI SETTINGS</span><h2>ตั้งค่าผู้ให้บริการ</h2></div>
+  <button class="panel-close" type="button" (click)="toggleSettingsPanel()" aria-label="ปิด">×</button>
+</header>
+<div class="provider-tabs" role="tablist">
+  <button *ngFor="let tab of providerTabs" type="button" role="tab" [attr.aria-selected]="settingsTab === tab"
+    [class.active]="settingsTab === tab" (click)="selectProviderTab(tab)">{{ tab | titlecase }}</button>
+</div>
+<div class="settings-fields">
+  <div class="panel-field">
+    <div class="field-label-row"><label for="provider-key">API Key</label>
+      <a [href]="settingsTab === 'google' ? 'https://aistudio.google.com/apikey' : settingsTab === 'openai' ? 'https://platform.openai.com/api-keys' : 'https://openrouter.ai/keys'" target="_blank" rel="noopener noreferrer">รับ API key ↗</a>
+    </div>
+    <div class="key-input">
+      <input id="provider-key" autocomplete="off" [type]="showApiKey[settingsTab] ? 'text' : 'password'" [(ngModel)]="aiSettings.api_key" placeholder="วาง API key">
+      <button type="button" (click)="showApiKey[settingsTab] = !showApiKey[settingsTab]">{{ showApiKey[settingsTab] ? 'ซ่อน' : 'แสดง' }}</button>
+    </div>
+  </div>
+  <div class="panel-field">
+    <label for="provider-model">โมเดล</label>
+    <select id="provider-model" [(ngModel)]="aiSettings.model"><option *ngFor="let model of PROVIDER_MODELS[settingsTab]" [value]="model.id">{{ model.name }} · {{ model.badge }}</option></select>
+  </div>
+  <div class="panel-field">
+    <label for="custom-model">Custom Model ID <small>ไม่บังคับ</small></label>
+    <input id="custom-model" [(ngModel)]="aiSettings.custom_model" placeholder="ระบุเมื่อต้องการใช้โมเดลอื่น">
+  </div>
+</div>
+<p class="panel-note">โควตาและโมเดลที่ใช้ได้ขึ้นอยู่กับผู้ให้บริการ</p>
+<p class="panel-note" *ngIf="currentUser.uid === 'guest'">เข้าสู่ระบบเพื่อบันทึกการตั้งค่าและประวัติแชท</p>
+<p class="panel-status error" role="alert" *ngIf="settingsError">{{ settingsError }}</p>
+<footer class="panel-footer">
+  <button class="panel-save" type="button" (click)="saveAiSettings()" [disabled]="settingsSaving">{{ settingsSaving ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า' }}</button>
+</footer>
 </section></div>
-<div class="ai-overlay" *ngIf="showHistorySidebar" (click)="toggleHistorySidebar()">
+<div class="ai-overlay" *ngIf="showHistorySidebar" [style.top.px]="overlayTop" (click)="toggleHistorySidebar()">
 <aside class="ai-panel ai-sidebar" aria-label="Chat history" (click)="$event.stopPropagation()">
-<button (click)="toggleHistorySidebar()">Close</button><h2>Chat history</h2>
-<p *ngIf="loadingSessions">Loading...</p><p *ngIf="!loadingSessions && !chatSessions.length">{{ currentUser.uid === 'guest' ? 'Sign in to save history.' : 'No conversations yet.' }}</p>
-<div class="session-row" *ngFor="let session of chatSessions" [class.active]="session.id === activeSessionId">
-<button (click)="selectSession(session)" [disabled]="step === 2"><strong>{{ session.title }}</strong><small>{{ session.mode === 'recommend' ? 'แนะนำ' : session.mode === 'compare' ? 'เปรียบเทียบ' : 'ตรวจสอบ' }} | {{ session.updated_at | date:'short' }}</small></button>
-<button (click)="deleteSession(session.id, $event)" [disabled]="step === 2">Delete</button>
-</div></aside></div>
-<section class="chat-transcript" *ngIf="chatMessages.length && activeTab === 'form'">
-<h2>Conversation</h2><article *ngFor="let message of chatMessages" [class.user-message]="message.role === 'user'">
-<strong>{{ message.role === 'user' ? 'You' : 'AI' }}</strong><pre>{{ formatChatContent(message) }}</pre></article>
-<label for="followup">Continue this conversation</label><textarea id="followup" [(ngModel)]="followUp" [disabled]="step === 2" rows="2"></textarea>
-<button (click)="sendFollowUp()" [disabled]="step === 2 || !followUp.trim()">Send</button>
+<header class="panel-header">
+  <div><span>CONVERSATIONS</span><h2>ประวัติแชท</h2></div>
+  <button class="panel-close" type="button" (click)="toggleHistorySidebar()" aria-label="ปิด">×</button>
+</header>
+<p class="panel-empty" *ngIf="loadingSessions">กำลังโหลด...</p>
+<p class="panel-empty" *ngIf="!loadingSessions && !chatSessions.length">{{ currentUser.uid === 'guest' ? 'เข้าสู่ระบบเพื่อบันทึกประวัติ' : 'ยังไม่มีบทสนทนา' }}</p>
+<div class="session-list" *ngIf="!loadingSessions && chatSessions.length">
+  <div class="session-row" *ngFor="let session of chatSessions" [class.active]="session.id === activeSessionId">
+    <button class="session-select" type="button" (click)="selectSession(session)" [disabled]="step === 2"><strong>{{ session.title }}</strong><small>{{ session.mode === 'recommend' ? 'แนะนำ' : session.mode === 'compare' ? 'เปรียบเทียบ' : 'ตรวจสอบ' }} · {{ session.updated_at | date:'short' }}</small></button>
+    <button class="session-delete" type="button" (click)="deleteSession(session.id, $event)" [disabled]="step === 2" aria-label="ลบบทสนทนา" title="ลบ">×</button>
+  </div>
+</div>
+</aside></div>
+<section class="chat-transcript" aria-label="Conversation">
+<div class="chat-heading">
+  <h2>Conversation</h2>
+  <button class="new-chat-cta" type="button" (click)="startNewChat()" [disabled]="step === 2">+ เริ่มแชทใหม่</button>
+</div>
+<div class="chat-message-list" aria-live="polite">
+  <div class="chat-empty" *ngIf="!chatMessages.length">
+    <strong>อยากให้ AI ช่วยเรื่องอะไร?</strong>
+    <p>เลือกคำถามตัวอย่างเพื่อเริ่มแชทได้ทันที</p>
+    <div class="suggested-prompts">
+      <button *ngFor="let suggestion of suggestedPrompts" type="button"
+        (click)="sendSuggestedPrompt(suggestion.prompt, suggestion.mode)" [disabled]="step === 2">
+        {{ suggestion.label }}
+      </button>
+    </div>
+  </div>
+  <article *ngFor="let message of chatMessages" [class.user-message]="message.role === 'user'">
+    <strong>{{ message.role === 'user' ? 'You' : 'AI' }}</strong><pre>{{ formatChatContent(message) }}</pre>
+  </article>
+  <p class="chat-waiting" *ngIf="step === 2">กำลังรอคำตอบจาก {{ providerBadgeLabel }}…</p>
+</div>
+<div class="chat-composer">
+  <label for="followup">Continue this conversation</label>
+  <textarea id="followup" [(ngModel)]="followUp" [disabled]="step === 2 || !chatMessages.length" rows="2" placeholder="พิมพ์คำถามต่อหลังได้ผลลัพธ์"></textarea>
+  <button (click)="sendFollowUp()" [disabled]="step === 2 || !followUp.trim() || !chatMessages.length">Send</button>
+</div>
 </section>
+</aside>
+<main class="ai-main">
 
 
   <!-- ========== HEADER ========== -->
@@ -161,9 +220,13 @@
 
     <!-- ─── LOADING ─── -->
     <div class="ai-card loading-card" *ngIf="step === 2">
-      <div class="loading-icon">⚙️</div>
-      <div class="loading-text">{{ loadingText }}</div>
-      <div class="loading-sub">Powered by Google Gemini AI</div>
+      <div class="loading-top"><span class="loading-pulse" aria-hidden="true"></span><span>{{ loadingText }}</span></div>
+      <p class="loading-sub">เชื่อมต่อ {{ providerBadgeLabel }} · {{ aiSettings.custom_model || aiSettings.model }}</p>
+      <div class="loading-bar" role="progressbar" aria-label="เวลาที่ผ่านไปก่อนหมดเวลาคำขอ" [attr.aria-valuenow]="loadingElapsedSeconds" [attr.aria-valuemax]="requestTimeoutSeconds" aria-valuemin="0">
+        <div class="loading-fill" [style.width.%]="loadingProgressPercent"></div>
+      </div>
+      <div class="loading-meta"><span>รอมาแล้ว {{ loadingElapsedSeconds }} วินาที</span><span>จำกัดเวลาคำขอ {{ requestTimeoutSeconds }} วินาที</span></div>
+      <p class="loading-hint">แถบนี้แสดงเวลาที่ผ่านไป ไม่ใช่เปอร์เซ็นต์งานที่ AI ทำเสร็จ</p>
       <button class="btn-sm" type="button" (click)="cancelAiRequest()">ยกเลิกคำขอ</button>
     </div>
 
@@ -171,6 +234,10 @@
 
     <!-- RESULT: แนะนำสเปค -->
     <div class="result-wrapper" *ngIf="step === 3 && resultType === 'recommend' && recommendData">
+      <p role="status" *ngIf="recommendData._meta?.provider_fallback">ไม่สามารถใช้ผลลัพธ์ AI ภายนอกได้ ข้อมูลด้านล่างจัดจากฐานข้อมูลสินค้าและระบบตรวจความเข้ากันได้อัตโนมัติ</p>
+      <div class="recommend-alerts" *ngIf="recommendData.warnings?.length" role="alert">
+        <p *ngFor="let warning of recommendData.warnings">{{ warning }}</p>
+      </div>
       <div class="ai-card glow-card-red animate-slide-up">
         <div class="summary-header">
           <div>
@@ -210,7 +277,7 @@
               <div class="part-name">{{ part.name }}</div>
             </div>
             <div class="part-price-wrap">
-              <div class="part-price">{{ part.price }}</div>
+              <div class="part-price">{{ formatPartPrice(part.price) }}</div>
               <div class="part-price-label">ราคาโดยประมาณ</div>
             </div>
           </div>
@@ -269,9 +336,10 @@
         <h2 class="alt-heading">📊 Top ทางเลือกจาก Scoring Engine</h2>
         <p class="alt-sub">Performance 40% · Budget 25% · Compatibility 20% · Preference 10% · Availability 5%</p>
 
-        <div *ngFor="let alt of recommendData.alternatives" class="ai-card alt-card">
+        <div *ngFor="let alt of recommendData.alternatives; let altIndex = index" class="ai-card alt-card" [class.primary-alt]="altIndex === 0">
           <div class="alt-head">
             <div>
+              <span class="alt-rank">{{ altIndex === 0 ? 'อันดับ 1 · ชุดที่แนะนำด้านบน' : 'อันดับ ' + (altIndex + 1) }}</span>
               <span class="alt-label">{{ alt.label }}</span>
               <span class="alt-desc">{{ alt.description }}</span>
             </div>
@@ -293,7 +361,7 @@
             <tr *ngFor="let part of alt.parts">
               <td class="ap-type">{{ part.type }}</td>
               <td class="ap-name">{{ part.name }}</td>
-              <td class="ap-price">{{ part.price | number:'' }} ฿</td>
+              <td class="ap-price">{{ formatPartPrice(part.price) }}</td>
             </tr>
           </table>
         </div>
@@ -321,6 +389,11 @@
             🏆 {{ compareData.winner === 'tie' ? 'เสมอกัน' : 'สเปคชุดที่ ' + compareData.winner + ' ดีกว่า' }}
           </div>
           <div class="winner-verdict">{{ compareData.verdict }}</div>
+        </div>
+        <div class="recommend-alerts" *ngIf="compareData.compatibilityWarnings?.length" role="alert">
+          <p *ngFor="let warning of compareData.compatibilityWarnings">
+            <strong>สเปคชุดที่ {{ warning.spec }}:</strong> {{ warning.message }}
+          </p>
         </div>
         <div *ngFor="let cat of compareData.categories" class="compare-row">
           <div class="compare-cell" [class.winner]="cat.winner === '1'">{{ cat.spec1 }}</div>
@@ -489,4 +562,6 @@
   </div>
   <!-- /TAB: ADMIN -->
 
+</main>
+</div>
 </div>

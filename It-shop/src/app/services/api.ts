@@ -10,6 +10,38 @@ export class ApiService {
 
   constructor(private http: HttpClient) {}
 
+  resolveProductImage(imageUrl = '', fallback = ''): string {
+    const raw = imageUrl.trim();
+    if (!raw) return fallback;
+
+    // Local assets entered by an admin do not need the retailer proxy.
+    if (raw.startsWith('/') || raw.startsWith('assets/')) return raw;
+
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
+
+      const retailerHosts = [
+        'jib.co.th',
+        'ihavecpu.com',
+        'advice.co.th',
+        'ihcupload-bkk.s3.ap-southeast-7.amazonaws.com'
+      ];
+      const hostname = parsed.hostname.toLowerCase();
+      const needsProxy = parsed.protocol === 'https:' && retailerHosts.some(host =>
+        hostname === host || hostname.endsWith(`.${host}`)
+      );
+
+      // Retailer CDNs need the backend cache/proxy. An image URL entered by an
+      // admin is loaded directly, matching the behaviour in product management.
+      return needsProxy
+        ? `${this.baseUrl}/api/image-proxy?url=${encodeURIComponent(raw)}`
+        : raw;
+    } catch {
+      return fallback;
+    }
+  }
+
   private authHeaders(): HttpHeaders {
     const token = localStorage.getItem('lt_token') || '';
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
@@ -21,6 +53,16 @@ export class ApiService {
     if (category) params = params.set('category', category);
     if (search) params = params.set('search', search);
     return this.http.get(`${this.baseUrl}/api/products`, { params });
+  }
+
+  getAdminProducts(category = '', search = '', page = 1, limit = 20): Observable<any> {
+    let params = new HttpParams().set('page', page).set('limit', limit);
+    if (category) params = params.set('category', category);
+    if (search) params = params.set('search', search);
+    return this.http.get(`${this.baseUrl}/api/products`, {
+      params,
+      headers: this.authHeaders()
+    });
   }
 
   getProductDetail(id: string | number): Observable<any> {

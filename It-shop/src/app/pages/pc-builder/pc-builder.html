@@ -138,7 +138,8 @@
           <!-- Failed/Warning Checks -->
           <div class="compat-details">
             <div *ngFor="let c of compatResult.checks" class="compat-check-row">
-              <span [class.compat-item-fail]="!c.ok">{{ c.severity === 'PASS' ? '✓' : c.severity === 'ERROR' ? '✗' : '⚠' }} {{ c.detail }}</span>
+              <span [class.compat-item-fail]="c.severity === 'ERROR'"
+                [class.compat-item-warning]="c.severity === 'WARNING' || c.severity === 'UNKNOWN'">{{ c.severity === 'PASS' ? '✓' : c.severity === 'ERROR' ? '✗' : '⚠' }} {{ c.detail }}</span>
               <div *ngFor="let source of c.sources" class="compat-source">
                 <a [href]="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
                 — {{ source.field === 'recommended_psu_watt' ? 'PSU ระบบที่แนะนำ' : 'กำลังไฟอุปกรณ์' }} {{ source.value }}{{ source.unit }}

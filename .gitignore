@@ -13,6 +13,9 @@ dist/
 .angular/
 
 # Databases (local build artifacts)
+*.db
+*.db-shm
+*.db-wal
 *.db-journal
 docs/qa/round4/*.db
 docs/qa/round4/*.db-shm
@@ -22,3 +25,4 @@ docs/qa/round4/*.db-wal
 *.log
 advice_html.txt
 uploads/
+backend/product_image_cache/

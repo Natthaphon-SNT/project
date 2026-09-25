@@ -173,6 +173,46 @@ class JibFullScraperTests(unittest.TestCase):
         ).fetchone()[0], "jib_987")
         conn.close()
 
+    def test_reconcile_current_links_keeps_colliding_source_ids_separate(self):
+        conn = sqlite3.connect(":memory:")
+        conn.executescript("""
+            CREATE TABLE products (
+                product_id TEXT PRIMARY KEY, p_name TEXT, p_description TEXT,
+                p_price INTEGER, price_advice INTEGER, price_jib INTEGER,
+                price_ihavecpu INTEGER, url_advice TEXT, url_jib TEXT,
+                url_ihavecpu TEXT, desc_advice TEXT, desc_jib TEXT,
+                desc_ihavecpu TEXT, p_stock INTEGER, cid TEXT, category TEXT,
+                img_url TEXT, specs TEXT, created_at TEXT, updated_at TEXT
+            );
+        """)
+        jib.setup_inventory(conn)
+        other_url = "https://www.jib.co.th/web/product/readProduct/999/1/keyboard"
+        source_url = "https://www.jib.co.th/web/product/readProduct/123/1/keyboard"
+        conn.execute("""INSERT INTO products
+            (product_id, p_name, price_jib, url_jib, category)
+            VALUES ('jib_123', 'KEYBOARD TEST', 900, ?, 'Keyboard')
+        """, (other_url,))
+        conn.execute("""INSERT INTO jib_scrape_inventory
+            (source_category_id, source_product_id, category, product_name,
+             price, image_url, description, product_url, listing_seen_at)
+            VALUES (1419, 123, 'Keyboard', 'KEYBOARD TEST', 1000,
+                    'https://img', 'Detailed keyboard specifications', ?,
+                    '2026-09-24T20:00:00')
+        """, (source_url,))
+        self.assertEqual(jib.reconcile_current_inventory_links(
+            conn, "2026-09-24T19:00:00"), 1)
+        self.assertEqual(conn.execute("""SELECT product_id, url_jib FROM products
+            WHERE product_id='jib_123'""").fetchone(), ('jib_123', other_url))
+        self.assertEqual(conn.execute("""SELECT db_product_id FROM
+            jib_scrape_inventory WHERE source_product_id=123""").fetchone()[0],
+            'jib_source_123')
+        self.assertEqual(conn.execute("""SELECT price_jib, url_jib, desc_jib
+            FROM products WHERE product_id='jib_source_123'""").fetchone(),
+            (1000, source_url, 'Detailed keyboard specifications'))
+        self.assertEqual(jib.reconcile_current_inventory_links(
+            conn, "2026-09-24T19:00:00"), 0)
+        conn.close()
+
     def test_conflicting_jib_url_is_detached_from_other_store_model(self):
         conn = sqlite3.connect(":memory:")
         conn.executescript("""

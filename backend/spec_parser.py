@@ -62,6 +62,51 @@ def _cpu_tdp_estimate(name_upper: str) -> Optional[int]:
     return None
 
 
+def detect_stock_cooler_included(product_name: str, specs: str = "") -> Optional[bool]:
+    """Return True/False only when the CPU cooling bundle can be determined.
+
+    Retailers expose this inconsistently as a table field, Thai prose, a name
+    suffix, or a tray/K-series model marker. Unknown is intentionally None so
+    the recommender does not invent a mandatory part without evidence.
+    """
+    name = product_name or ""
+    combined = f"{name}\n{specs or ''}"
+    normalized = re.sub(r"\s+", " ", combined).upper()
+
+    excluded_patterns = (
+        r"CPU\s*COOLER\s*(?:[:：-]\s*)?(?:NO|NONE|NOT\s+INCLUDED)",
+        r"(?:CPU\s*)?COOLER\s+(?:IS\s+)?NOT\s+INCLUDED",
+        r"WITHOUT\s+(?:A\s+)?(?:CPU\s+)?COOLER",
+        r"ระบบระบายความร้อน\s*ไม่(?:ได้)?รวม(?:อยู่ในสินค้า)?",
+        r"ไม่รวมระบบระบายความร้อน",
+        r"ซีพียูคูลเลอร์\s*[:：-]?\s*(?:ไม่มี|ไม่รวม)",
+    )
+    if any(re.search(pattern, normalized, re.I) for pattern in excluded_patterns):
+        return False
+    if re.search(r"\(\s*TRAY\s*\)|\bTRAY\s*(?:CPU|PROCESSOR)?\b", name, re.I):
+        return False
+    # Intel unlocked desktop K/KF/KS SKUs normally require an aftermarket
+    # thermal solution even when a retailer omits the bundle field.
+    if re.search(
+        r"\b(?:I[3579][ -]?\d{4,5}|CORE(?:\s+ULTRA)?\s+[3579]\s+\d{3,5})"
+        r"K(?:F|S)?\b",
+        name,
+        re.I,
+    ):
+        return False
+
+    included_patterns = (
+        r"CPU\s*COOLER\s*(?:[:：-]\s*)?(?:YES|INCLUDED)",
+        r"(?:WITH|INCLUDES?)\s+(?:AMD\s+|INTEL\s+)?(?:STOCK\s+)?(?:CPU\s+)?COOLER",
+        r"\bWRAITH\s+(?:STEALTH|SPIRE|PRISM)\b",
+        r"ซีพียูคูลเลอร์\s*[:：-]?\s*(?:มี|แถม)",
+        r"(?:แถม|รวม)\s*(?:พัดลม|ฮีตซิงก์|ชุดระบายความร้อน)",
+    )
+    if any(re.search(pattern, normalized, re.I) for pattern in included_patterns):
+        return True
+    return None
+
+
 def parse_cpu(name: str) -> dict:
     u = name.upper()
     socket = None
@@ -87,7 +132,12 @@ def parse_cpu(name: str) -> dict:
             elif 1000 <= n <= 5999:
                 socket = "AM4"
     tdp = _cpu_tdp_estimate(u)
-    return {"category": "CPU", "socket": socket, "tdp": tdp}
+    return {
+        "category": "CPU",
+        "socket": socket,
+        "tdp": tdp,
+        "stock_cooler_included": detect_stock_cooler_included(name),
+    }
 
 
 def parse_mainboard(name: str) -> dict:
@@ -142,11 +192,36 @@ def parse_ram(name: str) -> dict:
     if "DDR5" in u: ddr = "DDR5"
     elif "DDR4" in u: ddr = "DDR4"
     elif "DDR3" in u: ddr = "DDR3"
-    cap_m = re.search(r"(\d{1,2})GB", u)
+    cap_m = re.search(r"(\d{1,3})\s*GB", u)
     speed_m = re.search(r"(\d{3,5})\s*MHZ", u)
+    capacity_gb = int(cap_m.group(1)) if cap_m else None
+    module_count = None
+    kit_m = re.search(r"\(\s*\d{1,3}\s*[X×]\s*([1-8])\s*\)", u)
+    if kit_m:
+        module_count = int(kit_m.group(1))
+    else:
+        count_first = re.search(r"\b([1-8])\s*[X×]\s*\d{1,3}\s*GB\b", u)
+        count_after = re.search(r"\b\d{1,3}\s*GB\s*[X×]\s*([1-8])\b", u)
+        kit_words = re.search(r"(?:KIT\s*(?:OF)?|DUAL\s*CHANNEL)\s*([1-8])?", u)
+        if count_first:
+            module_count = int(count_first.group(1))
+            module_size = re.search(r"\b[1-8]\s*[X×]\s*(\d{1,3})\s*GB\b", u)
+            if module_size:
+                capacity_gb = module_count * int(module_size.group(1))
+        elif count_after:
+            module_count = int(count_after.group(1))
+            module_size = re.search(r"\b(\d{1,3})\s*GB\s*[X×]\s*[1-8]\b", u)
+            if module_size:
+                capacity_gb = module_count * int(module_size.group(1))
+        elif "DUAL CHANNEL" in u:
+            module_count = 2
+        elif kit_words and kit_words.group(1):
+            module_count = int(kit_words.group(1))
     return {"category": "RAM", "ddr_gen": ddr,
-            "capacity_gb": int(cap_m.group(1)) if cap_m else None,
-            "speed_mhz": int(speed_m.group(1)) if speed_m else None}
+            "capacity_gb": capacity_gb,
+            "speed_mhz": int(speed_m.group(1)) if speed_m else None,
+            "module_count": module_count,
+            "dual_channel": module_count is not None and module_count >= 2}
 
 
 def parse_gpu(name: str) -> dict:
@@ -228,22 +303,258 @@ def parse_case(name: str) -> dict:
             "supports_ff": supported_by_size.get(ff)}
 
 
-COOLER_RATING_HINTS = [
-    (r"SE-214|AS-120|GAMMA\b|AX120|RX120", 120),
-    (r"PA120|PE120|DUAL TOWER|2 TOWER", 200),
-    (r"240", 200), (r"360", 250),
-]
+def parse_case_radiator_support(specs: str) -> list[int] | None:
+    """Read only an explicitly labelled radiator table, never case fan sizes."""
+    lines = (specs or "").splitlines()
+    for index, line in enumerate(lines):
+        label = re.search(r"(?:Radiator Support|Liquid Cooling Support|รองรับหม้อน้ำ)\s*:?(.*)$", line, re.I)
+        if not label:
+            continue
+        section = [label.group(1)]
+        for next_line in lines[index + 1:index + 8]:
+            value = next_line.strip()
+            if re.match(r"^(?:[-•]\s*)?(?:top|right|bottom|front|rear|side)\s*[:：]", value, re.I):
+                section.append(value)
+            else:
+                break
+        sizes = {int(value) for value in re.findall(
+            r"(?<!\d)(?:120|140|240|280|360|420)(?!\d)", " ".join(section)
+        )}
+        if sizes:
+            return sorted(sizes)
+    return None
+
+
+COOLER_TDP_SKIP_REASON = "ข้ามการตรวจ (ประเมิน TDP/cooler rating ไม่ได้จากชื่อสินค้า)"
+
+COOLER_SOCKET_ORDER = (
+    "LGA115X", "LGA1150", "LGA1151", "LGA1155", "LGA1156",
+    "LGA1200", "LGA1700", "LGA1851", "LGA2011", "LGA2066",
+    "AM4", "AM5",
+)
+
+
+def extract_cooler_sockets(text: str) -> list[str]:
+    """Extract every CPU socket explicitly listed in cooler specifications."""
+    u = re.sub(r"\s+", " ", (text or "").upper())
+    found = set(re.findall(r"\bAM[45]\b", u))
+
+    for token in re.findall(
+        r"\bLGA[\s-]*(115X|1150|1151|1155|1156|1200|1700|1851|2011|2066)\b",
+        u,
+    ):
+        found.add(f"LGA{token}")
+
+    # Retailer tables sometimes write one LGA prefix followed by a list,
+    # for example "Intel LGA 115x/1200/1700/1851".
+    for match in re.finditer(r"\b(?:INTEL\s*:?[\s]*)?LGA[\s-]*([0-9X,\s/|-]{3,80})", u):
+        for token in re.findall(r"\b(?:115X|1150|1151|1155|1156|1200|1700|1851|2011|2066)\b", match.group(1)):
+            found.add(f"LGA{token}")
+
+    # Advice can omit LGA before the Intel list after this explicit label.
+    for match in re.finditer(r"(?:CPU\s*)?SOCKET(?:\s+SUPPORT)?\s*:?[\s]*(.{0,180})", u):
+        segment = match.group(1).split("AMD", 1)[0]
+        for token in re.findall(r"\b(?:1150|1151|1155|1156|1200|1700|1851|2011|2066)\b", segment):
+            found.add(f"LGA{token}")
+
+    return [socket for socket in COOLER_SOCKET_ORDER if socket in found]
+
+
+def estimate_cooler_tdp_tier(product_name: str, specs: dict) -> dict:
+    """Estimate a cooler capacity tier without inventing an exact TDP rating.
+
+    Product-name radiator tokens are the strongest signal. Structured facts
+    parsed from retailer specifications are used only when the name does not
+    contain a usable radiator size. Unknown inputs always return a safe skip
+    result instead of raising an exception.
+    """
+    unknown = {
+        "tdp_tier": None,
+        "estimated_watt_range": None,
+        "radiator_mm": None,
+        "cooler_type": "unknown",
+        "confidence": "unknown",
+        "skip_reason": COOLER_TDP_SKIP_REASON,
+    }
+    try:
+        facts = specs if isinstance(specs, dict) else {}
+        name = product_name or ""
+        upper_name = name.upper()
+        category = str(facts.get("category") or "").upper()
+        type_hint = str(facts.get("cooler_type") or "").lower()
+
+        aio_by_text = bool(re.search(
+            r"\b(?:AIO|LIQUID\s+COOL(?:ER|ING)|WATER\s+COOL(?:ER|ING))\b|ชุดน้ำ",
+            name,
+            re.I,
+        ))
+        air_by_text = bool(re.search(r"\bAIR\s+COOL(?:ER|ING)\b", name, re.I))
+        tower_count = _safe_positive_int(facts.get("tower_count"))
+
+        if type_hint in ("aio", "liquid") or "LIQUID COOLER" in category or aio_by_text:
+            cooler_type = "aio"
+        elif type_hint == "air" or "AIR COOLER" in category or air_by_text or tower_count:
+            cooler_type = "air"
+        else:
+            cooler_type = "unknown"
+
+        # Name priority: standard radiator numbers (including bare numbers used
+        # by model names), L36/L24 shorthand, and RX360-style tokens.
+        radiator_mm = None
+        size_match = re.search(
+            r"(?<!\d)(?:MM\s*[- ]*)?(240|280|360|420)(?:\s*MM)?(?!\d)",
+            upper_name,
+        )
+        if size_match:
+            radiator_mm = int(size_match.group(1))
+        else:
+            l_match = re.search(r"\bL\s*[- ]?(24|28|36|42)\b", upper_name)
+            if l_match:
+                radiator_mm = int(l_match.group(1)) * 10
+            else:
+                rx_match = re.search(r"\bRX\s*[- ]?(240|280|360|420)\b", upper_name)
+                if rx_match:
+                    radiator_mm = int(rx_match.group(1))
+
+        if radiator_mm is not None and cooler_type != "air":
+            cooler_type = "aio"
+            tier = _aio_tdp_tier(radiator_mm)
+            if tier:
+                label, watt_range = tier
+                return {
+                    "tdp_tier": label,
+                    "estimated_watt_range": watt_range,
+                    "radiator_mm": radiator_mm,
+                    "cooler_type": cooler_type,
+                    "confidence": "name",
+                    "skip_reason": None,
+                }
+
+        # Spec fallback for AIO products: derive nominal radiator length from
+        # fan count and fan size (3 x 120 mm => approximately 360 mm).
+        if cooler_type == "aio":
+            fan_count = _safe_positive_int(facts.get("fan_count"))
+            fan_size_mm = _safe_positive_int(facts.get("fan_size_mm"))
+            if fan_count and fan_size_mm:
+                estimated_radiator = fan_count * fan_size_mm
+                tier = _aio_tdp_tier(estimated_radiator)
+                if tier:
+                    label, watt_range = tier
+                    return {
+                        "tdp_tier": label,
+                        "estimated_watt_range": watt_range,
+                        "radiator_mm": estimated_radiator,
+                        "cooler_type": "aio",
+                        "confidence": "spec",
+                        "skip_reason": None,
+                    }
+
+        # Air products deliberately use broad ranges. A dual tower is only
+        # promoted to medium when the heatsink is known to exceed 150 mm.
+        if cooler_type == "air":
+            height = _safe_positive_int(
+                facts.get("heatsink_height_mm") or facts.get("height_mm")
+            )
+            if tower_count == 2 and height and height > 150:
+                return {
+                    "tdp_tier": "medium",
+                    "estimated_watt_range": (150, 180),
+                    "radiator_mm": None,
+                    "cooler_type": "air",
+                    "confidence": "spec",
+                    "skip_reason": None,
+                }
+            if tower_count == 1:
+                return {
+                    "tdp_tier": "low",
+                    "estimated_watt_range": (65, 95),
+                    "radiator_mm": None,
+                    "cooler_type": "air",
+                    "confidence": "spec",
+                    "skip_reason": None,
+                }
+
+        unknown["cooler_type"] = cooler_type
+        unknown["radiator_mm"] = radiator_mm
+        return unknown
+    except (TypeError, ValueError, AttributeError):
+        return unknown
+
+
+def _safe_positive_int(value) -> Optional[int]:
+    try:
+        number = int(value)
+        return number if number > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _aio_tdp_tier(radiator_mm: int) -> Optional[tuple[str, tuple[int, int]]]:
+    if radiator_mm >= 360:
+        return "high", (200, 280)
+    if 240 <= radiator_mm <= 280:
+        return "medium", (150, 200)
+    return None
+
+
+def _extract_cooler_geometry(specs: str) -> dict:
+    """Extract only physical cooler facts needed by the tier estimator."""
+    text = specs or ""
+    upper = re.sub(r"\s+", " ", text.upper())
+    result = {}
+
+    combined_fan = re.search(
+        r"(?<!\d)([1-4])\s*[X×]\s*(80|92|120|140)\s*MM\b", upper
+    )
+    if combined_fan:
+        result["fan_count"] = int(combined_fan.group(1))
+        result["fan_size_mm"] = int(combined_fan.group(2))
+    else:
+        count_match = re.search(
+            r"(?:NUMBER\s+OF\s+FANS?|FAN\s+(?:COUNT|QUANTITY)|จำนวนพัดลม)\s*[:：]?\s*([1-4])\b",
+            upper,
+        )
+        size_match = re.search(
+            r"(?:FAN\s+SIZE|ขนาดพัดลม)\s*[:：]?\s*(80|92|120|140)\s*MM\b",
+            upper,
+        )
+        if count_match:
+            result["fan_count"] = int(count_match.group(1))
+        if size_match:
+            result["fan_size_mm"] = int(size_match.group(1))
+
+    if re.search(r"\b(?:DUAL|DOUBLE|2)\s*[- ]?TOWER\b|ฮีตซิงก์\s*2\s*(?:ตอน|ทาวเวอร์)", upper):
+        result["tower_count"] = 2
+    elif re.search(r"\b(?:SINGLE|1)\s*[- ]?TOWER\b|ฮีตซิงก์\s*1\s*(?:ตอน|ทาวเวอร์)", upper):
+        result["tower_count"] = 1
+
+    height_match = re.search(
+        r"(?:HEATSINK\s+HEIGHT|COOLER\s+HEIGHT|MAX(?:IMUM)?\s+COOLER\s+HEIGHT|ความสูง(?:ฮีตซิงก์)?)"
+        r"\s*[:：]?\s*(\d{2,3})\s*MM\b",
+        upper,
+    )
+    if height_match:
+        result["heatsink_height_mm"] = int(height_match.group(1))
+    return result
 
 def parse_cooler(name: str) -> dict:
-    """Returns rating=None when the item is likely a case fan / accessory."""
+    """Identify CPU coolers; capacity estimation is applied in parse_part."""
     u = name.upper()
     is_cpu_cooler = bool(re.search(
-        r"AIR COOLER|LIQUID COOLER|CPU COOL|AIO|\bSE-214|\bPA120|\bAS-120|FLOE|CASTLE|FORZA|LB240|LB360|LT240|LT360|DRP|HYPER\s?212|ASSASSIN", u))
-    rating = None
-    for pat, val in COOLER_RATING_HINTS:
-        if re.search(pat, u):
-            rating = val; break
-    return {"category": "Cooler", "is_cpu_cooler": is_cpu_cooler, "rating_watt": rating}
+        r"AIR COOL(?:ER|ING)|LIQUID COOL(?:ER|ING)|WATER COOL(?:ER|ING)|CPU COOL|AIO|HEATSINK|"
+        r"\bSE-214|\bPA120|\bAS-120|FLOE|CASTLE|FORZA|LB240|LB360|LT240|LT360|DRP|HYPER\s?212|ASSASSIN|"
+        r"\bL\s*[- ]?(?:24|28|36|42)\b|(?<!\d)(?:240|280|360|420)(?:\s*MM)?(?!\d)", u))
+    result = {"category": "Cooler", "is_cpu_cooler": is_cpu_cooler, "rating_watt": None}
+    sockets = extract_cooler_sockets(name)
+    if sockets:
+        result["sockets"] = sockets
+    if re.search(r"LIQUID COOL(?:ER|ING)|AIO|WATER COOL(?:ER|ING)", u):
+        radiator = re.search(r"(?<!\d)(120|140|240|280|360|420)(?!\d)", u)
+        if radiator:
+            result["radiator_size_mm"] = int(radiator.group(1))
+        elif re.search(r"\bL\s*[- ]?36\b", u):
+            result["radiator_size_mm"] = 360
+    return result
 
 
 def parse_storage(name: str) -> dict:
@@ -265,6 +576,8 @@ PARSERS = {
     "PSU": parse_psu,
     "Case": parse_case,
     "Cooler": parse_cooler,
+    "Air Cooler": parse_cooler,
+    "Liquid Cooler": parse_cooler,
     "Storage": parse_storage,
     "SSD": parse_storage,
 }
@@ -595,6 +908,18 @@ def _parse_specs_text(specs: str, category: str = "") -> dict:
             for connector, count in connectors.items():
                 current[connector] = max(current.get(connector, 0), count)
 
+    if category in ("Cooler", "Air Cooler", "Liquid Cooler"):
+        result.update(_extract_cooler_geometry(specs))
+        sockets = extract_cooler_sockets(specs)
+        if sockets:
+            result["sockets"] = sockets
+            result.pop("socket", None)
+        # A cooler's TDP field is cooling capacity, not component power draw.
+        if result.get("tdp") is not None:
+            result["rating_watt"] = max(result.get("rating_watt", 0), result.pop("tdp"))
+        if result.get("height_mm") and not result.get("heatsink_height_mm"):
+            result["heatsink_height_mm"] = result["height_mm"]
+
     return result
 
 
@@ -632,6 +957,10 @@ def parse_part(category: str, name: str, specs: str = "") -> dict:
                     # Keep the stricter known requirement when sources disagree.
                     v = max(v, base[k])
                 base[k] = v
+        if category == "Case":
+            radiator_sizes = parse_case_radiator_support(specs)
+            if radiator_sizes:
+                base["radiator_support_mm"] = radiator_sizes
         # Attribution covers only the explicitly sourced block, not earlier legacy fields.
         block = re.search(r"\[Verified GPU power\](.*?)\[/Verified GPU power\]", specs, re.S)
         sourced_text = block[1] if block else specs
@@ -680,6 +1009,21 @@ def parse_part(category: str, name: str, specs: str = "") -> dict:
             })
         if sources:
             base["power_sources"] = sources
+
+    if category in ("Cooler", "Air Cooler", "Liquid Cooler"):
+        estimate_specs = dict(base)
+        # parse_cooler normalizes category to "Cooler"; keep the database
+        # category as a stronger air/liquid type hint for the estimator.
+        estimate_specs["category"] = category
+        estimate = estimate_cooler_tdp_tier(name, estimate_specs)
+        base.update(estimate)
+        if estimate.get("radiator_mm") is not None:
+            base["radiator_size_mm"] = estimate["radiator_mm"]
+
+    if category == "CPU":
+        stock_cooler = detect_stock_cooler_included(name, specs)
+        if stock_cooler is not None:
+            base["stock_cooler_included"] = stock_cooler
 
     return base
 

@@ -224,6 +224,41 @@ def promote_jib_images(conn: sqlite3.Connection) -> int:
     return changed
 
 
+def sync_complete_inventory(conn: sqlite3.Connection) -> int:
+    """Copy already-hydrated, source-matched inventory facts into products.
+
+    Older runs could mark an inventory row complete before its canonical
+    product link was repaired. A later details-only run then skipped the row,
+    leaving ``products.desc_jib`` empty despite a complete inventory record.
+    """
+    changed = conn.execute("""
+        UPDATE products AS p SET
+            desc_jib=i.description,
+            p_description=CASE
+                WHEN length(trim(coalesce(p.p_description, ''))) < 30
+                THEN i.description ELSE p.p_description END,
+            specs=CASE
+                WHEN length(trim(coalesce(p.specs, ''))) < 30
+                THEN i.description ELSE p.specs END,
+            img_url=CASE
+                WHEN i.image_url LIKE 'https://www.jib.co.th/img_master/product/original/%'
+                  AND (coalesce(p.img_url, '')='' OR p.img_url LIKE '%/medium/%'
+                       OR p.img_url LIKE '%placeholder%' OR p.img_url LIKE '%nophoto%')
+                THEN i.image_url ELSE p.img_url END,
+            updated_at=?
+        FROM jib_scrape_inventory AS i
+        WHERE p.product_id=i.db_product_id
+          AND i.detail_status='complete'
+          AND length(trim(coalesce(i.description, '')))>=30
+          AND instr(p.url_jib, '/readProduct/' || i.source_product_id || '/')>0
+          AND (length(trim(coalesce(p.desc_jib, ''))) < 30
+               OR length(trim(coalesce(p.p_description, ''))) < 30
+               OR length(trim(coalesce(p.specs, ''))) < 30)
+    """, (datetime.now().isoformat(timespec="seconds"),)).rowcount
+    conn.commit()
+    return changed
+
+
 def reconcile_lcd_panels(conn: sqlite3.Connection) -> int:
     """Keep case-mounted secondary screens out of the generic PC bucket."""
     changed = conn.execute("""
@@ -480,13 +515,15 @@ def repair_duplicate_jib_links(conn: sqlite3.Connection) -> int:
             core._refresh_lowest_price(cursor, pid)
             detached += 1
         cursor.execute("""
-            UPDATE products SET price_jib=?, url_jib=?, desc_jib=?,
+            UPDATE products SET price_jib=?, url_jib=?,
+                desc_jib=CASE WHEN ?!='' THEN ? ELSE desc_jib END,
                 p_description=CASE WHEN COALESCE(price_advice,0)=0
                     AND COALESCE(price_ihavecpu,0)=0 THEN ? ELSE p_description END,
                 specs=CASE WHEN COALESCE(price_advice,0)=0
                     AND COALESCE(price_ihavecpu,0)=0 THEN ? ELSE specs END
             WHERE product_id=?
-        """, (price, url, description, description, description, canonical_pid))
+        """, (price, url, description, description, description,
+              description, canonical_pid))
         core._refresh_lowest_price(cursor, canonical_pid)
         cursor.execute("""
             UPDATE jib_scrape_inventory SET db_product_id=?
@@ -494,6 +531,95 @@ def repair_duplicate_jib_links(conn: sqlite3.Connection) -> int:
         """, (canonical_pid, source_id))
     conn.commit()
     return detached
+
+
+def reconcile_current_inventory_links(conn: sqlite3.Connection, since: str) -> int:
+    """Give each freshly listed JIB ID one catalogue row with its own source URL.
+
+    A legacy product_id can already belong to a different JIB source ID even
+    when the title is identical (colour/stock variants). Never overwrite that
+    row: use a separate, stable source-owned ID instead.
+    """
+    rows = conn.execute("""
+        SELECT i.source_product_id, i.category, i.product_name, i.price,
+               i.image_url, i.description, i.product_url, i.db_product_id
+        FROM jib_scrape_inventory AS i
+        LEFT JOIN products AS p ON p.product_id=i.db_product_id
+        WHERE i.listing_seen_at>=?
+          AND (p.product_id IS NULL OR instr(COALESCE(p.url_jib,''),
+              '/readProduct/' || i.source_product_id || '/')=0)
+        ORDER BY i.source_product_id
+    """, (since,)).fetchall()
+    cursor = conn.cursor()
+    fixed = 0
+    for source_id, category, name, price, image, description, url, old_pid in rows:
+        marker = f"/readProduct/{source_id}/"
+        if marker not in url:
+            raise RuntimeError(f"JIB inventory URL does not match source ID {source_id}")
+        linked = cursor.execute("""
+            SELECT product_id, p_name FROM products WHERE url_jib LIKE ?
+        """, (f"%{marker}%",)).fetchall()
+        canonical = next((pid for pid, linked_name in linked
+                          if linked_name.strip().upper() == name.strip().upper()), None)
+        if canonical is None and linked:
+            canonical = linked[0][0]
+        if canonical is None and old_pid:
+            candidate = cursor.execute("""
+                SELECT p_name, url_jib FROM products WHERE product_id=?
+            """, (old_pid,)).fetchone()
+            if (candidate and not (candidate[1] or "").strip()
+                    and candidate[0].strip().upper() == name.strip().upper()):
+                canonical = old_pid
+        if canonical is None:
+            # Prefer the short ID only if it is vacant or explicitly unclaimed.
+            for proposed in (f"jib_{source_id}", f"jib_source_{source_id}"):
+                candidate = cursor.execute(
+                    "SELECT p_name, url_jib FROM products WHERE product_id=?",
+                    (proposed,),
+                ).fetchone()
+                if candidate is None:
+                    canonical = proposed
+                    break
+                if (not (candidate[1] or "").strip()
+                        and candidate[0].strip().upper() == name.strip().upper()):
+                    canonical = proposed
+                    break
+        if canonical is None:
+            raise RuntimeError(f"No safe catalogue ID for JIB product {source_id}")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("""
+            INSERT OR IGNORE INTO products
+                (product_id, p_name, p_description, p_price,
+                 price_advice, price_jib, price_ihavecpu,
+                 url_advice, url_jib, url_ihavecpu,
+                 desc_advice, desc_jib, desc_ihavecpu,
+                 p_stock, cid, category, img_url, specs,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, 0, '', ?, '', '', ?, '',
+                    99, ?, ?, ?, ?, ?, ?)
+        """, (canonical, name, description, price, price, url,
+              description, core.get_cid(category), category, image,
+              description, now, now))
+        cursor.execute("""
+            UPDATE products SET price_jib=?, url_jib=?,
+                desc_jib=CASE WHEN ?!='' THEN ? ELSE desc_jib END,
+                img_url=CASE WHEN COALESCE(img_url,'')='' THEN ? ELSE img_url END,
+                p_description=CASE WHEN COALESCE(p_description,'')='' THEN ?
+                    ELSE p_description END, updated_at=?
+            WHERE product_id=? AND (COALESCE(url_jib,'')='' OR url_jib LIKE ?)
+        """, (price, url, description, description, image, description, now,
+              canonical, f"%{marker}%"))
+        if not cursor.rowcount:
+            raise RuntimeError(f"JIB product {source_id} has a conflicting source URL")
+        core._refresh_lowest_price(cursor, canonical)
+        cursor.execute("""
+            UPDATE jib_scrape_inventory SET db_product_id=?
+            WHERE source_product_id=? AND listing_seen_at>=?
+        """, (canonical, source_id, since))
+        if old_pid != canonical:
+            fixed += 1
+    conn.commit()
+    return fixed
 
 
 async def fetch_listing(client, limiter, category_id: int, offset: int):
@@ -683,15 +809,17 @@ async def hydrate_details(conn, matcher, client, limiter, category_ids: list[int
 
 
 async def run(category_ids: list[int], *, list_only: bool = False,
-              details_only: bool = False, concurrency: int = 2) -> None:
+              details_only: bool = False, concurrency: int = 2,
+              interval: float = 1.2) -> None:
     conn = sqlite3.connect(core.DB_PATH)
     try:
+        crawl_started_at = datetime.now().isoformat(timespec="seconds")
         core.setup_db(conn)
         setup_inventory(conn)
         matcher = core.SmartMatcher(conn.cursor())
         limiter = core.AdaptiveRateLimiter(
             "jib", threshold=2, base_cooldown_seconds=30,
-            max_cooldown_seconds=180, min_interval_seconds=0.6,
+            max_cooldown_seconds=180, min_interval_seconds=interval,
         )
         async with httpx.AsyncClient(
             headers={"User-Agent": core.UA, "Accept": "text/html,application/xhtml+xml",
@@ -724,9 +852,16 @@ async def run(category_ids: list[int], *, list_only: bool = False,
         n_a_products = add_unpriced_jib_products(conn)
         if n_a_products:
             core.log(f"  [JIB full] catalogued {n_a_products} JIB items with N/A price")
+        if not details_only:
+            relinked = reconcile_current_inventory_links(conn, crawl_started_at)
+            if relinked:
+                core.log(f"  [JIB full] relinked {relinked} current source IDs")
         promoted = promote_jib_images(conn)
         if promoted:
             core.log(f"  [JIB full] promoted {promoted} product images to full size")
+        synced = sync_complete_inventory(conn)
+        if synced:
+            core.log(f"  [JIB full] synced {synced} completed inventory details")
         core.log(f"  [JIB full] finished categories={category_ids} 429={limiter.total_429}")
     finally:
         conn.close()
@@ -739,12 +874,29 @@ def main() -> None:
     parser.add_argument("--list-only", action="store_true")
     parser.add_argument("--details-only", action="store_true")
     parser.add_argument("--skip-compat-training", action="store_true")
+    parser.add_argument("--repair-links-since", default="",
+                        help="Repair inventory links listed since ISO timestamp, without network")
     parser.add_argument("--concurrency", type=int, default=2, choices=range(1, 5))
+    parser.add_argument("--interval", type=float, default=1.2,
+                        help="Minimum seconds between JIB requests (default: 1.2)")
     args = parser.parse_args()
+    if args.repair_links_since:
+        conn = sqlite3.connect(core.DB_PATH)
+        try:
+            core.setup_db(conn)
+            setup_inventory(conn)
+            count = reconcile_current_inventory_links(conn, args.repair_links_since)
+            core.log(f"  [JIB full] relinked {count} current source IDs")
+        finally:
+            conn.close()
+        return
     if args.list_only and args.details_only:
         parser.error("--list-only and --details-only are mutually exclusive")
+    if args.interval < 0.8:
+        parser.error("--interval must be at least 0.8 seconds")
     asyncio.run(run(list(dict.fromkeys(args.categories)), list_only=args.list_only,
-                    details_only=args.details_only, concurrency=args.concurrency))
+                    details_only=args.details_only, concurrency=args.concurrency,
+                    interval=args.interval))
     if not args.list_only and not args.skip_compat_training:
         trainer = os.path.join(os.path.dirname(__file__), "train_compat_knowledge.py")
         result = subprocess.run([sys.executable, "-X", "utf8", trainer, "--apply"],

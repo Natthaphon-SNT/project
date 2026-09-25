@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, ForeignKey, func, text, or_
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, ForeignKey, func, text, or_, and_
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship
 import bcrypt
 import jwt
@@ -230,7 +230,7 @@ class UserAiSettings(Base):
     uid          = Column(String, ForeignKey("users.uid"), primary_key=True, index=True)  # FK → users.uid
     email        = Column(String, default="", index=True)
     provider     = Column(String, default="google")   # google | openai | openrouter
-    model        = Column(String, default="gemini-2.0-flash")
+    model        = Column(String, default="gemini-3-flash-preview")
     api_key      = Column(Text, default="")        # Fernet-encrypted at rest (S02)
     custom_model = Column(String, default="")      # user-typed custom model id
     updated_at   = Column(String, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -294,7 +294,7 @@ def run_migrations(db_engine):
                     uid          TEXT PRIMARY KEY REFERENCES users(uid),
                     email        TEXT DEFAULT '',
                     provider     TEXT DEFAULT 'google',
-                    model        TEXT DEFAULT 'gemini-2.0-flash',
+                    model        TEXT DEFAULT 'gemini-3-flash-preview',
                     api_key      TEXT DEFAULT '',
                     custom_model TEXT DEFAULT '',
                     updated_at   TEXT DEFAULT ''
@@ -380,6 +380,15 @@ def run_migrations(db_engine):
             ("c26", "Case Accessories", "Case bags and other case accessories"),
             ("c27", "Keypad", "Numeric and macro keypads"),
             ("c28", "Graphic Tablet", "Pen and display tablets"),
+            ("c29", "Case Fan", "Case cooling fans"),
+            ("c30", "Dual Mode Monitor", "Dual-mode displays"),
+            ("c31", "Portable Monitor", "Portable displays"),
+            ("c32", "Curved Monitor", "Curved displays"),
+            ("c33", "Gaming Headset", "Wired gaming headsets"),
+            ("c34", "Wireless Headset", "Wireless gaming headsets"),
+            ("c35", "GPU Accessories", "GPU supports and riser cables"),
+            ("c36", "In-Ear Headphone", "In-ear gaming headphones"),
+            ("c37", "True Wireless Earbuds", "True wireless gaming earbuds"),
         ]
         for cid, name, desc in new_cats:
             try:
@@ -420,7 +429,8 @@ run_migrations(engine)
 migrate_ai_foreign_keys(engine)
 # Retire the provider configuration without changing historical conversations.
 with engine.begin() as conn:
-    conn.execute(text("UPDATE user_ai_settings SET provider='google', model='gemini-2.0-flash', custom_model='', api_key='', updated_at=:now WHERE provider='zen'"), {"now": datetime.now().isoformat()})
+    conn.execute(text("UPDATE user_ai_settings SET provider='google', model='gemini-3-flash-preview', custom_model='', api_key='', updated_at=:now WHERE provider='zen'"), {"now": datetime.now().isoformat()})
+    conn.execute(text("UPDATE user_ai_settings SET model='gemini-3-flash-preview', custom_model='' WHERE provider='google' AND (model IN ('gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro') OR custom_model IN ('gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'))"))
 
 # ─────────────────────────────────────────
 # Helpers
@@ -486,12 +496,22 @@ def get_optional_user(
     except Exception:
         return None
 
+def product_compatibility_text(p: Product) -> str:
+    """Combine normalized facts with retailer detail text for compatibility parsing."""
+    blocks = []
+    for field in ("specs", "desc_advice", "desc_jib", "desc_ihavecpu", "p_description"):
+        value = (getattr(p, field, "") or "").strip()
+        if value and value not in blocks:
+            blocks.append(value)
+    return "\n".join(blocks)
+
+
 def product_to_dict(p: Product) -> dict:
     """แปลง Product object เป็น dict ที่มีทุก field"""
     try:
         import spec_parser as _spec_parser
         compatibility = _spec_parser.parse_part(
-            p.category or "", p.p_name or "", specs=p.specs or ""
+            p.category or "", p.p_name or "", specs=product_compatibility_text(p)
         )
     except Exception:
         compatibility = {}
@@ -548,7 +568,7 @@ class ProductCreate(BaseModel):
     p_name: str
     p_description: str = ""
     p_price: float = Field(ge=0)
-    p_stock: int = 0
+    p_stock: int = Field(default=0, ge=0)
     img_url: str = ""
     cid: str = ""
     category: str = ""
@@ -564,7 +584,7 @@ class ProductUpdate(BaseModel):
     p_name: Optional[str] = None
     p_description: Optional[str] = None
     p_price: Optional[float] = Field(default=None, ge=0)
-    p_stock: Optional[int] = None
+    p_stock: Optional[int] = Field(default=None, ge=0)
     img_url: Optional[str] = None
     cid: Optional[str] = None
     category: Optional[str] = None
@@ -615,54 +635,29 @@ def root():
 # ─────────────────────────────────────────
 # Image Proxy — bypass hotlink/CORS/Referer blocking from store CDNs
 # ─────────────────────────────────────────
-from fastapi.responses import Response as FastAPIResponse
-import urllib.parse as _urlparse
+from fastapi.responses import FileResponse
+import product_image_cache
 
 @app.get("/api/image-proxy")
-@limiter.limit("30/minute")
 async def image_proxy(request: Request, url: str = Query(..., description="URL รูปภาพต้นทาง")):
     """
     Proxy รูปภาพจากร้านค้า (JIB, iHaveCPU, Advice) เพื่อหลีกเลี่ยง
     hotlink-block / CORS / Referer ที่ทำให้ browser โหลดรูปไม่ได้โดยตรง
     """
-    # Whitelist domain ที่อนุญาต
-    ALLOWED_DOMAINS = (
-        "jib.co.th", "ihavecpu.com", "advice.co.th",
-        "ihcupload-bkk.s3.ap-southeast-7.amazonaws.com",
-        "img.advice.co.th", "cdn.advice.co.th",
-    )
     try:
-        parsed = _urlparse.urlparse(url)
-        host = parsed.netloc.lower()
-        if not any(host.endswith(d) for d in ALLOWED_DOMAINS):
-            raise HTTPException(400, f"Domain ไม่ได้รับอนุญาต: {host}")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(400, "URL ไม่ถูกต้อง")
-
-    # Headers ที่ช่วยให้ได้รูปจริง (simulate browser + Referer)
-    headers = {
-        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
-        "Referer":         f"{parsed.scheme}://{parsed.netloc}/",
-        "Accept":          "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
-    }
+        product_image_cache.validated_host(url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code != 200:
-                raise HTTPException(502, f"ร้านค้าตอบกลับ {resp.status_code}")
-            content_type = resp.headers.get("content-type", "image/jpeg")
-            return FastAPIResponse(
-                content=resp.content,
-                media_type=content_type,
-                headers={"Cache-Control": "public, max-age=86400"},  # cache 1 วัน
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(502, f"โหลดรูปไม่ได้: {str(e)[:100]}")
+        cached = product_image_cache.cached_image(url)
+        if cached is None:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                cached = await product_image_cache.fetch_image(url, client)
+        path, mime = cached
+        return FileResponse(path, media_type=mime,
+                            headers={"Cache-Control": "public, max-age=86400"})
+    except Exception as exc:
+        raise HTTPException(502, f"Product image unavailable: {str(exc)[:100]}") from exc
 
 @app.post("/api/register")
 @limiter.limit("5/minute")
@@ -810,6 +805,28 @@ def product_matches_builder_component(product: Product, component: str) -> bool:
     return not forbidden or not forbidden.search(name)
 
 
+def public_product_filter():
+    """Products sold by a retailer, plus in-stock products created manually.
+
+    Imported products always carry at least one source URL. A product created in
+    the admin screen has no retailer URL, so its own price determines whether
+    it is visible in the public catalog. Out-of-stock items remain searchable
+    and are labelled as unavailable by the UI.
+    """
+    retailer_has_price = or_(
+        Product.price_advice > 0,
+        Product.price_jib > 0,
+        Product.price_ihavecpu > 0,
+    )
+    manual_product_is_available = and_(
+        Product.p_price > 0,
+        func.coalesce(Product.url_advice, "") == "",
+        func.coalesce(Product.url_jib, "") == "",
+        func.coalesce(Product.url_ihavecpu, "") == "",
+    )
+    return or_(retailer_has_price, manual_product_is_available)
+
+
 @app.get("/api/products")
 def get_products(
     category: str = "", cid: str = "", search: str = "", name: str = "",
@@ -821,13 +838,10 @@ def get_products(
     is_admin = user and user.u_role == "admin"
     q = db.query(Product)
 
-    # Non-admin: hide products with no price from any store (out of stock)
+    # Admins can manage every row. Public users see retailer products and
+    # in-stock products that were entered manually in the admin screen.
     if not is_admin:
-        q = q.filter(or_(
-            Product.price_advice > 0,
-            Product.price_jib > 0,
-            Product.price_ihavecpu > 0,
-        ))
+        q = q.filter(public_product_filter())
 
     component_key = normalize_builder_component(component)
     component_rule = BUILDER_COMPONENT_RULES.get(component_key) if component else None
@@ -837,8 +851,7 @@ def get_products(
         q = q.filter(func.lower(Product.category).in_(
             [value.lower() for value in component_rule["categories"]]
         ))
-        q = q.filter(or_(Product.price_advice > 0, Product.price_jib > 0,
-                         Product.price_ihavecpu > 0))
+        q = q.filter(public_product_filter())
     if category:
         q = q.filter(func.lower(Product.category) == category.lower())
     if cid:      q = q.filter(Product.cid == cid)
@@ -955,8 +968,14 @@ def create_product(body: ProductCreate, admin=Depends(require_admin), db: Sessio
     if db.query(Product).filter(Product.product_id == body.product_id).first():
         raise HTTPException(400, "product_id นี้มีอยู่แล้ว")
     p = Product(**body.model_dump())
-    db.add(p); db.commit()
-    return {"status": "success", "message": "เพิ่มสินค้าสำเร็จ"}
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return {
+        "status": "success",
+        "message": "เพิ่มสินค้าสำเร็จ",
+        "data": product_to_dict(p),
+    }
 
 @app.put("/api/products/{product_id}")
 def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_admin), db: Session = Depends(get_db)):
@@ -965,7 +984,12 @@ def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_a
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(p, k, v)
     db.commit()
-    return {"status": "success", "message": "แก้ไขสินค้าสำเร็จ"}
+    db.refresh(p)
+    return {
+        "status": "success",
+        "message": "แก้ไขสินค้าสำเร็จ",
+        "data": product_to_dict(p),
+    }
 
 @app.delete("/api/products/{product_id}")
 def delete_product(product_id: str, admin=Depends(require_admin), db: Session = Depends(get_db)):
@@ -1200,7 +1224,7 @@ def admin_get_user_specs(uid: str, admin=Depends(require_admin), db: Session = D
 # ─────────────────────────────────────────
 class AiSettingsBody(BaseModel):
     provider:     Literal["google", "openai", "openrouter"] = "google"
-    model:        str = "gemini-2.0-flash"
+    model:        str = "gemini-3-flash-preview"
     api_key:      str = ""
     custom_model: str = ""
 
@@ -1209,12 +1233,20 @@ def server_ai_credentials(provider: str) -> tuple[str, str]:
     """Use server-configured credentials as a private fallback for the AI page."""
     provider = (provider or "").lower()
     if provider == "google":
-        return os.getenv("GOOGLE_API_KEY", "") or os.getenv("GEMINI_API_KEY", ""), os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
+        return os.getenv("GOOGLE_API_KEY", "") or os.getenv("GEMINI_API_KEY", ""), os.getenv("GOOGLE_MODEL", "gemini-3-flash-preview")
     if provider == "openai":
         return os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
     if provider == "openrouter":
         return os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
     return "", ""
+
+
+RETIRED_GOOGLE_MODELS = {"gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"}
+
+
+def normalize_ai_model(provider: str, model: str) -> str:
+    """Remap known unavailable Google IDs while preserving user-defined models."""
+    return "gemini-3-flash-preview" if provider == "google" and model in RETIRED_GOOGLE_MODELS else model
 
 
 def default_ai_provider() -> tuple[str, str]:
@@ -1245,9 +1277,9 @@ def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depend
         "uid":          row.uid,
         "email":        row.email or user.u_email,
         "provider":     row.provider,
-        "model":        row.model,
+        "model":        normalize_ai_model(row.provider, row.model),
         "api_key":      decrypt_ai_key(row.api_key),
-        "custom_model": row.custom_model,
+        "custom_model": normalize_ai_model(row.provider, row.custom_model) if row.custom_model else "",
         "updated_at":   row.updated_at,
     }}
 
@@ -1259,14 +1291,17 @@ def save_ai_settings(body: AiSettingsBody, user: User = Depends(get_current_user
     if row:
         row.email        = user.u_email
         row.provider     = body.provider
-        row.model        = body.model
+        row.model        = normalize_ai_model(body.provider, body.model)
         row.api_key      = encrypted_key
-        row.custom_model = body.custom_model
+        row.custom_model = normalize_ai_model(body.provider, body.custom_model) if body.custom_model else ""
         row.updated_at   = now
     else:
         row = UserAiSettings(
-            uid=user.uid, email=user.u_email, provider=body.provider, model=body.model,
-            api_key=encrypted_key, custom_model=body.custom_model, updated_at=now
+            uid=user.uid, email=user.u_email, provider=body.provider,
+            model=normalize_ai_model(body.provider, body.model),
+            api_key=encrypted_key,
+            custom_model=normalize_ai_model(body.provider, body.custom_model) if body.custom_model else "",
+            updated_at=now
         )
         db.add(row)
     db.commit()
@@ -1386,6 +1421,12 @@ async def ai_recommend(
     Hybrid recommendation pipeline (no login required).
     If logged in, uses user's stored AI settings and saves to session.
     Provider priority: body override > DB settings > env defaults
+
+    Recommendation responses expose a severity-based compatibility score in
+    each alternative and in `_meta.compatibility_score_policy`. Failed or
+    unknown rules reduce the score proportionally; a confirmed critical
+    failure (for example R1 socket or R8 GPU/PSU connector mismatch) caps the
+    compatibility component at 50/100.
     """
     import recommender as rec
 
@@ -1395,11 +1436,11 @@ async def ai_recommend(
     provider = body.provider if body.provider is not None else (db_settings.provider if db_settings else fallback_provider)
     same_provider = db_settings is not None and db_settings.provider == provider
     model = body.model if body.model is not None else ((db_settings.custom_model or db_settings.model) if same_provider else "")
-    model = model.strip() or (fallback_model if provider == fallback_provider else rec.DEFAULT_MODELS[provider])
+    model = normalize_ai_model(provider, model.strip() or (fallback_model if provider == fallback_provider else rec.DEFAULT_MODELS[provider]))
     configured_key, _ = server_ai_credentials(provider)
     stored_key = decrypt_ai_key(db_settings.api_key) if db_settings else ""
     api_key = body.api_key if body.api_key is not None and body.api_key.strip() else (stored_key if same_provider and stored_key else configured_key)
-    if not api_key.strip():
+    if not api_key.strip() and body.mode != "recommend":
         raise HTTPException(400, f"ยังไม่ได้ตั้งค่า API Key สำหรับ {provider} กรุณาเปิด Settings หรือกำหนด key ฝั่งเซิร์ฟเวอร์")
     session = None
     if body.session_id is not None:
@@ -1433,8 +1474,16 @@ async def ai_recommend(
             raw = await rec.compare_specs(body.spec1, body.spec2, context=contextual_prompt,
                                           provider=provider, model=model, api_key=api_key)
         else:
-            result = await rec.recommend_with_alternatives(db, contextual_prompt,
-                                                           provider=provider, model=model, api_key=api_key)
+            try:
+                result = await rec.recommend_with_alternatives(db, contextual_prompt,
+                                                               provider=provider, model=model, api_key=api_key)
+            except (RuntimeError, httpx.TimeoutException, httpx.ConnectError) as provider_error:
+                if str(provider_error) == "No complete compatible catalogue build available":
+                    raise HTTPException(422, "ยังไม่มีชุดสินค้าที่ครบและผ่านการตรวจความเข้ากันได้ในฐานข้อมูล")
+                reason = ("rate_limit" if str(provider_error) == "rate_limit" else
+                          "invalid_response" if str(provider_error) == "LLM returned invalid JSON" else
+                          "provider_unavailable")
+                result = rec.recommend_without_provider(db, contextual_prompt, reason=reason)
             raw = json.dumps(result, ensure_ascii=False)
 
         # ── Save to chat session if logged in ───────────────────────────
@@ -1493,7 +1542,11 @@ class CompatCheckBody(BaseModel):
 
 @app.post("/api/compat/check")
 async def compat_check(body: CompatCheckBody):
-    """Deterministic compatibility engine — no LLM involved in the verdict."""
+    """Deterministic compatibility engine — no LLM involved in the verdict.
+
+    Every check retains its PASS/ERROR/WARNING/UNKNOWN result and also exposes
+    `score_severity` (`critical` or `warning`) for recommendation ranking.
+    """
     import recommender as rec
     result = await rec.compat_check_hybrid(body.parts_text)
     return {"status": "success", "data": result}
@@ -1516,7 +1569,11 @@ class CompatibilityPartsBody(BaseModel):
 @app.post("/api/compatibility/check-parts")
 @app.post("/api/compatibility/check")
 def check_compatibility_parts(body: CompatibilityPartsBody, db: Session = Depends(get_db)):
-    """Real-time deterministic compatibility check for structured parts from PC Builder."""
+    """Real-time deterministic compatibility check for structured parts.
+
+    Check results include `score_severity`; confirmed critical failures cap the
+    recommendation compatibility score at 50/100 without changing rule verdicts.
+    """
     import spec_parser as sp
     import compat_engine as ce
 
@@ -1530,15 +1587,12 @@ def check_compatibility_parts(body: CompatibilityPartsBody, db: Session = Depend
         # ดึง specs จาก DB ถ้ามี product_id — ใช้ข้อมูลจากหน้าสินค้าจริง (แม่นกว่า regex)
         specs_text = ""
         if pid:
-            row = db.execute(
-                text("SELECT specs, p_name, category FROM products WHERE product_id = :pid"),
-                {"pid": pid}
-            ).fetchone()
+            row = db.query(Product).filter(Product.product_id == pid).first()
             if not row:
                 raise HTTPException(404, "Product not found: " + str(pid))
-            specs_text = row[0] or ""
-            name = row[1]
-            cat = row[2]
+            specs_text = product_compatibility_text(row)
+            name = row.p_name
+            cat = row.category
 
         part_info = sp.parse_part(cat, name, specs=specs_text)
         part_info["product_id"] = pid
@@ -1561,6 +1615,43 @@ class SpecHistoryCreate(BaseModel):
     # the JSON string used by the AI page so all save clients share one API.
     result_data: Any = "{}"
 
+
+def refreshed_history_result(item: SpecHistory, db: Session) -> str:
+    """Re-run deterministic checks for saved manual builds using current product facts."""
+    if item.mode != "manual":
+        return item.result_data
+    try:
+        data = json.loads(item.result_data or "{}")
+        parts = data.get("parts") or []
+        names = [part.get("name", "") for part in parts if part.get("name")]
+        if not names:
+            return item.result_data
+
+        products = db.query(Product).filter(Product.p_name.in_(names)).all()
+        products_by_name = {product.p_name: product for product in products}
+        category_by_key = {
+            "cpu": "CPU", "mb": "Mainboard", "gpu": "GPU", "ram": "RAM",
+            "ssd": "SSD", "hdd": "SSD", "psu": "PSU", "case": "Case",
+            "cooler": "Cooler",
+        }
+        import spec_parser as sp
+        import compat_engine as ce
+
+        parsed = []
+        for part in parts:
+            name = part.get("name", "")
+            product = products_by_name.get(name)
+            category = product.category if product else category_by_key.get(part.get("key", ""), "")
+            specs = product_compatibility_text(product) if product else ""
+            parsed_part = sp.parse_part(category, name, specs=specs)
+            parsed_part["price"] = part.get("min_price") or part.get("price") or 0
+            parsed.append(parsed_part)
+
+        data["compatibility"] = ce.check_build(parsed)
+        return json.dumps(data, ensure_ascii=False)
+    except Exception:
+        return item.result_data
+
 @app.get("/api/spec-history")
 def get_spec_history(request: Request, current_user: User = Depends(get_current_user), limit: int = 50, db: Session = Depends(get_db)):
     # T0-1: Filter by JWT uid only — no uid/email query params (H04, H05)
@@ -1574,7 +1665,7 @@ def get_spec_history(request: Request, current_user: User = Depends(get_current_
         {
             "id": s.id, "uid": s.uid, "email": s.email or "", "username": s.username,
             "type": s.type, "mode": s.mode, "title": s.title,
-            "inputSummary": s.inputSummary, "result_data": s.result_data,
+            "inputSummary": s.inputSummary, "result_data": refreshed_history_result(s, db),
             "createdAt": s.createdAt
         } for s in items
     ]}

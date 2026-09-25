@@ -31,6 +31,9 @@ export interface Product {
     watt?: number;
     tdp?: number;
     recommended_psu_watt?: number;
+    sockets?: string[];
+    rating_watt?: number;
+    radiator_size_mm?: number;
     power_connectors?: Record<string, number>;
     power_connectors_required?: Record<string, number>;
   };
@@ -242,6 +245,11 @@ export class PcBuilderComponent implements OnInit {
         break;
       case 'case':
         add(facts.supports_ff?.length ? facts.supports_ff.join(', ') : facts.form_factor);
+        break;
+      case 'cooler':
+        add(facts.sockets?.length ? `รองรับ ${facts.sockets.join(', ')}` : undefined);
+        add(facts.rating_watt ? `Cooling TDP ${facts.rating_watt}W` : undefined);
+        add(facts.radiator_size_mm ? `หม้อน้ำ ${facts.radiator_size_mm}mm` : undefined);
         break;
       default:
         break;

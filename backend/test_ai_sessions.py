@@ -89,7 +89,31 @@ class AiSessionTests(unittest.TestCase):
             self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'guest','provider':'openai','api_key':'override-key'}).json()['session_id'],None)
             self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','session_id':sid,'api_key':'guest-key'}).status_code,401)
             with patch.dict(os.environ, {'GOOGLE_API_KEY': '', 'GEMINI_API_KEY': ''}, clear=False):
-                self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','provider':'google'}).status_code,400)
+                self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','provider':'google'}).status_code,200)
+                self.assertEqual(call.call_args.kwargs['api_key'], '')
+
+    def test_retired_google_model_uses_verified_default(self):
+        self.assertEqual(self.api.normalize_ai_model('google', 'gemini-2.5-pro'), 'gemini-3-flash-preview')
+        self.assertEqual(self.api.normalize_ai_model('google', 'custom-model'), 'custom-model')
+        self.assertEqual(self.api.normalize_ai_model('openai', 'gemini-2.5-pro'), 'gemini-2.5-pro')
+
+    def test_extract_json_accepts_fenced_response_with_trailing_text(self):
+        parsed = self.rec.extract_json('Here is the build:\n```json\n{"parts":[{"type":"CPU"}]}\n```\nDone.')
+        self.assertEqual(parsed['parts'][0]['type'], 'CPU')
+
+    def test_provider_failure_returns_labelled_build_and_saves_history(self):
+        fallback = {'summary': 'catalogue build', 'parts': [], '_meta': {'provider_fallback': True}}
+        with patch.object(self.rec, 'recommend_with_alternatives', new_callable=AsyncMock, side_effect=RuntimeError('provider down')):
+            with patch.object(self.rec, 'recommend_without_provider', return_value=fallback):
+                response = self.client.post('/api/ai/recommend', headers=self.auth(), json={
+                    'prompt': 'Budget 30000', 'provider': 'google', 'model': 'gemini-2.5-pro', 'api_key': 'test-key'
+                })
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(json.loads(payload['data'])['_meta']['provider_fallback'])
+        saved = self.client.get(f"/api/ai/sessions/{payload['session_id']}", headers=self.auth()).json()['data']
+        self.assertEqual(len(json.loads(saved['messages'])), 2)
+        self.assertEqual(saved['model'], 'gemini-3-flash-preview')
 
     def test_legacy_fk_migration_preserves_rows(self):
         from sqlalchemy import create_engine, text
