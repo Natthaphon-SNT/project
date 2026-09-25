@@ -41,6 +41,10 @@ class AiSessionTests(unittest.TestCase):
     def auth(self, user='alice'):
         return {'Authorization': 'Bearer '+self.api.create_token({'uid': user})}
 
+    def setUp(self):
+        # Endpoint rate limits should not leak between independent unit tests.
+        self.api.limiter._storage.reset()
+
     def test_settings_isolation_and_validation(self):
         c=self.client
         self.assertEqual(c.get('/api/ai/settings').status_code,401)
@@ -91,6 +95,47 @@ class AiSessionTests(unittest.TestCase):
             with patch.dict(os.environ, {'GOOGLE_API_KEY': '', 'GEMINI_API_KEY': ''}, clear=False):
                 self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','provider':'google'}).status_code,200)
                 self.assertEqual(call.call_args.kwargs['api_key'], '')
+
+    def test_ask_uses_latest_recommended_build_in_owned_session(self):
+        build = {'summary': 'build', 'parts': [
+            {'type': 'CPU', 'name': 'Ryzen test CPU', 'price': 9000},
+            {'type': 'GPU', 'name': 'RTX test GPU', 'price': 12000},
+        ], 'totalBudget': '30,000 ฿'}
+        with patch.object(self.rec, 'recommend_with_alternatives', new_callable=AsyncMock,
+                          return_value=build) as recommend:
+            first = self.client.post('/api/ai/recommend', headers=self.auth(), json={
+                'prompt': 'Recommend a PC', 'provider': 'google', 'api_key': 'test-key',
+            })
+            self.assertEqual(first.status_code, 200)
+            sid = first.json()['session_id']
+            with patch.object(self.rec, 'answer_spec_question', new_callable=AsyncMock,
+                              return_value='เล่นได้') as answer:
+                for question in ('เล่นเกมได้ไหม', 'แล้วตัดต่อวิดีโอได้ไหม'):
+                    response = self.client.post('/api/ai/recommend', headers=self.auth(), json={
+                        'prompt': question, 'mode': 'ask', 'session_id': sid,
+                        'provider': 'google', 'api_key': 'test-key',
+                    })
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json()['data'], 'เล่นได้')
+                    self.assertIn('Ryzen test CPU', answer.call_args.args[1])
+                self.assertEqual(answer.await_count, 2)
+            self.assertEqual(recommend.await_count, 1)
+        self.assertEqual(self.client.post('/api/ai/recommend', headers=self.auth('bob'), json={
+            'prompt': 'Can it game?', 'mode': 'ask', 'session_id': sid,
+            'api_key': 'test-key',
+        }).status_code, 404)
+
+    def test_ask_requires_a_build_and_uses_llm_chat_directly(self):
+        self.assertEqual(self.client.post('/api/ai/recommend', json={
+            'prompt': 'Can it game?', 'mode': 'ask', 'api_key': 'test-key',
+        }).status_code, 422)
+        with patch.object(self.rec, 'llm_chat', new_callable=AsyncMock,
+                          return_value='ตอบสั้น') as chat:
+            result = asyncio.run(self.rec.answer_spec_question(
+                'เล่น Valorant ได้ไหม', 'CPU: Ryzen, GPU: RTX',
+                provider='google', model='test-model', api_key='test-key'))
+        self.assertEqual(result, 'ตอบสั้น')
+        self.assertIn('CPU: Ryzen, GPU: RTX', chat.call_args.args[0][0]['content'])
 
     def test_retired_google_model_uses_verified_default(self):
         self.assertEqual(self.api.normalize_ai_model('google', 'gemini-2.5-pro'), 'gemini-3-flash-preview')

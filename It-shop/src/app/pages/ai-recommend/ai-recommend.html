@@ -367,6 +367,17 @@
         </div>
       </div>
 
+      <section class="ai-card spec-question" aria-label="ถามต่อเกี่ยวกับสเปคนี้">
+        <h2>ถามต่อเกี่ยวกับสเปคนี้</h2>
+        <p>เช่น เล่น Valorant ได้ไหม หรือตัดต่อวิดีโอ 4K ไหวไหม</p>
+        <textarea class="ai-textarea" rows="2" [(ngModel)]="askQuestion"
+          [disabled]="askLoading" placeholder="พิมพ์คำถามเกี่ยวกับชุดที่แนะนำ"></textarea>
+        <button class="btn-ai-glow" type="button" (click)="sendAskQuestion()"
+          [disabled]="askLoading || !askQuestion.trim()">
+          {{ askLoading ? 'กำลังตอบ…' : 'ถาม AI' }}
+        </button>
+        <div class="spec-answer" *ngIf="askAnswer" role="status">{{ askAnswer }}</div>
+      </section>
       <button class="btn-ai-glow" (click)="reset()">🔄 แนะนำใหม่</button>
     </div>
 

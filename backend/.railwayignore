@@ -1,0 +1,11 @@
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.log
+__pycache__/
+product_image_cache/
+uploads/
+.deploy/
+tmpha9vnky2/
+test_*.py

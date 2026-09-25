@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -60,6 +60,45 @@ class ProductImageCacheTests(unittest.TestCase):
                     await images.fetch_image(url, client)
 
         with TemporaryDirectory() as temp, patch.object(images, "CACHE_DIR", Path(temp)):
+            asyncio.run(check())
+
+    def test_bucket_upload_uses_same_key_as_lookup_and_signed_route(self):
+        url = "https://www.jib.co.th/img_master/product/one.jpg"
+        jpeg = b"\xff\xd8\xff" + b"real-image"
+        stored = {}
+
+        class MissingObject(Exception):
+            response = {"Error": {"Code": "404"}}
+
+        class Bucket:
+            def head_object(self, *, Bucket, Key):
+                if Key not in stored:
+                    raise MissingObject()
+
+            def put_object(self, *, Bucket, Key, Body, ContentType, CacheControl):
+                stored[Key] = (Body, ContentType)
+
+            def generate_presigned_url(self, operation, Params, ExpiresIn):
+                self.head_object(Bucket=Params["Bucket"], Key=Params["Key"])
+                return "https://bucket.example/signed-image"
+
+        bucket = Bucket()
+        config = {"bucket": "images"}
+
+        async def check():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, content=jpeg)
+            )) as client:
+                self.assertIsNone(images.get_cached_url(url))
+                path, mime = await images.fetch_and_upload(url, client)
+                self.assertEqual(path, images.get_cached_url(url))
+                self.assertEqual(mime, "image/jpeg")
+                digest = path.rsplit("/", 1)[-1]
+                self.assertEqual(images.presigned_image_url(digest),
+                                 "https://bucket.example/signed-image")
+                self.assertEqual(stored[images._object_key(url)][0], jpeg)
+
+        with patch.object(images, "_s3_client", return_value=(bucket, config)):
             asyncio.run(check())
 
 

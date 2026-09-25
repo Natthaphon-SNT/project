@@ -889,6 +889,13 @@ $text-dim:   #9ca3af;
 .chat-composer button { width:100%; margin-top:6px; padding:7px; border-color:#3d3d43; background:#242428; font-size:10px; }
 button:disabled { opacity:.5; cursor:wait; }
 
+.spec-question { margin: 20px 0 14px; }
+.spec-question h2 { margin: 0 0 4px; color: #f4f4f5; font-size: 17px; }
+.spec-question p { margin: 0 0 12px; color: #a1a1aa; font-size: 12px; }
+.spec-question textarea { width: 100%; }
+.spec-question .btn-ai-glow { margin-top: 10px; }
+.spec-answer { margin-top: 14px; padding: 12px 14px; border-left: 2px solid #dc143c; border-radius: 6px; background: rgba(220,20,60,.08); color: #e4e4e7; white-space: pre-wrap; }
+
 @media (max-width: 560px) {
   .ai-overlay { padding:10px; }
   .ai-panel { width:100%; max-height:100%; }

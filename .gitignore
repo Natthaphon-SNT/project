@@ -26,3 +26,15 @@ docs/qa/round4/*.db-wal
 advice_html.txt
 uploads/
 backend/product_image_cache/
+backend/.deploy/
+
+.vercel
+.env*
+
+# Local one-off migration/deployment helpers (not application code)
+backend/_fix_shop_api.py
+backend/_inject_recommender.py
+backend/_patch_ask_mode.py
+backend/_patch_html.py
+backend/set_railway_secrets.py
+backend/snapshot_shop_db.py

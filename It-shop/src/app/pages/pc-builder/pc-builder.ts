@@ -4,6 +4,7 @@ import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../services/auth';
+import { API_BASE_URL } from '../../services/api-base-url';
 
 export interface Product {
   product_id: string;
@@ -70,7 +71,7 @@ export interface CompatibilityResult {
   suggestions: string[];
 }
 
-const API = 'http://localhost:3000';
+const API = API_BASE_URL;
 const PENDING_BUILD_KEY = 'lt_pending_manual_build';
 
 @Component({

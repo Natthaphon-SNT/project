@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { AuthService } from '../../services/auth';
+import { API_BASE_URL } from '../../services/api-base-url';
 
 @Component({
   selector: 'app-profile',
@@ -39,7 +40,7 @@ export class ProfileComponent implements OnInit {
   message = '';
   messageType: 'success' | 'error' | '' = '';
 
-  private readonly API = 'http://localhost:3000';
+  private readonly API = API_BASE_URL;
 
   constructor(
     private http: HttpClient,
@@ -213,7 +214,7 @@ export class ProfileComponent implements OnInit {
 
   getProfileImage(): string {
     if (this.profileData?.u_image) {
-      return `http://localhost:3000/${this.profileData.u_image}`;
+      return `${API_BASE_URL}/${this.profileData.u_image}`;
     }
     return '';
   }

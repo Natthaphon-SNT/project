@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
+import { API_BASE_URL } from '../../services/api-base-url';
 
 @Component({
   selector: 'app-admin-users',
@@ -37,7 +38,7 @@ export class AdminUsersComponent implements OnInit {
   message = '';
   messageType: 'success' | 'error' | '' = '';
 
-  private readonly API = 'http://localhost:3000';
+  private readonly API = API_BASE_URL;
 
   get adminCount(): number {
     return this.users.filter(u => u.u_role === 'admin').length;

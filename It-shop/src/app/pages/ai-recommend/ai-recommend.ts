@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AdminFilterPipe } from './admin-filter.pipe';
 import { HttpClient } from '@angular/common/http';
+import { API_BASE_URL } from '../../services/api-base-url';
 
 // ─── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -114,17 +115,15 @@ export interface ChatSession {
 // ─── ประวัติการจัดสเปค (เก็บใน localStorage) ──────────────────────────────────
 export interface SpecHistory {
   id: string;
-  uid: string;        // user id จาก localStorage ของ LT PC BUILD
-  username: string;   // ชื่อ user
+  uid: string;
+  username: string;
   type: 'ai' | 'manual';
-  mode: 'recommend' | 'compare' | 'compat';
-  title: string;      // สรุปชื่อสั้นๆ
-  createdAt: string;  // ISO string
-  // payload แยกตาม mode
+  mode: 'recommend' | 'compare' | 'compat' | 'ask';
+  title: string;
+  createdAt: string;
   recommendData?: RecommendResult;
   compareData?: CompareResult;
   compatData?: CompatResult;
-  // input ที่กรอก
   inputSummary: string;
 }
 
@@ -164,11 +163,16 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── ผลลัพธ์ ──────────────────────────────────────────────────────────────────
   loadingText  = 'กำลังวิเคราะห์...';
-  resultType: 'recommend' | 'compare' | 'compat' | 'error' | null = null;
+  resultType: 'recommend' | 'compare' | 'compat' | 'ask' | 'error' | null = null;
   recommendData: RecommendResult | null = null;
   compareData:   CompareResult   | null = null;
   compatData:    CompatResult    | null = null;
+  askAnswer:     string | null = null;   // plain-text answer for mode=ask
   visibleCards:  boolean[] = [];
+
+  // ask-mode: question input shown below recommend result
+  askQuestion = '';
+  askLoading  = false;
 
   // ─── ประวัติ ──────────────────────────────────────────────────────────────────
   myHistory:    SpecHistory[] = [];
@@ -334,7 +338,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   ngOnInit() {
     const token = localStorage.getItem('lt_token');
     if (!token) return;
-    this.http.get<any>('http://localhost:3000/api/profile', {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+    this.http.get<any>(`${API_BASE_URL}/api/profile`, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
       next: res => {
         localStorage.setItem('lt_user', JSON.stringify(res.data));
         this.loadCurrentUser();
@@ -380,7 +384,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     localStorage.removeItem('ai_provider_settings');
     const token = localStorage.getItem('lt_token');
     if (!token || this.currentUser.uid === 'guest') return;
-    this.http.get<any>('http://localhost:3000/api/ai/settings', {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+    this.http.get<any>(`${API_BASE_URL}/api/ai/settings`, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
       next: res => {
         this.aiSettings = {provider: res.data.provider, model: res.data.model, api_key: res.data.api_key || '', custom_model: res.data.custom_model || ''};
         this.settingsTab = this.aiSettings.provider; this.cdr.detectChanges();
@@ -392,7 +396,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     const token = localStorage.getItem('lt_token');
     if (!token || this.currentUser.uid === 'guest') { this.settingsSaved = true; return; }
     this.settingsSaving = true;
-    this.http.put<any>('http://localhost:3000/api/ai/settings', this.aiSettings, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+    this.http.put<any>(`${API_BASE_URL}/api/ai/settings`, this.aiSettings, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
       next: () => {
         this.settingsSaving = false;
         this.settingsSaved = true;
@@ -434,7 +438,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     }
 
     this.loadingSessions = true;
-    this.http.get<any>('http://localhost:3000/api/ai/sessions', {
+    this.http.get<any>(`${API_BASE_URL}/api/ai/sessions`, {
       headers: { Authorization: `Bearer ${token}` }
     }).subscribe({
       next: (res) => {
@@ -478,7 +482,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   selectSession(s: ChatSession) {
     if (this.step === 2) return;
     const token = localStorage.getItem('lt_token');
-    this.http.get<any>(`http://localhost:3000/api/ai/sessions/${s.id}`, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
+    this.http.get<any>(`${API_BASE_URL}/api/ai/sessions/${s.id}`, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
       next: res => this.displaySession(res.data),
       error: () => { this.errorMessage = 'Unable to load session'; this.cdr.detectChanges(); }
     });
@@ -496,15 +500,24 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       this.spec1 = source?.spec1 || ''; this.spec2 = source?.spec2 || '';
       if (Array.isArray(msgs) && msgs.length > 0) {
         const lastUser = [...msgs].reverse().find(m => m.role === 'user');
-        const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
+        const assistantMessages = [...msgs].reverse().filter(m => m.role === 'assistant');
 
         if (lastUser && lastUser.content) {
           if (s.mode === 'recommend') this.extraDetail = lastUser.content;
           else if (s.mode === 'compat') this.compatText = lastUser.content;
         }
 
-        if (lastAssistant && lastAssistant.content) {
-          const parsed = this.parseJson(lastAssistant.content);
+        const buildMessage = assistantMessages.find(m => {
+          try {
+            const parsed = this.parseJson(m.content);
+            return s.mode !== 'recommend' || Array.isArray(parsed.parts);
+          } catch { return false; }
+        });
+        if (s.mode === 'recommend' && assistantMessages.length && assistantMessages[0] !== buildMessage) {
+          this.askAnswer = assistantMessages[0].content;
+        }
+        if (buildMessage && buildMessage.content) {
+          const parsed = this.parseJson(buildMessage.content);
           this.resultType = s.mode as any;
           if (s.mode === 'recommend') {
             this.recommendData = parsed;
@@ -542,7 +555,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.http.delete<any>(`http://localhost:3000/api/ai/sessions/${id}`, {
+    this.http.delete<any>(`${API_BASE_URL}/api/ai/sessions/${id}`, {
       headers: { Authorization: `Bearer ${token}` }
     }).subscribe({
       next: (res) => {
@@ -564,7 +577,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (uid === 'guest' || !token) return;
 
     // โหลดประวัติของ user
-    const url = 'http://localhost:3000/api/spec-history?limit=50';
+    const url = `${API_BASE_URL}/api/spec-history?limit=50`;
     this.http.get<any>(url, {
       headers: { Authorization: `Bearer ${token}` }
     }).subscribe({
@@ -579,7 +592,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
     // ถ้า admin โหลดทั้งหมด
     if (this.isAdmin && this.activeTab === 'admin') {
-      this.http.get<any>('http://localhost:3000/api/spec-history/all', {
+      this.http.get<any>(`${API_BASE_URL}/api/spec-history/all`, {
         headers: { Authorization: `Bearer ${token}` }
       }).subscribe({
         next: (res) => {
@@ -632,7 +645,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       result_data:  JSON.stringify(resultData || {})
     };
 
-    this.http.post<any>('http://localhost:3000/api/spec-history', payload, {
+    this.http.post<any>(`${API_BASE_URL}/api/spec-history`, payload, {
       headers: { Authorization: `Bearer ${token}` }
     }).subscribe({
       next: (res) => {
@@ -650,7 +663,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (!confirm('⚠️ ยืนยันการลบประวัตินี้?')) return;
     const token = localStorage.getItem('lt_token') || '';
     
-    this.http.delete<any>(`http://localhost:3000/api/spec-history/${id}`, {
+    this.http.delete<any>(`${API_BASE_URL}/api/spec-history/${id}`, {
       headers: { Authorization: `Bearer ${token}` }
     }).subscribe({
       next: (res) => {
@@ -739,6 +752,9 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     this.recommendData = null;
     this.compareData   = null;
     this.compatData    = null;
+    this.askAnswer     = null;
+    this.askQuestion   = '';
+    this.askLoading    = false;
     this.visibleCards  = [];
     this.viewingDetail = null;
     this.cdr.detectChanges();
@@ -795,6 +811,64 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     } catch { return message.content; }
   }
   followUp = '';
+  private buildSpecContext(): string {
+    if (!this.recommendData) return '';
+    const lines: string[] = [];
+    for (const p of this.recommendData.parts || []) {
+      lines.push(`- ${p.type}: ${p.name} (${p.price})`);
+    }
+    if (this.recommendData.totalBudget) {
+      lines.push(`\nงบประมาณรวม: ${this.recommendData.totalBudget}`);
+    }
+    return lines.join('\n');
+  }
+
+  async sendAskQuestion() {
+    const q = this.askQuestion.trim();
+    if (!q || this.askLoading || this.step === 2) return;
+    this.askLoading = true;
+    this.cdr.detectChanges();
+    try {
+      const token = localStorage.getItem('lt_token') || '';
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/ai/recommend`, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({
+            prompt: q,
+            mode: 'ask',
+            spec_context: this.buildSpecContext(),
+            ...this.aiSettings,
+            model: this.aiSettings.custom_model.trim() || this.aiSettings.model,
+            session_id: this.activeSessionId,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.status !== 'success') {
+          throw new Error(data.detail || data.message || 'Ask request failed');
+        }
+        this.askAnswer = data.data as string;
+        this.activeSessionId = data.session_id ?? this.activeSessionId;
+        this.chatMessages = [...this.chatMessages,
+          { role: 'user', content: q },
+          { role: 'assistant', content: data.data },
+        ];
+        this.askQuestion = '';
+        this.loadSessions();
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (e: any) {
+      this.errorMessage = e.message || 'ไม่สามารถส่งคำถามได้';
+    } finally {
+      this.askLoading = false;
+      this.cdr.detectChanges();
+    }
+  }
+
   private parseJson(raw: string): any {
     return JSON.parse(raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
   }
@@ -809,7 +883,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       controller.abort();
     }, this.requestTimeoutMs);
     try {
-      const res = await fetch('http://localhost:3000/api/ai/recommend', {
+      const res = await fetch(`${API_BASE_URL}/api/ai/recommend`, {
         method: 'POST', signal: controller.signal,
         headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {})},
         body: JSON.stringify({prompt, mode: this.mode, ...this.aiSettings,
@@ -857,6 +931,12 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   async handleCompat() { if (this.compatText.trim()) await this.runPrompt(this.compatText); }
   async sendFollowUp() {
     if (!this.followUp.trim() || this.step === 2) return;
+    if (this.resultType === 'recommend' && this.recommendData) {
+      this.askQuestion = this.followUp;
+      await this.sendAskQuestion();
+      if (!this.askQuestion) this.followUp = '';
+      return;
+    }
     await this.runPrompt(this.followUp);
     if (this.resultType !== 'error') this.followUp = '';
   }

@@ -2,11 +2,12 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { Router } from '@angular/router';
+import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   // ✅ FastAPI backend - ไม่ต้องใช้ XAMPP อีกต่อไป!
-  private baseUrl = 'http://localhost:3000';
+  private baseUrl = environment.apiUrl;
 
   public currentUserSubject = new BehaviorSubject<any>(null);
 

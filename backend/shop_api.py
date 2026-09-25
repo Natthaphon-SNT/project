@@ -90,8 +90,14 @@ def decrypt_ai_key(stored: str) -> str:
 SECRET_KEY = load_jwt_secret()
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 72
-DB_URL = "sqlite:///./shop.db"
-UPLOAD_DIR = Path("uploads/profile")
+DB_URL = os.getenv("DATABASE_URL", "sqlite:///./shop.db")
+if os.getenv("REQUIRE_EXISTING_DB") == "1" and DB_URL.startswith("sqlite:///"):
+    db_path = Path(DB_URL.removeprefix("sqlite:///"))
+    if not db_path.is_file():
+        raise RuntimeError(f"Database file does not exist: {db_path}")
+
+UPLOAD_ROOT = Path(os.getenv("UPLOAD_ROOT", "uploads"))
+UPLOAD_DIR = UPLOAD_ROOT / "profile"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -117,7 +123,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS, allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_ROOT)), name="uploads")
 
 # ── Rate limiting (per client IP) ───────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -632,30 +638,55 @@ class RoleUpdate(BaseModel):
 def root():
     return {"status": "ok", "message": "🚀 IT-RECOMMEND Shop API v3"}
 
+
 # ─────────────────────────────────────────
 # Image Proxy — bypass hotlink/CORS/Referer blocking from store CDNs
 # ─────────────────────────────────────────
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse, Response
 import product_image_cache
+
+@app.get("/api/cached-image/{digest}")
+async def cached_product_image(digest: str):
+    """Stable image URL backed by a short-lived private-bucket download link."""
+    try:
+        signed_url = await asyncio.to_thread(product_image_cache.presigned_image_url, digest)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+        if str(code) in ("404", "NoSuchKey", "NotFound"):
+            raise HTTPException(404, "Cached image not found") from exc
+        raise HTTPException(502, "Image storage unavailable") from exc
+    return RedirectResponse(url=signed_url, status_code=302,
+                            headers={"Cache-Control": "public, max-age=300"})
 
 @app.get("/api/image-proxy")
 async def image_proxy(request: Request, url: str = Query(..., description="URL รูปภาพต้นทาง")):
     """
     Proxy รูปภาพจากร้านค้า (JIB, iHaveCPU, Advice) เพื่อหลีกเลี่ยง
-    hotlink-block / CORS / Referer ที่ทำให้ browser โหลดรูปไม่ได้โดยตรง
+    hotlink-block / CORS / Referer.
+    ลำดับ: 1) bucket cache → redirect  2) fetch+upload → redirect
+    ถ้ายังไม่ได้ตั้ง bucket ในเครื่อง dev จะ stream bytes โดยไม่เขียนไฟล์
     """
     try:
         product_image_cache.validated_host(url)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     try:
-        cached = product_image_cache.cached_image(url)
-        if cached is None:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                cached = await product_image_cache.fetch_image(url, client)
-        path, mime = cached
-        return FileResponse(path, media_type=mime,
+        cached_url = await asyncio.to_thread(product_image_cache.get_cached_url, url)
+        if cached_url:
+            return RedirectResponse(url=cached_url, status_code=302,
+                                    headers={"Cache-Control": "public, max-age=86400"})
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            if product_image_cache.storage_config() is not None:
+                cached_url, _ = await product_image_cache.fetch_and_upload(url, client)
+                return RedirectResponse(url=cached_url, status_code=302,
+                                        headers={"Cache-Control": "public, max-age=86400"})
+            data, mime = await product_image_cache.fetch_image_bytes(url, client)
+            return Response(content=data, media_type=mime,
                             headers={"Cache-Control": "public, max-age=86400"})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(502, f"Product image unavailable: {str(exc)[:100]}") from exc
 
@@ -1400,11 +1431,12 @@ class AIRecommendBody(BaseModel):
     spec1: Optional[str] = None
     spec2: Optional[str] = None
     prompt:     str
-    mode:       Literal["recommend", "compare", "compat"] = "recommend"  # recommend | compare | compat
-    provider:   Optional[Literal["google", "openai", "openrouter"]] = None  # override: google|openai|openrouter
-    model:      Optional[str] = None  # override model id
-    api_key:    Optional[str] = None  # override api key
-    session_id: Optional[int] = None  # append to existing session
+    mode:         Literal["recommend", "compare", "compat", "ask"] = "recommend"
+    provider:     Optional[Literal["google", "openai", "openrouter"]] = None
+    model:        Optional[str] = None
+    api_key:      Optional[str] = None
+    session_id:   Optional[int] = None
+    spec_context: Optional[str] = None  # plain-text build summary for mode="ask"
 
 def get_ai_optional_user(creds: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     return get_current_user(creds, db) if creds else None
@@ -1449,7 +1481,7 @@ async def ai_recommend(
         session = db.query(AiChatSession).filter(AiChatSession.id == body.session_id, AiChatSession.uid == user.uid).first()
         if session is None:
             raise HTTPException(404, "Session not found")
-        if session.mode != body.mode:
+        if session.mode != body.mode and body.mode != "ask":
             raise HTTPException(400, "Start a new session to change mode")
     if not body.prompt.strip():
         raise HTTPException(422, "Prompt cannot be empty")
@@ -1462,7 +1494,37 @@ async def ai_recommend(
         body.spec1 = body.spec1 or source.get("spec1")
         body.spec2 = body.spec2 or source.get("spec2")
     try:
-        if body.mode == "compat":
+        if body.mode == "ask":
+            # Prefer the displayed build; otherwise find the latest build in
+            # this user's session (not the latest free-form ask answer).
+            spec_ctx = (body.spec_context or "").strip()
+            if not spec_ctx and previous:
+                for message in reversed(previous):
+                    if message.get("role") != "assistant":
+                        continue
+                    try:
+                        parsed = rec.extract_json(message.get("content", ""))
+                    except Exception:
+                        continue
+                    if not isinstance(parsed, dict) or not isinstance(parsed.get("parts"), list):
+                        continue
+                    lines_ctx = [
+                        f"- {part.get('type', '')}: {part.get('name', '')} ({part.get('price', '')})"
+                        for part in parsed["parts"] if isinstance(part, dict)
+                    ]
+                    if lines_ctx:
+                        budget = parsed.get("totalBudget")
+                        spec_ctx = "\n".join(lines_ctx)
+                        if budget:
+                            spec_ctx += f"\nงบประมาณรวม: {budget}"
+                        break
+            if not spec_ctx:
+                raise HTTPException(422, "No recommended PC spec is available for this question")
+            raw = await rec.answer_spec_question(
+                body.prompt, spec_ctx,
+                provider=provider, model=model, api_key=api_key,
+            )
+        elif body.mode == "compat":
             result = await rec.compat_check_hybrid(contextual_prompt, provider=provider, model=model, api_key=api_key)
             raw = json.dumps(result, ensure_ascii=False)
         elif body.mode == "compare":

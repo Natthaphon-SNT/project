@@ -3,6 +3,7 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth';
+import { API_BASE_URL } from '../../services/api-base-url';
 
 export interface SpecHistoryItem {
   id: number;
@@ -41,7 +42,7 @@ export class HistoryComponent implements OnInit {
     { key: 'ihavecpu', label: 'iHaveCPU' },
   ];
 
-  private readonly API = 'http://localhost:3000';
+  private readonly API = API_BASE_URL;
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef,
               private auth: AuthService) {}

@@ -412,6 +412,55 @@ async def llm_chat(
     raise RuntimeError(f"LLM provider '{provider}' failed")
 
 
+async def answer_spec_question(
+    prompt: str,
+    spec_context: str,
+    provider: str = "google",
+    model: str = "",
+    api_key: str = "",
+) -> str:
+    """Answer a free-form question about a PC spec build already shown to the user.
+
+    The AI is constrained to *only* answer about the provided spec — it must not
+    recommend alternative products or change the build. Answers are in Thai,
+    concise, and understandable to general consumers.
+
+    Args:
+        prompt:       The user's question.
+        spec_context: Plain-text summary of the build (parts + prices).
+        provider / model / api_key: forwarded directly to llm_chat().
+
+    Returns:
+        Plain-text answer string (not JSON).
+    """
+    if not spec_context.strip():
+        spec_context = "(ไม่มีข้อมูลสเปค — โปรดถามพร้อมส่งสเปคมาด้วย)"
+
+    system_prompt = (
+        "คุณเป็นผู้เชี่ยวชาญด้านสเปคคอมพิวเตอร์สำหรับผู้บริโภคทั่วไป "
+        "ผู้ใช้มีชุดสเปคที่ระบบแนะนำไปแล้ว และต้องการถามคำถามเพิ่มเติมเกี่ยวกับสเปคชุดนั้น\n\n"
+        "กฎ (ห้ามละเมิด):\n"
+        "1. ตอบเฉพาะคำถามที่ถาม ไม่แนะนำสินค้าอื่นหรือเปลี่ยนแปลงสเปค\n"
+        "2. ใช้ภาษาไทยที่เข้าใจง่าย สั้นกระชับ ไม่เกิน 200 คำ\n"
+        "3. ถ้าคำตอบขึ้นกับการตั้งค่าในเกม/ซอฟต์แวร์ ให้ระบุเงื่อนไขนั้นด้วย\n"
+        "4. ถ้าไม่แน่ใจให้บอกว่าไม่แน่ใจ อย่าแต่งตัวเลขขึ้นมาเอง\n\n"
+        f"สเปคที่แนะนำไปแล้ว:\n{spec_context}"
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": prompt},
+    ]
+    return await llm_chat(
+        messages,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        temperature=0.3,
+        max_tokens=512,
+    )
+
+
 def _check_http(res: httpx.Response):
     if res.status_code == 429:
         raise RuntimeError("rate_limit")

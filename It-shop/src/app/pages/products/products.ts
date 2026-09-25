@@ -6,6 +6,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { combineLatest, Subscription } from 'rxjs';
 import { ApiService } from '../../services/api';
 import { AuthService } from '../../services/auth';
+import { API_BASE_URL } from '../../services/api-base-url';
 
 interface Product {
   product_id: string;
@@ -91,7 +92,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
   editForm = { name: '', price: 0, category: 'c01', description: '', image: '' };
   isSaving = false;
 
-  private readonly API = 'http://localhost:3000';
+  private readonly API = API_BASE_URL;
 
   constructor(
     private route: ActivatedRoute,

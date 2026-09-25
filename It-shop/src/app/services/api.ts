@@ -2,11 +2,12 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable, interval } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
+import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   // ✅ FastAPI backend
-  readonly baseUrl = 'http://localhost:3000';
+  readonly baseUrl = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
 

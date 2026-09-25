@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { ApiService } from './api';
+import { API_BASE_URL } from './api-base-url';
 
 describe('Api', () => {
   let service: ApiService;
@@ -30,7 +31,7 @@ describe('Api', () => {
     service.getAdminProducts('', 'keyboard', 2, 20).subscribe();
 
     const request = http.expectOne(req =>
-      req.url === 'http://localhost:3000/api/products' &&
+      req.url === `${API_BASE_URL}/api/products` &&
       req.params.get('search') === 'keyboard' &&
       req.params.get('page') === '2'
     );
@@ -46,7 +47,7 @@ describe('Api', () => {
     expect(service.resolveProductImage('assets/apple.png', 'fallback.png')).toBe('assets/apple.png');
     expect(service.resolveProductImage('', 'fallback.png')).toBe('fallback.png');
     expect(service.resolveProductImage(retailerImage, 'fallback.png')).toBe(
-      `http://localhost:3000/api/image-proxy?url=${encodeURIComponent(retailerImage)}`
+      `${API_BASE_URL}/api/image-proxy?url=${encodeURIComponent(retailerImage)}`
     );
   });
 });
