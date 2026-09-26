@@ -14,12 +14,49 @@ are computed by code.
 import os
 import re
 import json
+import logging
 from typing import Optional
 
 import httpx
 
 import spec_parser as sp
 import compat_engine as ce
+
+logger = logging.getLogger(__name__)
+
+# Cap the exception text echoed back to clients so a verbose provider payload
+# cannot bloat the response or leak more of the request than intended.
+FAILURE_REASON_MAX_LEN = 200
+_EMOJI_PATTERN = re.compile(r"[\U0001F000-\U0001FAFF\u2300-\u23FF\u2600-\u27BF\u20E3\uFE0F\u200D]")
+
+
+def strip_emojis(text: str) -> str:
+    """Keep provider-written prose and JSON free of pictographic emoji."""
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return _EMOJI_PATTERN.sub("", text)
+
+    def clean(value):
+        if isinstance(value, str):
+            return _EMOJI_PATTERN.sub("", value)
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        if isinstance(value, dict):
+            return {key: clean(item) for key, item in value.items()}
+        return value
+
+    return json.dumps(clean(payload), ensure_ascii=False)
+
+
+def failure_reason(exc: BaseException) -> str:
+    """Human-debuggable reason for a degraded AI path.
+
+    Keeps the exception class *and* its message (truncated) so `_meta.fallback_reason`
+    is actionable straight from the response JSON, without opening Railway logs.
+    """
+    return f"{type(exc).__name__}: {str(exc)[:FAILURE_REASON_MAX_LEN]}"
+
 
 # ─────────────────────────────────────────
 PC_CATEGORIES = ["CPU", "Mainboard", "RAM", "GPU", "SSD", "PSU", "Case"]
@@ -62,8 +99,17 @@ def detect_use_case(text: str) -> str:
 
 def detect_budget_thb(text: str) -> Optional[int]:
     """Extract upper budget bound from Thai text like '20,000–30,000 บาท'."""
+    # Follow-up requests can replace the budget from earlier chat turns.
+    # Prefer an explicit budget in the latest request; only inherit the old
+    # budget when the latest request does not mention one.
+    if "Current request:\n" in text:
+        current = text.rsplit("Current request:\n", 1)[-1]
+        current_budget = detect_budget_thb(current)
+        if current_budget is not None:
+            return current_budget
     ranges = re.findall(
-        r"([0-9][0-9,]{0,9})\s*[-–—]\s*([0-9][0-9,]{0,9})\s*(?:บาท|฿|thb)?",
+        r"(?<![A-Za-z0-9-])([0-9][0-9,]{0,9})\s*[-–—]\s*"
+        r"([0-9][0-9,]{0,9})(?![A-Za-z0-9-])\s*(?:บาท|฿|thb)?",
         text,
         re.IGNORECASE,
     )
@@ -80,7 +126,9 @@ def detect_budget_thb(text: str) -> Optional[int]:
         # A bare GPU model such as "4060" is not a 4,060-baht budget. Bare
         # values are only treated as PC budgets from 10,000 THB upward; smaller
         # budgets still work when introduced by "งบ" / "budget" above.
-        nums = [value for n in re.findall(r"\d{1,3}(?:,\d{3})+|\d{4,7}", text)
+        nums = [value for n in re.findall(
+                    r"(?<![A-Za-z0-9-])(?:\d{1,3}(?:,\d{3})+|\d{4,7})(?![A-Za-z0-9-])",
+                    text)
                 if (value := int(n.replace(",", ""))) >= 10000]
     if not nums:
         return None
@@ -127,6 +175,10 @@ def gpu_name_matches_request(name: str, requested_gpu: str) -> bool:
 
 def budget_is_lower_bound(text: str) -> bool:
     """A '100,000 ฿ and up' choice is a target floor, not a spending cap."""
+    if "Current request:\n" in text:
+        current = text.rsplit("Current request:\n", 1)[-1]
+        if detect_budget_thb(current) is not None:
+            text = current
     return bool(re.search(
         r"\d[\d,]*\s*(?:฿|บาท|THB)\s*(?:ขึ้นไป|\+)"
         r"|(?:at\s+least|minimum|อย่างน้อย)\s*\d[\d,]*\s*(?:฿|บาท|THB)"
@@ -397,13 +449,31 @@ PROVIDER_BASE_URLS = {
     "openai":     "https://api.openai.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "google":     "https://generativelanguage.googleapis.com/v1beta/openai",
+    "opencode_zen": "https://opencode.ai/zen/v1",
 }
 
 DEFAULT_MODELS = {
     "openai":     "gpt-4o-mini",
     "openrouter": "openai/gpt-4o-mini",
     "google":     "gemini-3-flash-preview",
+    "opencode_zen": "minimax-m2.5",
 }
+
+# Reasoning models (o-series and gpt-5/gpt-6 families) reject `max_tokens`, ignore
+# `temperature`, and bill reasoning tokens against the completion budget. A budget
+# sized for a normal chat reply is fully consumed by reasoning, which surfaces as
+# "LLM returned empty content" — so give these models a floor to work with.
+REASONING_MODEL_PATTERN = re.compile(r"^(?:o1|o3|o4|gpt-[56])")
+REASONING_MIN_COMPLETION_TOKENS = 8192
+
+
+def is_reasoning_model(model: str) -> bool:
+    return bool(REASONING_MODEL_PATTERN.match(model or ""))
+
+
+def zen_uses_responses(model: str) -> bool:
+    """Zen publishes GPT, Grok and Muse models on its Responses endpoint."""
+    return model.startswith(("gpt-5", "gpt-6", "grok-", "muse-spark"))
 
 
 async def llm_chat(
@@ -413,10 +483,12 @@ async def llm_chat(
     api_key: str = "",
     temperature: float = 0.4,
     max_tokens: int = 4096,
+    request_timeout: float = 20.0,
+    max_attempts: int = 2,
 ) -> str:
     """
     Universal LLM chat that routes to the appropriate provider.
-    Supported: google | openai | openrouter
+    Supported: google | openai | openrouter | opencode_zen
     Requires a supported provider and its API key.
     """
     import asyncio as _asyncio
@@ -438,28 +510,54 @@ async def llm_chat(
         headers["HTTP-Referer"] = "https://it-recommend.app"
         headers["X-Title"]      = "IT-RECOMMEND"
 
-    payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
-    if provider == "openai" and model.startswith(("o1", "o3", "o4")):
-        payload.pop("temperature")
-        payload["max_completion_tokens"] = payload.pop("max_tokens")
+    use_zen_responses = provider == "opencode_zen" and zen_uses_responses(model)
+    if use_zen_responses:
+        payload = {
+            "model": model, "input": messages,
+            "max_output_tokens": max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
+            if is_reasoning_model(model) else max_tokens,
+        }
+        endpoint = f"{base_url}/responses"
+    else:
+        payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        endpoint = f"{base_url}/chat/completions"
+    if provider == "openai" and is_reasoning_model(model):
+        # `max_tokens` is rejected with 400 and `temperature` is not adjustable.
+        payload["max_completion_tokens"] = max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
+        payload.pop("max_tokens")
+        payload.pop("temperature", None)
         if model.startswith("o1-mini"):
             payload["messages"] = [{**m, "role": "user" if m["role"] == "system" else m["role"]} for m in messages]
 
-    for attempt in range(2):
+    attempts = max(1, max_attempts)
+    timeout = httpx.Timeout(request_timeout, connect=min(5.0, request_timeout))
+    for attempt in range(attempts):
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 res = await client.post(
-                    f"{base_url}/chat/completions",
+                    endpoint,
                     json=payload,
                     headers=headers,
                 )
-                return _parse_chat_completions(res)
+                return _parse_responses(res) if use_zen_responses else _parse_chat_completions(res)
         except RuntimeError as e:
-            if "Auth/Credits" in str(e) or "rate_limit" in str(e):
+            if "Auth/Credits" in str(e) or "rate_limit" in str(e) or "quota_exhausted" in str(e):
                 raise
-            if attempt == 1:
+            if attempt == attempts - 1:
                 raise
             await _asyncio.sleep(2)
+        except httpx.TimeoutException as e:
+            if attempt == attempts - 1:
+                raise RuntimeError(f"LLM provider '{provider}' timed out") from e
+            await _asyncio.sleep(1)
+        except httpx.ConnectError as e:
+            if attempt == attempts - 1:
+                raise RuntimeError(f"LLM provider '{provider}' connection failed") from e
+            await _asyncio.sleep(1)
+        except httpx.HTTPError as e:
+            if attempt == attempts - 1:
+                raise RuntimeError(f"LLM provider '{provider}' network error") from e
+            await _asyncio.sleep(1)
     raise RuntimeError(f"LLM provider '{provider}' failed")
 
 
@@ -514,6 +612,13 @@ async def answer_spec_question(
 
 def _check_http(res: httpx.Response):
     if res.status_code == 429:
+        try:
+            code = (res.json().get("error") or {}).get("code") or ""
+        except (ValueError, TypeError, AttributeError):
+            code = ""
+        if code in {"credit_balance_exhausted", "organization_spend_limit_exceeded",
+                    "project_spend_limit_exceeded", "organization_usage_limit_exceeded"}:
+            raise RuntimeError(f"quota_exhausted: {code}")
         raise RuntimeError("rate_limit")
     if res.status_code == 401 or res.status_code == 403:
         try:
@@ -527,14 +632,27 @@ def _check_http(res: httpx.Response):
 
 def _parse_chat_completions(res: httpx.Response) -> str:
     _check_http(res)
-    data = res.json()
+    try:
+        data = res.json()
+    except (ValueError, json.JSONDecodeError):
+        raise RuntimeError(f"AI provider returned non-JSON body: {res.text[:200]}")
     try:
         content = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError):
-        raise RuntimeError(f"Unexpected AI response: {json.dumps(data)[:300]}")
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError(f"Unexpected AI response: {json.dumps(data, default=str)[:300]}")
     if not content or not content.strip():
-        # reasoning models can exhaust max_tokens before emitting content
-        raise RuntimeError("LLM returned empty content (increase max_tokens)")
+        # A reasoning model can burn the whole completion budget before emitting
+        # visible text, so report the model and the usage that caused it.
+        usage = data.get("usage") or {}
+        details = usage.get("completion_tokens_details") or data.get("completion_tokens_details") or {}
+        reasoning = details.get("reasoning_tokens") or usage.get("reasoning_tokens")
+        detail = f" (model={data.get('model', '?')}"
+        detail += f", reasoning_tokens={reasoning}" if reasoning else ""
+        detail += ")"
+        raise RuntimeError(
+            "LLM returned empty content — the model spent its entire completion "
+            f"budget on reasoning{detail}"
+        )
     return content
 
 
@@ -1188,10 +1306,18 @@ async def recommend_build(db, prompt: str, extra: str = "", candidates: Optional
         return result
     except RuntimeError:
         raise
-    except Exception:
+    except Exception as exc:
         # Graceful degradation: deterministic heuristic build, still validated
-        return heuristic_build(candidates, budget, use_case,
-                               budget_ceiling=not budget_is_lower_bound(prompt))
+        logger.warning(
+            "AI recommend_build unavailable (provider=%s model=%s reason=%s)",
+            provider, model, failure_reason(exc),
+        )
+        degraded = heuristic_build(candidates, budget, use_case,
+                                   budget_ceiling=not budget_is_lower_bound(prompt))
+        degraded.setdefault("_meta", {}).update(
+            provider_fallback=True, fallback_reason=failure_reason(exc),
+        )
+        return degraded
 
 
 def deterministic_compatibility_from_text(parts_text: str) -> tuple[dict | None, list[str], int]:
@@ -1248,8 +1374,15 @@ async def compat_check_hybrid(parts_text: str, provider: str = "google", model: 
                     ]
                     result["suggestions"] = list(dict.fromkeys(
                         result["suggestions"] + safe_suggestions))[:8]
-        except Exception:
-            pass
+        except Exception as exc:
+            # LLM suggestions are optional; the deterministic verdict stands.
+            # Keep the reason so the response explains why enrichment is missing.
+            result.setdefault("_meta", {})["provider_fallback"] = True
+            result["_meta"]["fallback_reason"] = failure_reason(exc)
+            logger.warning(
+                "AI compat enrichment unavailable (provider=%s model=%s reason=%s)",
+                provider, model, result["_meta"]["fallback_reason"],
+            )
 
     result["_engine"]["input_lines_parsed"] = parsed_count
     result["_engine"]["deterministic"] = True
@@ -1286,8 +1419,23 @@ async def compare_specs(spec1: str, spec2: str,
     )
     try:
         data = json.loads(raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+        if not isinstance(data, dict):
+            raise ValueError("comparison response must be a JSON object")
     except (TypeError, ValueError):
-        return raw
+        return json.dumps({
+            "error": True,
+            "message": str(raw)[:500],
+            "spec1Name": "Spec 1",
+            "spec2Name": "Spec 2",
+            "winner": "tie",
+            "verdict": "AI response was not valid JSON",
+            "categories": [],
+            "spec1Pros": [],
+            "spec2Pros": [],
+            "recommendation": "กรุณาลองเปรียบเทียบอีกครั้ง",
+            "compatibility": {"spec1": compatibility1, "spec2": compatibility2},
+            "compatibilityWarnings": [],
+        }, ensure_ascii=False)
 
     unsupported = re.compile(
         r"(?:\b(?:price|cost|baht|thb|fps|cinebench|benchmark)\b|ราคา|บาท|฿)",
@@ -1460,18 +1608,18 @@ def _scored_recommendation_result(alternatives: list, prompt: str,
 
     warnings = []
     if budget and not budget_is_lower_bound(prompt) and total > budget:
-        warnings.append(f"⚠️ ชุดนี้เกินงบที่ตั้งไว้ {total - budget:,} บาท")
+        warnings.append(f"ชุดนี้เกินงบที่ตั้งไว้ {total - budget:,} บาท")
     if budget and budget_is_lower_bound(prompt) and total < budget:
-        warnings.append(f"⚠️ ชุดที่มีข้อมูลครบและผ่านการตรวจในขณะนี้ต่ำกว่างบเริ่มต้น {budget:,} บาท")
+        warnings.append(f"ชุดที่มีข้อมูลครบและผ่านการตรวจในขณะนี้ต่ำกว่างบเริ่มต้น {budget:,} บาท")
     if safe["breakdown"].get("availability", 100) < 50:
-        warnings.append("⚠️ อุปกรณ์บางชิ้นอาจหาซื้อได้ยากในขณะนี้")
+        warnings.append("อุปกรณ์บางชิ้นอาจหาซื้อได้ยากในขณะนี้")
         if len(alternatives) > 1 and alternatives[1]["breakdown"].get("availability", 0) > safe["breakdown"].get("availability", 0):
             warnings.append(f"ตัวเลือกสำรองที่หาซื้อได้มากกว่า: {alternatives[1]['label']} (อันดับ 2)")
 
     summary = f"ชุด {safe['label']} รวม {total:,} บาท จากสินค้าในฐานข้อมูลและผลตรวจความเข้ากันได้"
     if provider_fallback:
         summary += " (ไม่สามารถใช้คำอธิบายจาก AI ภายนอกได้)"
-    if warnings and warnings[0].startswith("⚠️ ชุดนี้เกินงบ"):
+    if warnings and warnings[0].startswith("ชุดนี้เกินงบ"):
         summary = f"{warnings[0]} — {summary}"
 
     if budget and not budget_is_lower_bound(prompt) and total > budget:
@@ -1517,6 +1665,25 @@ def _scored_recommendation_result(alternatives: list, prompt: str,
     }
 
 
+MAX_PROS_CONS_ITEMS = 6
+
+# Deterministic self-consistency net: a provider that praises a point in
+# `performance` while criticising the same point in `cons` is rejected instead of
+# being shown to the user. Coarse by design — a false positive only costs the AI
+# prose, never correctness, because the deterministic build remains authoritative.
+CONTRADICTION_PAIRS = [
+    (re.compile(r"เร็ว|รวดเร็ว", re.I), re.compile(r"ช้ากว่า|ต่ำกว่ามาตรฐาน|ไม่สูงเท่า", re.I)),
+]
+
+
+def has_self_contradiction(performance: dict, cons: list) -> bool:
+    perf_text = " ".join(str(value) for value in (performance or {}).values())
+    cons_text = " ".join(str(item) for item in (cons or []))
+    if not perf_text or not cons_text:
+        return False
+    return any(pos.search(perf_text) and neg.search(cons_text) for pos, neg in CONTRADICTION_PAIRS)
+
+
 def recommend_without_provider(db, prompt: str, reason: str = "provider_unavailable") -> dict:
     """Return the same top-ranked catalogue build, without AI prose."""
     budget = detect_budget_thb(prompt)
@@ -1546,6 +1713,7 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "",
     alternatives = top3_builds(candidates, budget_eff, use_case,
                                budget_ceiling=not lower_bound, target_budget=target)
     result = _scored_recommendation_result(alternatives, prompt)
+    result["_meta"].update(requested_provider=provider, requested_model=model or DEFAULT_MODELS[provider])
     safe = alternatives[0]
 
     if not api_key:
@@ -1561,7 +1729,17 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "",
             [{"role": "system", "content":
               "คุณคือ IT-RECOMMEND AI ทำหน้าที่อธิบายชุดคอมที่ระบบเลือกแล้วเท่านั้น "
               "ห้ามเลือก เพิ่ม เปลี่ยน หรือแนะนำสินค้าอื่น ห้ามใส่ตัวเลขราคาในคำอธิบาย "
-              "ห้ามอ้างว่าอุปกรณ์ดีที่สุดในโลกหากไม่มีหลักฐาน และห้ามขัดกับผลตรวจความเข้ากันได้ "
+              "ห้ามอ้างว่าอุปกรณ์ดีที่สุดในโลกหากไม่มีหลักฐาน และห้ามขัดกับผลตรวจความเข้ากันได้\n\n"
+              "== กฎความสม่ำเสมอ (ห้ามละเมิด) ==\n"
+              "1. ห้ามชมจุดใดใน performance/pros แล้วตำหนิจุดเดียวกันใน cons ด้วยมุมมองที่ขัดแย้งกัน "
+              "เลือกน้ำเสียงเดียวต่อประเด็นเดียว เช่น ถ้า SSD เป็น interface generation ที่ต่ำกว่าที่ "
+              "mainboard รองรับ ให้พูดเป็นข้อจำกัดใน cons เท่านั้น ห้ามชมว่า 'โหลดเร็ว' ใน productivity\n"
+              "2. cons ต้องพูดถึงทุกข้อที่มีอยู่จริงในข้อมูลนำเข้า อย่างน้อย: "
+              "(ก) capacity ของ RAM/Storage เทียบกับ use case ที่ระบุ ถ้ามีความเสี่ยงว่าจะไม่พอ, "
+              "(ข) ช่องว่างระหว่าง interface/generation ของชิ้นส่วนกับสิ่งที่แพลตฟอร์มรองรับสูงสุด ถ้ามี, "
+              "(ค) ทุกจุดที่ผลตรวจความเข้ากันได้ทำเครื่องหมาย WARNING (ไม่ใช่แค่ PASS/FAIL), "
+              "(ง) คะแนน availability ถ้าต่ำกว่า 50/100 ให้ระบุว่าอาจหาซื้อยาก — ถ้าไม่มีข้อใดข้างต้นจริง ไม่ต้องแต่งขึ้นมา\n"
+              "3. ห้ามเขียน cons ให้สั้นกว่าที่ข้อมูลนำเข้ามี — ถ้ามีประเด็นตรงเงื่อนไขข้อ 2 มากกว่า 1 ข้อ ต้องใส่ให้ครบทุกข้อ\n\n"
               "ตอบ JSON เท่านั้นในรูปแบบ "
               '{"summary":"...","performance":{"gaming":"...","productivity":"...","upgrade":"..."},'
               '"pros":["..."],"cons":["..."]}'},
@@ -1571,7 +1749,8 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "",
               f"ผลตรวจ: {safe['compat']['summary']}\n"
               f"คะแนน: {safe['score']}/100; Availability: {safe['breakdown'].get('availability', 0)}/100\n"
               "อธิบายข้อดีและข้อควรรู้ของชุดนี้เท่านั้น โดยไม่กล่าวถึงสินค้าใหม่หรือยอดเงิน"}],
-            temperature=0.3, max_tokens=2000, provider=provider, model=model, api_key=api_key,
+            temperature=0.3, max_tokens=700, provider=provider, model=model, api_key=api_key,
+            request_timeout=30.0, max_attempts=1,
         )
         enrich = extract_json(text)
         if not isinstance(enrich, dict):
@@ -1597,15 +1776,32 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "",
             clean_lists[field] = [item for item in cleaned if item]
         if not (summary or clean_performance or clean_lists["pros"] or clean_lists["cons"]):
             raise ValueError("AI explanation did not contain usable prose")
+        # Reject before mutating `result`, so the deterministic build stays intact.
+        if has_self_contradiction(clean_performance, clean_lists["cons"]):
+            raise ValueError("AI explanation self-contradicts performance vs cons")
 
         if summary:
             result["summary"] = summary
-            if result["warnings"] and result["warnings"][0].startswith("⚠️ ชุดนี้เกินงบ"):
+            if result["warnings"] and result["warnings"][0].startswith("ชุดนี้เกินงบ"):
                 result["summary"] = f"{result['warnings'][0]} — {summary}"
         result["performance"].update(clean_performance)
         for field in ("pros", "cons"):
             if clean_lists[field]:
-                result[field] = clean_lists[field]
+                # Merge, don't overwrite — the deterministic default (e.g. the
+                # availability/budget warnings seeded into `cons`) must survive
+                # even if the AI's own list doesn't happen to repeat them.
+                result[field] = list(dict.fromkeys(result[field] + clean_lists[field]))[:MAX_PROS_CONS_ITEMS]
+        result["_meta"].update(llm_provider=provider, llm_model=model or DEFAULT_MODELS[provider])
+    except httpx.TimeoutException as exc:
+        result["_meta"].update(provider_fallback=True, fallback_reason=failure_reason(exc))
+        logger.warning(
+            "AI recommend enrichment timed out (provider=%s model=%s): %s",
+            provider, model, exc,
+        )
     except Exception as exc:
-        result["_meta"].update(provider_fallback=True, fallback_reason=type(exc).__name__)
+        result["_meta"].update(provider_fallback=True, fallback_reason=failure_reason(exc))
+        logger.warning(
+            "AI recommend enrichment unavailable (provider=%s model=%s reason=%s)",
+            provider, model, result["_meta"]["fallback_reason"],
+        )
     return result

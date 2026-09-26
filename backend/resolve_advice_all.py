@@ -124,12 +124,12 @@ async def resolve_all_advice_products():
                         sql = f"UPDATE products SET {', '.join(updates)} WHERE product_id = ?"
                         cur.execute(sql, params)
                         resolved_count += 1
-                        print(f"[{i+1}/{len(rows)}] ✓ Resolved [{name[:35]}...]:\n    URL: {best_item['url'][:70]}...\n    IMG: {best_item['img'][:70]}...")
+                        print(f"[{i+1}/{len(rows)}] Resolved [{name[:35]}...]:\n    URL: {best_item['url'][:70]}...\n    IMG: {best_item['img'][:70]}...")
 
                 if (i + 1) % 10 == 0:
                     conn.commit()
             except Exception as e:
-                print(f"[{i+1}/{len(rows)}] ✗ Error on {name[:30]}: {e}")
+                print(f"[{i+1}/{len(rows)}] Error on {name[:30]}: {e}")
 
         conn.commit()
         await browser.close()

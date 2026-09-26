@@ -1,8 +1,8 @@
 """
-🚀 IT-RECOMMEND Shop API - FastAPI backend
+IT-RECOMMEND Shop API - FastAPI backend
 รัน: uvicorn shop_api:app --reload --port 3000
 """
-import os, re, json, shutil, asyncio, httpx
+import os, re, json, shutil, asyncio, httpx, logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, List, Literal
 from pathlib import Path
@@ -24,6 +24,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+logger = logging.getLogger(__name__)
+
 # ─────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────
@@ -38,6 +40,7 @@ def load_jwt_secret() -> str:
     provider_keys = {
         os.getenv("GOOGLE_API_KEY", ""), os.getenv("GEMINI_API_KEY", ""),
         os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENROUTER_API_KEY", ""),
+        os.getenv("OPENCODE_ZEN_API_KEY", ""),
     }
     provider_keys.discard("")
     if secret in provider_keys:
@@ -235,7 +238,7 @@ class UserAiSettings(Base):
     __tablename__ = "user_ai_settings"
     uid          = Column(String, ForeignKey("users.uid"), primary_key=True, index=True)  # FK → users.uid
     email        = Column(String, default="", index=True)
-    provider     = Column(String, default="google")   # google | openai | openrouter
+    provider     = Column(String, default="google")   # google | openai | openrouter | opencode_zen
     model        = Column(String, default="gemini-3-flash-preview")
     api_key      = Column(Text, default="")        # Fernet-encrypted at rest (S02)
     custom_model = Column(String, default="")      # user-typed custom model id
@@ -636,7 +639,7 @@ class RoleUpdate(BaseModel):
 # ─────────────────────────────────────────
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "🚀 IT-RECOMMEND Shop API v3"}
+    return {"status": "ok", "message": "IT-RECOMMEND Shop API v3"}
 
 
 # ─────────────────────────────────────────
@@ -858,10 +861,68 @@ def public_product_filter():
     return or_(retailer_has_price, manual_product_is_available)
 
 
+# Retailer imports do not have a separate brand column. Resolve a display
+# brand from the product title so facets and paginated results use one rule.
+PRODUCT_BRANDS = (
+    "ROYAL KLUDGE", "COOLER MASTER", "THERMALTAKE", "STEELSERIES", "TURTLE BEACH",
+    "ANDA SEAT", "SECRET LAB", "DARKFLASH", "VIEWSONIC", "LOGITECH", "CORSAIR",
+    "RAZER", "HYPERX", "FANTECH", "SIGNO", "NUBWO", "EGA", "COUGAR",
+    "DXRACER", "KEYCHRON", "AKKO", "REDRAGON", "ONIKUMA", "SADES",
+    "ASUS", "ACER", "MSI", "GIGABYTE", "SAMSUNG", "BENQ", "DELL", "AOC",
+    "LG", "HP", "LENOVO", "HUAWEI", "XIAOMI", "PHILIPS", "SONY",
+    "MARSHALL", "JBL", "CREATIVE", "BEWELL", "MODENA", "INDEX",
+)
+GENERIC_PRODUCT_WORDS = {
+    "GAMING", "MOUSE", "KEYBOARD", "HEADSET", "HEADPHONE", "MONITOR", "DESK",
+    "CHAIR", "TABLE", "MICROPHONE", "WIRELESS", "WIRED", "USB", "LED", "RGB",
+    "โต๊ะ", "เก้าอี้", "หูฟัง", "เมาส์", "คีย์บอร์ด", "จอ", "จอมอนิเตอร์",
+}
+
+
+def product_brand(name: str) -> str:
+    title = (name or "").upper()
+    for brand in PRODUCT_BRANDS:
+        if re.search(r"(?<![A-Z0-9])" + re.escape(brand) + r"(?![A-Z0-9])", title):
+            return brand
+    for token in re.findall(r"[A-Z][A-Z0-9-]+|[ก-๙]+", title):
+        if token not in GENERIC_PRODUCT_WORDS and not token.isdigit() and len(token) > 1:
+            return token
+    return "Other"
+
+
+def filter_product_store(q, store: str):
+    if not store:
+        return q
+    column = {
+        "advice": Product.price_advice,
+        "jib": Product.price_jib,
+        "ihavecpu": Product.price_ihavecpu,
+    }.get(store.lower())
+    if column is None:
+        raise HTTPException(400, "Unsupported store")
+    return q.filter(column > 0)
+
+
+@app.get("/api/products/filters")
+def get_product_filters(
+    category: str = "", search: str = "", store: str = "",
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_optional_user),
+):
+    q = db.query(Product).filter(public_product_filter())
+    if category:
+        q = q.filter(func.lower(Product.category) == category.lower())
+    if search:
+        q = q.filter(Product.p_name.contains(search) | Product.p_description.contains(search))
+    q = filter_product_store(q, store)
+    brands = sorted({product_brand(name) for (name,) in q.with_entities(Product.p_name).all()})
+    return {"status": "success", "data": {"brands": brands}}
+
+
 @app.get("/api/products")
 def get_products(
     category: str = "", cid: str = "", search: str = "", name: str = "",
-    component: str = "",
+    component: str = "", store: str = "", brand: str = "",
     page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_optional_user),
@@ -888,10 +949,21 @@ def get_products(
     if cid:      q = q.filter(Product.cid == cid)
     if search:   q = q.filter(Product.p_name.contains(search) | Product.p_description.contains(search))
     if name:     q = q.filter(Product.p_name.contains(name))
+    q = filter_product_store(q, store)
     if component_rule:
         matching_products = [
             product for product in q.order_by(Product.created_at.desc()).all()
             if product_matches_builder_component(product, component_key)
+        ]
+        if brand:
+            matching_products = [p for p in matching_products if product_brand(p.p_name).casefold() == brand.casefold()]
+        total = len(matching_products)
+        start = (page - 1) * limit
+        products = matching_products[start:start + limit]
+    elif brand:
+        matching_products = [
+            product for product in q.order_by(Product.created_at.desc()).all()
+            if product_brand(product.p_name).casefold() == brand.casefold()
         ]
         total = len(matching_products)
         start = (page - 1) * limit
@@ -1254,7 +1326,7 @@ def admin_get_user_specs(uid: str, admin=Depends(require_admin), db: Session = D
 # AI Provider Settings (per user)
 # ─────────────────────────────────────────
 class AiSettingsBody(BaseModel):
-    provider:     Literal["google", "openai", "openrouter"] = "google"
+    provider:     Literal["google", "openai", "openrouter", "opencode_zen"] = "google"
     model:        str = "gemini-3-flash-preview"
     api_key:      str = ""
     custom_model: str = ""
@@ -1269,6 +1341,8 @@ def server_ai_credentials(provider: str) -> tuple[str, str]:
         return os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
     if provider == "openrouter":
         return os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
+    if provider == "opencode_zen":
+        return os.getenv("OPENCODE_ZEN_API_KEY", ""), os.getenv("OPENCODE_ZEN_MODEL", "minimax-m2.5").strip() or "minimax-m2.5"
     return "", ""
 
 
@@ -1281,7 +1355,7 @@ def normalize_ai_model(provider: str, model: str) -> str:
 
 
 def default_ai_provider() -> tuple[str, str]:
-    for provider in ("openai", "google", "openrouter"):
+    for provider in ("openai", "google", "openrouter", "opencode_zen"):
         key, model = server_ai_credentials(provider)
         if key:
             return provider, model
@@ -1345,7 +1419,7 @@ def save_ai_settings(body: AiSettingsBody, user: User = Depends(get_current_user
 class ChatSessionCreate(BaseModel):
     title:    str = "New Chat"
     mode:     Literal["recommend", "compare", "compat"] = "recommend"
-    provider: Literal["google", "openai", "openrouter"] = "google"
+    provider: Literal["google", "openai", "openrouter", "opencode_zen"] = "google"
     model:    str = ""
 
 class ChatSessionUpdate(BaseModel):
@@ -1364,7 +1438,7 @@ class ChatSessionUpdate(BaseModel):
             raise ValueError("Invalid chat messages")
         return value
 
-    provider: Optional[Literal["google", "openai", "openrouter"]] = None
+    provider: Optional[Literal["google", "openai", "openrouter", "opencode_zen"]] = None
     model:    Optional[str] = None
 
 def _session_dict(s: AiChatSession) -> dict:
@@ -1432,7 +1506,7 @@ class AIRecommendBody(BaseModel):
     spec2: Optional[str] = None
     prompt:     str
     mode:         Literal["recommend", "compare", "compat", "ask"] = "recommend"
-    provider:     Optional[Literal["google", "openai", "openrouter"]] = None
+    provider:     Optional[Literal["google", "openai", "openrouter", "opencode_zen"]] = None
     model:        Optional[str] = None
     api_key:      Optional[str] = None
     session_id:   Optional[int] = None
@@ -1460,40 +1534,50 @@ async def ai_recommend(
     failure (for example R1 socket or R8 GPU/PSU connector mismatch) caps the
     compatibility component at 50/100.
     """
-    import recommender as rec
-
-    # ── Resolve provider / model / api_key ──────────────────────────────
-    db_settings = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first() if user else None
-    fallback_provider, fallback_model = default_ai_provider()
-    provider = body.provider if body.provider is not None else (db_settings.provider if db_settings else fallback_provider)
-    same_provider = db_settings is not None and db_settings.provider == provider
-    model = body.model if body.model is not None else ((db_settings.custom_model or db_settings.model) if same_provider else "")
-    model = normalize_ai_model(provider, model.strip() or (fallback_model if provider == fallback_provider else rec.DEFAULT_MODELS[provider]))
-    configured_key, _ = server_ai_credentials(provider)
-    stored_key = decrypt_ai_key(db_settings.api_key) if db_settings else ""
-    api_key = body.api_key if body.api_key is not None and body.api_key.strip() else (stored_key if same_provider and stored_key else configured_key)
-    if not api_key.strip() and body.mode != "recommend":
-        raise HTTPException(400, f"ยังไม่ได้ตั้งค่า API Key สำหรับ {provider} กรุณาเปิด Settings หรือกำหนด key ฝั่งเซิร์ฟเวอร์")
-    session = None
-    if body.session_id is not None:
-        if not user:
-            raise HTTPException(401, "Login required to use a saved session")
-        session = db.query(AiChatSession).filter(AiChatSession.id == body.session_id, AiChatSession.uid == user.uid).first()
-        if session is None:
-            raise HTTPException(404, "Session not found")
-        # A conversation may naturally move from a comparison to a build
-        # request. Keep the same session so the earlier context is available.
-    if not body.prompt.strip():
-        raise HTTPException(422, "Prompt cannot be empty")
-
-    previous = json.loads(session.messages or "[]") if session else []
-    context = "\n".join(f"{m['role']}: {m['content']}" for m in previous[-12:])
-    contextual_prompt = f"Previous conversation:\n{context}\n\nCurrent request:\n{body.prompt}" if context else body.prompt
-    if body.mode == "compare" and previous and (not body.spec1 or not body.spec2):
-        source = next((m for m in reversed(previous) if m.get("spec1") and m.get("spec2")), {})
-        body.spec1 = body.spec1 or source.get("spec1")
-        body.spec2 = body.spec2 or source.get("spec2")
+    # Safe defaults so the outer exception handlers can always name the provider,
+    # even when the failure happens before provider/model are resolved.
+    provider = "unknown"
+    model = ""
+    provider_label = "AI provider"
     try:
+        import recommender as rec
+
+        # ── Resolve provider / model / api_key ──────────────────────────
+        db_settings = db.query(UserAiSettings).filter(UserAiSettings.uid == user.uid).first() if user else None
+        fallback_provider, fallback_model = default_ai_provider()
+        provider = body.provider if body.provider is not None else (db_settings.provider if db_settings else fallback_provider)
+        same_provider = db_settings is not None and db_settings.provider == provider
+        model = body.model if body.model is not None else ((db_settings.custom_model or db_settings.model) if same_provider else "")
+        model = normalize_ai_model(provider, model.strip() or (fallback_model if provider == fallback_provider else rec.DEFAULT_MODELS[provider]))
+        configured_key, _ = server_ai_credentials(provider)
+        stored_key = decrypt_ai_key(db_settings.api_key) if db_settings else ""
+        api_key = body.api_key if body.api_key is not None and body.api_key.strip() else (stored_key if same_provider and stored_key else configured_key)
+        if not api_key.strip() and body.mode != "recommend":
+            raise HTTPException(400, f"ยังไม่ได้ตั้งค่า API Key สำหรับ {provider} กรุณาเปิด Settings หรือกำหนด key ฝั่งเซิร์ฟเวอร์")
+        provider_label = {"openai": "OpenAI", "google": "Google Gemini", "openrouter": "OpenRouter", "opencode_zen": "OpenCode Zen"}.get(provider, provider)
+        session = None
+        if body.session_id is not None:
+            if not user:
+                raise HTTPException(401, "Login required to use a saved session")
+            session = db.query(AiChatSession).filter(AiChatSession.id == body.session_id, AiChatSession.uid == user.uid).first()
+            if session is None:
+                raise HTTPException(404, "Session not found")
+            # A conversation may naturally move from a comparison to a build
+            # request. Keep the same session so the earlier context is available.
+        if not body.prompt.strip():
+            raise HTTPException(422, "Prompt cannot be empty")
+
+        try:
+            previous = json.loads(session.messages or "[]") if session else []
+        except (TypeError, ValueError):
+            previous = []
+        context = "\n".join(f"{m['role']}: {m['content']}" for m in previous[-12:])
+        contextual_prompt = f"Previous conversation:\n{context}\n\nCurrent request:\n{body.prompt}" if context else body.prompt
+        if body.mode == "compare" and previous and (not body.spec1 or not body.spec2):
+            source = next((m for m in reversed(previous) if m.get("spec1") and m.get("spec2")), {})
+            body.spec1 = body.spec1 or source.get("spec1")
+            body.spec2 = body.spec2 or source.get("spec2")
+
         if body.mode == "ask":
             # Prefer the displayed build; otherwise find the latest build in
             # this user's session (not the latest free-form ask answer).
@@ -1520,10 +1604,33 @@ async def ai_recommend(
                         break
             if not spec_ctx:
                 raise HTTPException(422, "No recommended PC spec is available for this question")
-            raw = await rec.answer_spec_question(
-                body.prompt, spec_ctx,
-                provider=provider, model=model, api_key=api_key,
-            )
+            try:
+                raw = await rec.answer_spec_question(
+                    body.prompt, spec_ctx,
+                    provider=provider, model=model, api_key=api_key,
+                )
+            except httpx.TimeoutException:
+                # Transient: keep the existing 504 mapping so the client can retry.
+                raise
+            except (RuntimeError, httpx.HTTPError) as provider_error:
+                logger.warning(
+                    "AI provider unavailable for mode=ask (provider=%s model=%s): %s",
+                    provider, model, provider_error,
+                )
+                ask_compat, _, _ = rec.deterministic_compatibility_from_text(spec_ctx)
+                raw = json.dumps({
+                    "error": True,
+                    "status": "provider_unavailable",
+                    "provider": provider,
+                    "provider_label": provider_label,
+                    "reason": str(provider_error)[:300],
+                    "message": (
+                        f"{provider_label} ใช้งานไม่ได้ชั่วคราว "
+                        f"จึงแสดงผลจากระบบ deterministic แทน "
+                        f"กรุณาตรวจสอบ API key, โมเดล และโควตาของ {provider_label}"
+                    ),
+                    "compatibility": ask_compat,
+                }, ensure_ascii=False)
         elif body.mode == "compat":
             result = await rec.compat_check_hybrid(contextual_prompt, provider=provider, model=model, api_key=api_key)
             raw = json.dumps(result, ensure_ascii=False)
@@ -1533,13 +1640,46 @@ async def ai_recommend(
                 if not match:
                     raise HTTPException(400, "Both specs are required")
                 body.spec1, body.spec2 = match.group(1).strip(), match.group(2).strip()
-            raw = await rec.compare_specs(body.spec1, body.spec2, context=contextual_prompt,
-                                          provider=provider, model=model, api_key=api_key)
+            try:
+                raw = await rec.compare_specs(body.spec1, body.spec2, context=contextual_prompt,
+                                              provider=provider, model=model, api_key=api_key)
+            except httpx.TimeoutException:
+                # Transient: keep the existing 504 mapping so the client can retry.
+                raise
+            except (RuntimeError, httpx.HTTPError) as provider_error:
+                logger.warning(
+                    "AI provider unavailable for mode=compare (provider=%s model=%s): %s",
+                    provider, model, provider_error,
+                )
+                compat1, _, _ = rec.deterministic_compatibility_from_text(body.spec1)
+                compat2, _, _ = rec.deterministic_compatibility_from_text(body.spec2)
+                raw = json.dumps({
+                    "error": True,
+                    "status": "provider_unavailable",
+                    "provider": provider,
+                    "provider_label": provider_label,
+                    "reason": str(provider_error)[:300],
+                    "message": (
+                        f"{provider_label} ใช้งานไม่ได้ชั่วคราว "
+                        f"จึงแสดงผลจากระบบ deterministic แทน "
+                        f"กรุณาตรวจสอบ API key, โมเดล และโควตาของ {provider_label}"
+                    ),
+                    "spec1Name": "Spec 1",
+                    "spec2Name": "Spec 2",
+                    "winner": "tie",
+                    "verdict": f"{provider_label} ใช้งานไม่ได้ชั่วคราว",
+                    "categories": [],
+                    "spec1Pros": [],
+                    "spec2Pros": [],
+                    "recommendation": "กรุณาลองเปรียบเทียบอีกครั้ง",
+                    "compatibility": {"spec1": compat1, "spec2": compat2},
+                    "compatibilityWarnings": [],
+                }, ensure_ascii=False)
         else:
             try:
                 result = await rec.recommend_with_alternatives(db, contextual_prompt,
                                                                provider=provider, model=model, api_key=api_key)
-            except (RuntimeError, httpx.TimeoutException, httpx.ConnectError) as provider_error:
+            except (RuntimeError, httpx.TimeoutException, httpx.ConnectError, httpx.HTTPError) as provider_error:
                 if str(provider_error).startswith("Requested GPU unavailable:"):
                     requested_gpu = str(provider_error).partition(":")[2].strip()
                     raise HTTPException(
@@ -1551,8 +1691,33 @@ async def ai_recommend(
                 reason = ("rate_limit" if str(provider_error) == "rate_limit" else
                           "invalid_response" if str(provider_error) == "LLM returned invalid JSON" else
                           "provider_unavailable")
-                result = rec.recommend_without_provider(db, contextual_prompt, reason=reason)
+                # Keep the coarse bucket for the log line, but hand the response a
+                # self-describing reason so the JSON alone is enough to debug.
+                detailed_reason = f"{reason} — {rec.failure_reason(provider_error)}"
+                logger.warning(
+                    "AI recommend fell back to deterministic (provider=%s model=%s reason=%s): %s",
+                    provider, model, reason, provider_error,
+                )
+                try:
+                    result = rec.recommend_without_provider(db, contextual_prompt, reason=detailed_reason)
+                except RuntimeError as fallback_error:
+                    # The deterministic fallback can itself fail (e.g. an empty or
+                    # incomplete catalogue). Surface a real message instead of letting
+                    # it escape and become a bare 502.
+                    logger.error(
+                        "Deterministic fallback also failed (provider=%s reason=%s): %s",
+                        provider, reason, fallback_error, exc_info=True,
+                    )
+                    if str(fallback_error) == "No complete compatible catalogue build available":
+                        raise HTTPException(422, "ยังไม่มีชุดสินค้าที่ครบและผ่านการตรวจความเข้ากันได้ในฐานข้อมูล")
+                    raise HTTPException(
+                        503,
+                        f"{provider_label} ใช้งานไม่ได้ชั่วคราว และระบบ deterministic "
+                        "ไม่สามารถสร้างชุดสินค้าได้ กรุณาลองใหม่อีกครั้ง",
+                    )
             raw = json.dumps(result, ensure_ascii=False)
+
+        raw = rec.strip_emojis(raw)
 
         # ── Save to chat session if logged in ───────────────────────────
         if user:
@@ -1594,17 +1759,28 @@ async def ai_recommend(
         return {"status": "success", "data": raw,
                 "session_id": session.id if user and session else None}
 
-    except (httpx.TimeoutException, httpx.ConnectError):
-        raise HTTPException(502, "AI provider เชื่อมต่อไม่ได้หรือหมดเวลา กรุณาลองใหม่")
+    except httpx.TimeoutException:
+        logger.warning("AI provider timed out", exc_info=True)
+        raise HTTPException(504, "AI provider หมดเวลา กรุณาลองใหม่")
+    except (httpx.ConnectError, httpx.HTTPError):
+        logger.warning("AI provider connection failed", exc_info=True)
+        raise HTTPException(503, "AI provider เชื่อมต่อไม่ได้ กรุณาลองใหม่")
     except RuntimeError as e:
         msg = str(e)
         if msg == "rate_limit":
             return {"status": "rate_limit", "message": "คนใช้งานเยอะ กรุณาลองใหม่อีกครั้ง"}
-        raise HTTPException(502, "AI provider request failed. Check the selected model, API key and quota.")
+        logger.error(
+            "AI provider request failed (mode=%s provider=%s model=%s): %s",
+            body.mode, provider, model, msg, exc_info=True,
+        )
+        if "timed out" in msg.lower():
+            raise HTTPException(504, "AI provider หมดเวลา กรุณาลองใหม่")
+        raise HTTPException(502, f"{provider_label} ใช้งานไม่ได้ชั่วคราว กรุณาตรวจสอบโมเดล, API key และโควตา")
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(500, "Unable to complete AI request")
+    except Exception:
+        logger.exception("Unexpected /api/ai/recommend failure (mode=%s)", body.mode)
+        raise HTTPException(500, "Unable to complete AI request; the server logged the failure for diagnosis")
 
 
 class CompatCheckBody(BaseModel):
@@ -1772,15 +1948,46 @@ def create_spec_history(body: SpecHistoryCreate, current_user: User = Depends(ge
 
 @app.delete("/api/spec-history/{id}")
 def delete_spec_history(id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Idempotent delete.
+
+    Race-safe: the row is read once for the ownership check, then removed with a
+    single bulk DELETE statement. A bulk `Query.delete()` issues one SQL DELETE and
+    reports how many rows it actually matched, so two concurrent requests for the
+    same id can never both "succeed" and we never hit the ORM unit-of-work path
+    (`db.delete(obj)`) whose stale-identity-map check emits
+    "expected to delete 1 row(s); 0 were matched".
+    """
     item = db.query(SpecHistory).filter(SpecHistory.id == id).first()
     if not item:
-        raise HTTPException(404, "ไม่พบประวัติการจัดสเปค")
-    # T0-1: Only owner or admin can delete (H07)
+        # The row is already gone — deleted by an earlier or concurrent request.
+        # Same end state as a successful delete, so this is a 200, not a 404.
+        logger.debug("spec-history delete: id=%s not found (already deleted)", id)
+        return {"status": "success", "message": "ประวัตินี้ถูกลบไปแล้ว", "already_deleted": True}
+
+    # T0-1: Only owner or admin can delete (H07). Checked before deleting so an
+    # unauthorised caller still gets 403 and can never remove the row.
     if item.uid != current_user.uid and current_user.u_role != "admin":
         raise HTTPException(403, "ไม่มีสิทธิ์ลบประวัตินี้")
-    db.delete(item)
+
+    # Drop the stale identity-map entry so autoflush cannot re-issue work for it.
+    db.expunge(item)
+    deleted = (
+        db.query(SpecHistory)
+        .filter(SpecHistory.id == id)
+        .delete(synchronize_session=False)
+    )
     db.commit()
-    return {"status": "success", "message": "ลบประวัติสำเร็จ"}
+
+    if deleted == 0:
+        # Lost the race: another request deleted the row between our SELECT and
+        # our DELETE. Expected under concurrent clicks — debug, not warning.
+        logger.debug(
+            "spec-history delete race: id=%s uid=%s already removed by a concurrent request",
+            id, current_user.uid,
+        )
+        return {"status": "success", "message": "ประวัตินี้ถูกลบไปแล้ว", "already_deleted": True}
+
+    return {"status": "success", "message": "ลบประวัติสำเร็จ", "already_deleted": False}
 
 
 @app.get("/api/price-history/{product_id}")

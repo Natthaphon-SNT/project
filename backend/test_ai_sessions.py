@@ -169,6 +169,26 @@ class AiSessionTests(unittest.TestCase):
         ).json()['data']
         self.assertEqual(saved['mode'], 'recommend')
 
+    def test_provider_emojis_are_removed_from_response_and_saved_session(self):
+        compared = json.dumps({
+            'spec1Name': 'RTX 4060', 'spec2Name': 'RX 7600',
+            'winner': '1', 'verdict': 'Fast \U0001f680 and cool \u2744\ufe0f',
+            'categories': [], 'spec1Pros': [], 'spec2Pros': [],
+            'recommendation': 'Choose RTX 4060 \u2705',
+        })
+        with patch.object(self.rec, 'compare_specs', new_callable=AsyncMock,
+                          return_value=compared):
+            response = self.client.post('/api/ai/recommend', headers=self.auth(), json={
+                'prompt': 'Spec 1: RTX 4060 | Spec 2: RX 7600', 'mode': 'compare',
+                'provider': 'google', 'api_key': 'test-key',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.json()['data'])['verdict'], 'Fast  and cool ')
+        saved = self.client.get(
+            f"/api/ai/sessions/{response.json()['session_id']}", headers=self.auth()
+        ).json()['data']
+        self.assertNotIn('\\u', saved['messages'])
+
     def test_gpu_model_is_not_mistaken_for_budget_and_is_detected(self):
         self.assertIsNone(self.rec.detect_budget_thb('จัดสเปกที่ใช้ 4060 มาให้หน่อย'))
         self.assertEqual(
@@ -177,6 +197,30 @@ class AiSessionTests(unittest.TestCase):
                 'Current request:\nจัดสเปกที่ใช้ 4060 มาให้หน่อย'
             ),
             '4060',
+        )
+
+    def test_follow_up_budget_overrides_earlier_chat_budget(self):
+        context = (
+            'Previous conversation:\n'
+            'user: จัดสเปกคอมงบ 100000 บาท\n'
+            'assistant: ชุดคอมราคา 99450 บาท\n\n'
+            'Current request:\nลองจัดสเปกที่ใช้ 4060 งบ 50000 ให้หน่อย'
+        )
+        self.assertEqual(self.rec.detect_budget_thb(context), 50000)
+        self.assertEqual(
+            self.rec.detect_budget_thb(context.replace('งบ 50000', 'งบ 30000-50000')),
+            50000,
+        )
+        self.assertFalse(self.rec.budget_is_lower_bound(
+            'Previous conversation:\nuser: งบ 100000 บาทขึ้นไป\n\n'
+            'Current request:\nจัดสเปกงบ 30000-50000 บาท'
+        ))
+        self.assertEqual(
+            self.rec.detect_budget_thb(
+                'Previous conversation:\nuser: จัดสเปกคอมงบ 50000 บาท\n\n'
+                'Current request:\nเพิ่ม RAM เป็น 32GB'
+            ),
+            50000,
         )
         self.assertTrue(self.rec.gpu_name_matches_request(
             'MSI GEFORCE RTX 4060 VENTUS 2X 8G', '4060'
@@ -247,14 +291,14 @@ class AiSessionTests(unittest.TestCase):
         self.assertTrue(check['sources'])
         self.assertEqual(self.client.post('/api/compatibility/check-parts',json={'parts':[{'product_id':'missing'}]}).status_code,404)
 
-    def test_removed_provider_rejected(self):
+    def test_unknown_provider_rejected(self):
         for url in ('/api/ai/settings', '/api/ai/sessions', '/api/ai/recommend'):
             method = self.client.put if url.endswith('settings') else self.client.post
             self.assertEqual(method(url, headers=self.auth(), json={'provider':'zen','prompt':'test'}).status_code,422)
 
     def test_provider_http_requests(self):
         import httpx
-        for provider,model in [('google','gemini-2.0-flash'),('openai','gpt-4o-mini'),('openai','o1-mini'),('openrouter','custom/model')]:
+        for provider,model in [('google','gemini-2.0-flash'),('openai','gpt-4o-mini'),('openai','o1-mini'),('openrouter','custom/model'),('opencode_zen','minimax-m2.5')]:
             response=httpx.Response(200,json={'choices':[{'message':{'content':'ok'}}]})
             fake=AsyncMock()
             fake.__aenter__.return_value=fake
@@ -269,6 +313,34 @@ class AiSessionTests(unittest.TestCase):
                 if model=='o1-mini':
                     self.assertIn('max_completion_tokens',args.kwargs['json'])
                     self.assertNotIn('temperature',args.kwargs['json'])
+
+    def test_opencode_zen_settings_and_responses_endpoint(self):
+        saved = self.client.put('/api/ai/settings', headers=self.auth(), json={
+            'provider': 'opencode_zen', 'model': 'gpt-6-luna', 'api_key': 'zen-test-key',
+        })
+        self.assertEqual(saved.status_code, 200)
+        settings = self.client.get('/api/ai/settings', headers=self.auth()).json()['data']
+        self.assertEqual(settings['provider'], 'opencode_zen')
+        self.assertEqual(settings['model'], 'gpt-6-luna')
+
+        import httpx
+        fake = AsyncMock()
+        fake.__aenter__.return_value = fake
+        fake.post.return_value = httpx.Response(200, json={
+            'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': 'ok'}]}],
+        })
+        with patch.object(self.rec.httpx, 'AsyncClient', return_value=fake):
+            answer = asyncio.run(self.rec.llm_chat(
+                [{'role': 'user', 'content': 'hello'}], provider='opencode_zen',
+                model='gpt-6-luna', api_key='zen-test-key',
+            ))
+        self.assertEqual(answer, 'ok')
+        args = fake.post.call_args
+        self.assertEqual(args.args[0], 'https://opencode.ai/zen/v1/responses')
+        self.assertEqual(args.kwargs['headers']['Authorization'], 'Bearer zen-test-key')
+        self.assertEqual(args.kwargs['json']['input'][0]['content'], 'hello')
+        self.assertIn('max_output_tokens', args.kwargs['json'])
+        self.assertNotIn('messages', args.kwargs['json'])
 
 if __name__ == '__main__':
     unittest.main()

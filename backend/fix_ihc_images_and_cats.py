@@ -112,10 +112,10 @@ async def fix_database():
 
                     if new_img:
                         cur.execute("UPDATE products SET img_url = ? WHERE product_id = ?", (new_img, pid))
-                        print(f"[{i+1}/{len(bad_rows)}] ✓ Fixed image for [{name[:35]}...]:\n    -> {new_img}")
+                        print(f"[{i+1}/{len(bad_rows)}] Fixed image for [{name[:35]}...]:\n    -> {new_img}")
                         conn.commit()
                 except Exception as e:
-                    print(f"[{i+1}/{len(bad_rows)}] ✗ Error visiting {target_url[:50]}: {e}")
+                    print(f"[{i+1}/{len(bad_rows)}] Error visiting {target_url[:50]}: {e}")
 
             await browser.close()
 

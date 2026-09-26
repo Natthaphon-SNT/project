@@ -1,7 +1,7 @@
 """
 IT-RECOMMEND — Deterministic Compatibility Engine
 Enforces rules defined in rules/*.md. The LLM NEVER decides compatibility.
-All checks return ok / severity / detail so the UI can display ✓/✗ per rule.
+All checks return ok / severity / detail so the UI can display status per rule.
 """
 import os
 import math
@@ -416,11 +416,11 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
     passed = len([c for c in checks if c.get("severity") in ("PASS",)]) 
 
     if worst == "error":
-        summary = f"❌ พบปัญหาความเข้ากันได้ {len(errors)} จุด ที่ต้องแก้ก่อนใช้งาน"
+        summary = f"พบปัญหาความเข้ากันได้ {len(errors)} จุด ที่ต้องแก้ก่อนใช้งาน"
     elif worst == "warning":
-        summary = f"⚠️ ยังยืนยันความเข้ากันได้ครบไม่ได้: ควรตรวจเพิ่ม {len(warnings)} จุด / ข้อมูลไม่พอ {len(unknowns)} จุด"
+        summary = f"ยังยืนยันความเข้ากันได้ครบไม่ได้: ควรตรวจเพิ่ม {len(warnings)} จุด / ข้อมูลไม่พอ {len(unknowns)} จุด"
     else:
-        summary = f"✅ ผ่านการตรวจ compatibility {passed}/{len(checks)} ข้อ"
+        summary = f"ผ่านการตรวจ compatibility {passed}/{len(checks)} ข้อ"
 
     suggestions = []
     for e in errors + warnings:

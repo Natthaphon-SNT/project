@@ -1,7 +1,10 @@
 """The displayed recommendation must be the first scored build, never an LLM build."""
+import asyncio
 import json
 import unittest
 from unittest.mock import AsyncMock, patch
+
+import httpx
 
 import recommender as rec
 
@@ -80,7 +83,12 @@ class SingleSourceResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["totalBudget"], "101,000 ฿ (ราคาจริงจากฐานข้อมูล)")
         self.assertIn("เกินงบ", result["summary"])
         self.assertTrue(any("หาซื้อได้ยาก" in item for item in result["warnings"]))
-        self.assertEqual(result["pros"], ["ดีมาก"])
+        # AI pros are merged on top of the deterministic default, not replacing it.
+        self.assertEqual(result["pros"], [
+            "สินค้า ราคา และผลตรวจความเข้ากันได้มาจากชุดเดียวกัน", "ดีมาก",
+        ])
+        self.assertEqual(result["_meta"]["llm_provider"], "google")
+        self.assertEqual(result["_meta"]["requested_provider"], "google")
 
     async def test_provider_failure_still_returns_scored_build(self):
         parts = [{"type": "CPU", "name": "Real CPU", "price": 99_000,
@@ -96,6 +104,8 @@ class SingleSourceResultTests(unittest.IsolatedAsyncioTestCase):
                 None, "gaming budget 100,000 ฿", api_key="test-key")
         self.assertIs(result["parts"], result["alternatives"][0]["parts"])
         self.assertTrue(result["_meta"]["provider_fallback"])
+        # The reason must stay debuggable from the response alone.
+        self.assertEqual(result["_meta"]["fallback_reason"], "RuntimeError: offline")
 
     async def test_minimum_budget_searches_above_floor_without_a_ceiling(self):
         parts = [{"type": "CPU", "name": "Real CPU", "price": 104_000,
@@ -111,6 +121,115 @@ class SingleSourceResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(select.call_args.args[1], 110_000)
         self.assertEqual(rank.call_args.kwargs["target_budget"], 110_000)
         self.assertFalse(any("เกินงบ" in warning for warning in result["warnings"]))
+
+    def test_failure_reason_keeps_type_and_message_within_limit(self):
+        self.assertEqual(
+            rec.failure_reason(RuntimeError("Auth/Credits error (401): bad key")),
+            "RuntimeError: Auth/Credits error (401): bad key",
+        )
+        # Long provider payloads must not bloat the response.
+        reason = rec.failure_reason(ValueError("x" * 5_000))
+        self.assertTrue(reason.startswith("ValueError: "))
+        self.assertEqual(len(reason) - len("ValueError: "), rec.FAILURE_REASON_MAX_LEN)
+
+    def test_timeout_reason_keeps_the_timeout_detail(self):
+        parts = [{"type": "CPU", "name": "Real CPU", "price": 99_000,
+                  "product_id": "real-cpu", "reason": ""}]
+        winner = {"parts": parts, "total_price": 99_000, "label": "Balanced",
+                  "score": 80, "breakdown": {"availability": 80},
+                  "compat": {"overall": "ok", "summary": "checked", "checks": []},
+                  "compat_overall": "ok"}
+        with patch.object(rec, "select_candidates", return_value=[]), \
+             patch.object(rec, "top3_builds", return_value=[winner]), \
+             patch.object(rec, "llm_chat", new_callable=AsyncMock,
+                          side_effect=httpx.ReadTimeout("provider timed out")):
+            result = asyncio.run(rec.recommend_with_alternatives(
+                None, "gaming budget 100,000 ฿", api_key="test-key"))
+        self.assertTrue(result["_meta"]["provider_fallback"])
+        self.assertIn("ReadTimeout", result["_meta"]["fallback_reason"])
+        self.assertIn("provider timed out", result["_meta"]["fallback_reason"])
+
+    def test_compat_check_records_enrichment_failure_reason(self):
+        with patch.object(rec, "llm_chat", new_callable=AsyncMock,
+                          side_effect=RuntimeError("Auth/Credits error (401): bad key")):
+            result = asyncio.run(rec.compat_check_hybrid(
+                "CPU AMD RYZEN 5 5600", api_key="test-key"))
+        # The deterministic verdict must survive an enrichment failure...
+        self.assertTrue(result["_engine"]["deterministic"])
+        # ...and the reason must be visible in the response.
+        self.assertTrue(result["_meta"]["provider_fallback"])
+        self.assertIn("Auth/Credits error (401)", result["_meta"]["fallback_reason"])
+
+    def _enrich(self, ai_payload, availability=80):
+        """Run recommend_with_alternatives with a scripted AI explanation."""
+        parts = [{"type": "CPU", "name": "Real CPU", "price": 99_000,
+                  "product_id": "real-cpu", "reason": ""}]
+        winner = {"parts": parts, "total_price": 99_000, "label": "Balanced",
+                  "score": 80, "breakdown": {"availability": availability},
+                  "compat": {"overall": "ok", "summary": "checked", "checks": []},
+                  "compat_overall": "ok"}
+        with patch.object(rec, "select_candidates", return_value=[]), \
+             patch.object(rec, "top3_builds", return_value=[winner]), \
+             patch.object(rec, "llm_chat", new_callable=AsyncMock,
+                          return_value=json.dumps(ai_payload, ensure_ascii=False)):
+            return asyncio.run(rec.recommend_with_alternatives(
+                None, "gaming budget 100,000 ฿", api_key="test-key"))
+
+    def test_merge_keeps_deterministic_cons_alongside_ai_cons(self):
+        result = self._enrich({"cons": ["สีของเคสออกแบบไม่ชอบ"]}, availability=40)
+        # The availability warning seeded by the deterministic engine must survive.
+        self.assertIn("อุปกรณ์บางชิ้นอาจหาซื้อได้ยากในขณะนี้", result["cons"])
+        self.assertIn("สีของเคสออกแบบไม่ชอบ", result["cons"])
+        self.assertFalse(result["_meta"].get("provider_fallback"))
+
+    def test_merge_deduplicates_and_caps_the_lists(self):
+        repeated = "สินค้า ราคา และผลตรวจความเข้ากันได้มาจากชุดเดียวกัน"
+        result = self._enrich({
+            "pros": [repeated] + [f"ข้อดี {i}" for i in range(5)],
+            "cons": [f"ข้อเสีย {i}" for i in range(5)],
+        }, availability=80)
+        # The AI repeated the deterministic default; it must appear exactly once.
+        self.assertEqual(result["pros"].count(repeated), 1)
+        self.assertEqual(result["pros"][0], repeated)
+        # clean_lists keeps at most 5 AI items, so pros = 1 deterministic + 4 unique.
+        self.assertEqual(len(result["pros"]), 5)
+        # cons = 1 deterministic + 5 AI, which lands exactly on the cap.
+        self.assertEqual(len(result["cons"]), rec.MAX_PROS_CONS_ITEMS)
+        for field in ("pros", "cons"):
+            with self.subTest(field=field):
+                self.assertLessEqual(len(result[field]), rec.MAX_PROS_CONS_ITEMS)
+                self.assertEqual(len(result[field]), len(set(result[field])))
+
+    def test_self_contradiction_is_rejected_for_deterministic_prose(self):
+        result = self._enrich({
+            "summary": "ชุดนี้คุ้มค่า",
+            "performance": {"productivity": "โหลดเร็วมาก"},
+            "cons": ["ความเร็ว SSD ต่ำกว่ามาตรฐาน"],
+        })
+        # The contradiction is refused, so the deterministic prose is kept intact.
+        self.assertTrue(result["_meta"]["provider_fallback"])
+        self.assertIn("self-contradicts", result["_meta"]["fallback_reason"])
+        self.assertEqual(result["performance"]["productivity"], "ยังไม่ได้ประเมิน")
+        self.assertNotIn("โหลดเร็วมาก", result["performance"].values())
+        self.assertNotIn("ความเร็ว SSD ต่ำกว่ามาตรฐาน", result["cons"])
+
+    def test_consistent_ai_prose_is_kept(self):
+        result = self._enrich({
+            "summary": "ชุดนี้สมดุล",
+            "performance": {"gaming": "เล่นเกมได้ลื่น"},
+            "cons": ["สีของเคสออกแบบไม่ชอบ"],
+        })
+        self.assertFalse(result["_meta"].get("provider_fallback"))
+        self.assertEqual(result["performance"]["gaming"], "เล่นเกมได้ลื่น")
+        self.assertIn("สีของเคสออกแบบไม่ชอบ", result["cons"])
+
+    def test_contradiction_detector_ignores_unrelated_pairs(self):
+        self.assertFalse(rec.has_self_contradiction(
+            {"productivity": "โหลดเร็ว"}, ["หน่วยความจำน้อยเกินไป"]))
+        self.assertFalse(rec.has_self_contradiction({}, ["อะไรบางอย่าง"]))
+        self.assertFalse(rec.has_self_contradiction({"gaming": "เร็ว"}, []))
+        self.assertTrue(rec.has_self_contradiction(
+            {"productivity": "โหลดเร็ว"}, ["ความเร็วต่ำกว่ามาตรฐาน"]))
 
 
 if __name__ == "__main__":
