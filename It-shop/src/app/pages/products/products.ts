@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -21,6 +21,8 @@ interface Product {
   cid?: string;
   specs?: string;
 }
+
+type FilterKind = 'store' | 'brand';
 
 const CATEGORY_ICONS: Record<string, string> = {
   'CPU':           'https://cdn-icons-png.flaticon.com/512/2991/2991100.png',
@@ -82,6 +84,14 @@ export class ProductsComponent implements OnInit, OnDestroy {
   selectedStore = '';
   selectedBrand = '';
   availableBrands: string[] = [];
+  openFilter: FilterKind | null = null;
+  isBrandLoading = false;
+  readonly storeOptions = [
+    { value: '', label: 'ทุกร้านค้า' },
+    { value: 'advice', label: 'Advice' },
+    { value: 'jib', label: 'JIB' },
+    { value: 'ihavecpu', label: 'iHaveCPU' }
+  ];
   private readonly retailCategories = new Set([
     'mouse', 'keyboard', 'keypad', 'graphic tablet', 'keyboard accessories',
     'headset', 'gaming headset', 'wireless headset', 'in-ear headphone',
@@ -92,6 +102,108 @@ export class ProductsComponent implements OnInit, OnDestroy {
 
   get showRetailFilters(): boolean {
     return this.retailCategories.has(this.category.toLowerCase());
+  }
+
+  get selectedStoreLabel(): string {
+    return this.storeOptions.find(option => option.value === this.selectedStore)?.label ?? 'ทุกร้านค้า';
+  }
+
+  get selectedBrandLabel(): string {
+    if (!this.selectedStore) return 'เลือกร้านค้าก่อน';
+    if (this.isBrandLoading) return 'กำลังโหลดยี่ห้อ...';
+    if (!this.availableBrands.length) return 'ไม่พบยี่ห้อ';
+    return this.selectedBrand || 'ทุกยี่ห้อ';
+  }
+
+  get brandFilterDisabled(): boolean {
+    return !this.selectedStore || this.isBrandLoading || !this.availableBrands.length;
+  }
+
+  toggleFilter(kind: FilterKind): void {
+    if (kind === 'brand' && this.brandFilterDisabled) return;
+    this.openFilter = this.openFilter === kind ? null : kind;
+    if (this.openFilter) {
+      this.cdr.detectChanges();
+      this.keepFilterMenuInView(kind);
+    }
+  }
+
+  openFilterWithKeyboard(event: KeyboardEvent, kind: FilterKind): void {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (kind === 'brand' && this.brandFilterDisabled) return;
+    event.preventDefault();
+    this.openFilter = kind;
+    this.cdr.detectChanges();
+    this.keepFilterMenuInView(kind);
+    const options = this.filterOptionElements(kind);
+    const selected = kind === 'store' ? this.selectedStore : this.selectedBrand;
+    const selectedIndex = options.findIndex(option => option.dataset['value'] === selected);
+    const focusIndex = event.key === 'ArrowUp'
+      ? (selectedIndex > 0 ? selectedIndex : options.length - 1)
+      : Math.max(0, selectedIndex);
+    options[focusIndex]?.focus();
+  }
+
+  onFilterMenuKeydown(event: KeyboardEvent, kind: FilterKind): void {
+    const options = this.filterOptionElements(kind);
+    if (!options.length) return;
+    const currentIndex = options.indexOf(document.activeElement as HTMLButtonElement);
+    let nextIndex: number;
+    switch (event.key) {
+      case 'ArrowDown': nextIndex = (currentIndex + 1) % options.length; break;
+      case 'ArrowUp': nextIndex = (currentIndex - 1 + options.length) % options.length; break;
+      case 'Home': nextIndex = 0; break;
+      case 'End': nextIndex = options.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    options[nextIndex]?.focus();
+  }
+
+  selectStore(value: string): void {
+    this.selectedStore = value;
+    this.openFilter = null;
+    this.onStoreChange();
+    this.focusFilterTrigger('store');
+  }
+
+  selectBrand(value: string): void {
+    this.selectedBrand = value;
+    this.openFilter = null;
+    this.onBrandChange();
+    this.focusFilterTrigger('brand');
+  }
+
+  @HostListener('document:click', ['$event'])
+  closeFilterOnOutsideClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest('.filter-dropdown')) this.openFilter = null;
+  }
+
+  @HostListener('document:keydown.escape')
+  closeFilterOnEscape(): void {
+    if (!this.openFilter) return;
+    const kind = this.openFilter;
+    this.openFilter = null;
+    this.focusFilterTrigger(kind);
+  }
+
+  private filterOptionElements(kind: FilterKind): HTMLButtonElement[] {
+    return Array.from(document.querySelectorAll<HTMLButtonElement>(`#${kind}-filter-options .filter-option`));
+  }
+
+  private keepFilterMenuInView(kind: FilterKind): void {
+    const menu = document.getElementById(`${kind}-filter-options`);
+    const trigger = document.getElementById(`${kind}-filter-trigger`);
+    if (!menu || !trigger) return;
+    const navbarBottom = document.querySelector('.navbar-main')?.getBoundingClientRect().bottom ?? 0;
+    const overflow = menu.getBoundingClientRect().bottom - (window.innerHeight - 16);
+    const safeScroll = trigger.getBoundingClientRect().top - (navbarBottom + 16);
+    if (overflow > 0 && safeScroll > 0) window.scrollBy(0, Math.ceil(Math.min(overflow, safeScroll)));
+  }
+
+  private focusFilterTrigger(kind: FilterKind): void {
+    document.getElementById(`${kind}-filter-trigger`)?.focus();
   }
 
   // Toast notification
@@ -137,11 +249,9 @@ export class ProductsComponent implements OnInit, OnDestroy {
     return prices.length ? Math.min(...prices) : (p.p_price || 0);
   }
 
-  onImgError(event: Event) {
+  onImgError(event: Event, product: Product) {
     const img = event.target as HTMLImageElement;
-    // Both the retailer image and the old remote category icon can fail.
-    // The local asset guarantees a visible, honest placeholder.
-    if (!img.src.endsWith(this.FALLBACK_ICON)) img.src = this.FALLBACK_ICON;
+    this.api.handleProductImageError(event, product.img_url, this.FALLBACK_ICON);
     img.style.padding = '10px';
     img.style.objectFit = 'contain';
   }
@@ -161,6 +271,8 @@ export class ProductsComponent implements OnInit, OnDestroy {
       this.selectedStore = '';
       this.selectedBrand = '';
       this.availableBrands = [];
+      this.openFilter = null;
+      this.isBrandLoading = false;
       // Angular reuses this component when navigating between categories.
       // Always reset pagination so a page from the previous category cannot
       // request an out-of-range page and make the new category look empty.
@@ -214,6 +326,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
     ++this.brandRequestId;
     this.selectedBrand = '';
     this.availableBrands = [];
+    this.isBrandLoading = false;
     if (this.selectedStore) this.loadBrandOptions();
     this.loadProducts(1);
   }
@@ -224,6 +337,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
 
   private loadBrandOptions(): void {
     const requestId = ++this.brandRequestId;
+    this.isBrandLoading = true;
     const store = this.selectedStore;
     const category = this.category;
     const search = this.searchQuery;
@@ -231,6 +345,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
       next: res => {
         if (requestId !== this.brandRequestId || store !== this.selectedStore ||
             category !== this.category || search !== this.searchQuery) return;
+        this.isBrandLoading = false;
         this.availableBrands = res.status === 'success' && Array.isArray(res.data?.brands)
           ? res.data.brands : [];
         if (this.selectedBrand && !this.availableBrands.includes(this.selectedBrand)) {
@@ -241,6 +356,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
       },
       error: () => {
         if (requestId !== this.brandRequestId) return;
+        this.isBrandLoading = false;
         this.availableBrands = [];
         this.cdr.detectChanges();
       }

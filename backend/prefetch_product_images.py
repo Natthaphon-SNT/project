@@ -39,12 +39,21 @@ def database_path() -> Path:
     return Path(__file__).resolve().parent / "shop.db"
 
 
-def source_urls(stores: list[str], db_path: Path | None = None) -> list[tuple[str, str]]:
+def source_urls(stores: list[str], db_path: Path | None = None,
+                categories: list[str] | None = None) -> list[tuple[str, str]]:
     conn = sqlite3.connect(db_path or database_path())
     try:
         items: dict[str, str] = {}
         for store in stores:
-            for (url,) in conn.execute(QUERIES[store]):
+            query = QUERIES[store]
+            params: tuple[str, ...] = ()
+            if categories:
+                query += " AND lower(category) IN (" + ",".join("?" for _ in categories) + ")"
+                params = tuple(category.lower() for category in categories)
+            # The public catalog shows newest items first. Warm those images
+            # first, so a bounded repair helps the products customers see now.
+            query += " ORDER BY created_at DESC"
+            for (url,) in conn.execute(query, params):
                 if url not in items:
                     items[url] = store
         return [(store, url) for url, store in items.items()]
@@ -52,10 +61,44 @@ def source_urls(stores: list[str], db_path: Path | None = None) -> list[tuple[st
         conn.close()
 
 
+def source_urls_from_api(base_url: str, stores: list[str],
+                         categories: list[str]) -> list[tuple[str, str]]:
+    """Use the deployed catalog rather than assuming a local DB is identical."""
+    if not base_url.startswith("https://"):
+        raise ValueError("Catalog API base must use HTTPS")
+    items: dict[str, str] = {}
+    with httpx.Client(timeout=30.0) as client:
+        for category in categories:
+            page = 1
+            while True:
+                response = client.get(
+                    base_url.rstrip("/") + "/api/products",
+                    params={"category": category, "page": page, "limit": 100},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("status") != "success" or not isinstance(payload.get("data"), list):
+                    raise ValueError("Catalog API returned invalid products")
+                for product in payload["data"]:
+                    url = product.get("img_url") or ""
+                    for store in stores:
+                        if product.get("price_" + store, 0) > 0 and url:
+                            items.setdefault(url, store)
+                            break
+                total_pages = int(payload.get("pagination", {}).get("total_pages", 0))
+                if page >= total_pages:
+                    break
+                page += 1
+    return [(store, url) for url, store in items.items()]
+
+
 async def run(stores: list[str], concurrency: int, interval: float,
               limit: int | None, db_path: Path | None = None,
-              hosts: list[str] | None = None) -> int:
-    urls = source_urls(stores, db_path)
+              hosts: list[str] | None = None,
+              categories: list[str] | None = None,
+              api_base: str | None = None) -> int:
+    urls = (source_urls_from_api(api_base, stores, categories or []) if api_base
+            else source_urls(stores, db_path, categories))
     if storage_config() is None:
         raise RuntimeError("Set IMAGE_S3_* bucket credentials before prefetching")
     cached_keys = existing_object_keys()
@@ -161,14 +204,20 @@ def main() -> None:
                         help="SQLite file; overrides DATABASE_URL (useful with railway run)")
     parser.add_argument("--hosts", nargs="+", default=None,
                         help="Only prefetch these approved host suffixes")
+    parser.add_argument("--categories", nargs="+", default=None,
+                        help="Only prefetch products in these catalog categories, e.g. GPU")
+    parser.add_argument("--api-base", default=None,
+                        help="Read current products from an HTTPS deployment instead of a local SQLite DB")
     args = parser.parse_args()
     if not 1 <= args.concurrency <= 12 or args.interval < 0.2:
         parser.error("concurrency must be 1..12 and interval at least 0.2 seconds")
     if args.limit is not None and args.limit < 1:
         parser.error("limit must be positive")
+    if args.api_base and not args.categories:
+        parser.error("--api-base requires --categories to keep the fetch bounded")
     raise SystemExit(int(asyncio.run(
         run(args.stores, args.concurrency, args.interval, args.limit,
-            args.database, args.hosts)
+            args.database, args.hosts, args.categories, args.api_base)
     ) > 0))
 
 

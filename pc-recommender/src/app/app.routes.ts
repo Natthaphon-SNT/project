@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { HomeComponent } from './home/home';     
+import { HomeComponent } from './ai-recommend/home';
 import { HistoryComponent } from './history/history'; 
 
 export const routes: Routes = [

@@ -23,22 +23,53 @@
   </div>
 
   <div class="retail-filters" *ngIf="showRetailFilters" aria-label="กรองสินค้า">
-    <label class="filter-field">
-      <span>ร้านค้า</span>
-      <select [(ngModel)]="selectedStore" (ngModelChange)="onStoreChange()">
-        <option value="">ทุกร้านค้า</option>
-        <option value="advice">Advice</option>
-        <option value="jib">JIB</option>
-        <option value="ihavecpu">iHaveCPU</option>
-      </select>
-    </label>
-    <label class="filter-field">
-      <span>ยี่ห้อ</span>
-      <select [(ngModel)]="selectedBrand" (ngModelChange)="onBrandChange()" [disabled]="!selectedStore || !availableBrands.length">
-        <option value="">{{ selectedStore ? 'ทุกยี่ห้อ' : 'เลือกร้านค้าก่อน' }}</option>
-        <option *ngFor="let brand of availableBrands" [value]="brand">{{ brand }}</option>
-      </select>
-    </label>
+    <div class="filter-field" [class.is-open]="openFilter === 'store'" role="group" aria-labelledby="store-filter-label">
+      <span id="store-filter-label">ร้านค้า</span>
+      <div class="filter-dropdown">
+        <button id="store-filter-trigger" type="button" class="filter-trigger"
+          [class.is-open]="openFilter === 'store'"
+          [attr.aria-expanded]="openFilter === 'store'" aria-controls="store-filter-options"
+          aria-haspopup="listbox" (click)="toggleFilter('store')"
+          (keydown)="openFilterWithKeyboard($event, 'store')">
+          <span>{{ selectedStoreLabel }}</span>
+          <svg class="filter-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div *ngIf="openFilter === 'store'" id="store-filter-options" class="filter-menu"
+          role="listbox" aria-label="ร้านค้า" (keydown)="onFilterMenuKeydown($event, 'store')">
+          <button *ngFor="let option of storeOptions" type="button" class="filter-option"
+            role="option" [class.is-selected]="selectedStore === option.value"
+            [attr.aria-selected]="selectedStore === option.value" [attr.data-value]="option.value"
+            (click)="selectStore(option.value)">{{ option.label }}</button>
+        </div>
+      </div>
+    </div>
+    <div class="filter-field" [class.is-open]="openFilter === 'brand'" role="group" aria-labelledby="brand-filter-label">
+      <span id="brand-filter-label">ยี่ห้อ</span>
+      <div class="filter-dropdown">
+        <button id="brand-filter-trigger" type="button" class="filter-trigger"
+          [class.is-open]="openFilter === 'brand'" [disabled]="brandFilterDisabled"
+          [attr.aria-expanded]="openFilter === 'brand'" aria-controls="brand-filter-options"
+          aria-haspopup="listbox" (click)="toggleFilter('brand')"
+          (keydown)="openFilterWithKeyboard($event, 'brand')">
+          <span>{{ selectedBrandLabel }}</span>
+          <svg class="filter-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div *ngIf="openFilter === 'brand'" id="brand-filter-options" class="filter-menu"
+          role="listbox" aria-label="ยี่ห้อ" (keydown)="onFilterMenuKeydown($event, 'brand')">
+          <button type="button" class="filter-option" role="option" data-value=""
+            [class.is-selected]="!selectedBrand" [attr.aria-selected]="!selectedBrand"
+            (click)="selectBrand('')">ทุกยี่ห้อ</button>
+          <button *ngFor="let brand of availableBrands" type="button" class="filter-option"
+            role="option" [class.is-selected]="selectedBrand === brand"
+            [attr.aria-selected]="selectedBrand === brand" [attr.data-value]="brand"
+            (click)="selectBrand(brand)">{{ brand }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Loading -->
@@ -52,7 +83,7 @@
     <div *ngFor="let p of products" class="product-card">
 
       <div class="product-img-box" [routerLink]="['/product', p.product_id]">
-        <img [src]="getProductImage(p)" [alt]="p.p_name" (error)="onImgError($event)" loading="lazy">
+        <img [src]="getProductImage(p)" [alt]="p.p_name" (error)="onImgError($event, p)" loading="lazy">
         <div class="img-overlay"><span>ดูรายละเอียด</span></div>
       </div>
 

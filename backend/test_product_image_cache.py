@@ -1,15 +1,57 @@
 import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import sqlite3
 import unittest
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
 import product_image_cache as images
+import prefetch_product_images as prefetch
 
 
 class ProductImageCacheTests(unittest.TestCase):
+    def test_prefetch_category_targets_newest_matching_products(self):
+        with TemporaryDirectory() as temp:
+            db_path = Path(temp) / "products.db"
+            with sqlite3.connect(db_path) as db:
+                db.execute("""CREATE TABLE products (
+                    img_url TEXT, price_advice INTEGER, price_jib INTEGER,
+                    price_ihavecpu INTEGER, category TEXT, created_at TEXT
+                )""")
+                db.executemany("INSERT INTO products VALUES (?, ?, 0, 0, ?, ?)", [
+                    ("https://img.advice.co.th/old.jpg", 100, "GPU", "2026-01-01"),
+                    ("https://img.advice.co.th/new.jpg", 100, "GPU", "2026-09-26"),
+                    ("https://img.advice.co.th/cpu.jpg", 100, "CPU", "2026-09-27"),
+                ])
+            db.close()  # sqlite3's context manager commits but does not close on Windows.
+            self.assertEqual(prefetch.source_urls(["advice"], db_path, ["gpu"]), [
+                ("advice", "https://img.advice.co.th/new.jpg"),
+                ("advice", "https://img.advice.co.th/old.jpg"),
+            ])
+
+    def test_prefetch_can_read_current_paginated_production_catalog(self):
+        def handler(request):
+            page = int(request.url.params["page"])
+            products = ([{"img_url": "https://img.advice.co.th/new.jpg", "price_advice": 100}]
+                        if page == 1 else
+                        [{"img_url": "https://www.jib.co.th/old.jpg", "price_jib": 200}])
+            return httpx.Response(200, json={
+                "status": "success", "data": products,
+                "pagination": {"total_pages": 2},
+            })
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch.object(prefetch.httpx, "Client", return_value=client):
+            self.assertEqual(
+                prefetch.source_urls_from_api("https://shop.example", ["advice", "jib"], ["GPU"]),
+                [
+                    ("advice", "https://img.advice.co.th/new.jpg"),
+                    ("jib", "https://www.jib.co.th/old.jpg"),
+                ],
+            )
+
     def test_rejects_unapproved_or_insecure_hosts(self):
         for url in (
             "http://www.jib.co.th/picture.jpg",

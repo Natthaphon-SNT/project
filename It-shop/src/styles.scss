@@ -3,6 +3,7 @@
 @use './app/pages/history/history' as history;
 @use './app/pages/admin-users/admin-users' as adminUsers;
 @use './app/pages/admin-products/admin-products' as adminProducts;
+@use './app/components/product-showcase/product-showcase' as productShowcase;
 
 // Load all application font families once. Component-level imports duplicated
 // font CSS in production and counted against each component style budget.
@@ -16,6 +17,107 @@ app-pc-builder { @include pcBuilder.component-styles; }
 app-history { @include history.component-styles; }
 app-admin-users { @include adminUsers.component-styles; }
 app-admin-products { @include adminProducts.component-styles; }
+app-product-showcase { @include productShowcase.component-styles; }
+
+// Keep the product filters in the global bundle, scoped to this page, so the
+// native-select replacement does not exceed Angular's component style budget.
+app-products {
+  .retail-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 14px;
+    max-width: 600px;
+    margin: -24px auto 36px;
+    position: relative;
+    z-index: 20;
+  }
+
+  .filter-field {
+    display: flex;
+    flex: 1 1 200px;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    position: relative;
+    color: #d4d4d8;
+    font-size: 13px;
+    font-weight: 600;
+
+    &.is-open { z-index: 1; }
+  }
+
+  .filter-dropdown { position: relative; }
+
+  .filter-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 14px;
+    border: 1px solid #3f3f46;
+    border-radius: 10px;
+    background: #18181b;
+    color: #f4f4f5;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease;
+
+    &:hover:not(:disabled), &.is-open { border-color: #dc143c; background: #202024; }
+    &:focus-visible { outline: 2px solid #ef4444; outline-offset: 2px; }
+    &:disabled { color: #85858e; cursor: not-allowed; }
+  }
+
+  .filter-chevron {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    transition: transform var(--motion-fast) ease;
+  }
+
+  .filter-trigger.is-open .filter-chevron { transform: rotate(180deg); }
+
+  .filter-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 100%;
+    max-height: min(280px, 32vh);
+    overflow-y: auto;
+    border: 1px solid #3f3f46;
+    border-radius: 10px;
+    background: #18181b;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+    animation: filter-menu-enter var(--motion-fast) ease both;
+  }
+
+  .filter-option {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #d4d4d8;
+    font: inherit;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+
+    &:hover, &:focus-visible { background: #27272a; color: #ef4444; outline: none; }
+    &.is-selected { color: #f87171; background: #2b2023; }
+  }
+}
+
+@keyframes filter-menu-enter {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 :root {
   --primary-color: #ff0000;    /* สีแดงหลัก */

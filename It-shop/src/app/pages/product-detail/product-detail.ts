@@ -165,7 +165,7 @@ export class ProductDetail implements OnInit {
 
   onImgError(event: Event) {
     const img = event.target as HTMLImageElement;
-    if (!img.src.endsWith(this.FALLBACK)) img.src = this.FALLBACK;
+    this.api.handleProductImageError(event, this.product?.img_url || '', this.FALLBACK);
     img.style.padding = '20px';
     img.style.objectFit = 'contain';
   }

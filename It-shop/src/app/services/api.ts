@@ -43,6 +43,17 @@ export class ApiService {
     }
   }
 
+  /** Try the retailer URL in the visitor's browser if the server-side proxy
+   * cannot reach a CDN, then use a local asset rather than a broken image. */
+  handleProductImageError(event: Event, originalUrl = '', fallback = '/product-placeholder.svg'): void {
+    const image = event.target as HTMLImageElement;
+    if (image.src.includes('/api/image-proxy?') && /^https:\/\//i.test(originalUrl)) {
+      image.src = originalUrl;
+    } else if (!image.src.endsWith(fallback)) {
+      image.src = fallback;
+    }
+  }
+
   private authHeaders(): HttpHeaders {
     const token = localStorage.getItem('lt_token') || '';
     return new HttpHeaders({ Authorization: `Bearer ${token}` });

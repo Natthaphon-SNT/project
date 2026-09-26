@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http'; // ✅ 1. เพิ่มสิ่งนี้เพื่อแก้ Error HttpClient
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { HomeComponent } from './home'; 
 
 describe('HomeComponent', () => { // ตั้งชื่อ describe ให้ตรงกับ Component
@@ -14,7 +15,8 @@ describe('HomeComponent', () => { // ตั้งชื่อ describe ให้
       // ✅ 3. ต้อง Provide HttpClient เพราะใน Component คุณมีการเรียกใช้
       providers: [
         provideHttpClient(),
-        provideHttpClientTesting() 
+        provideHttpClientTesting(),
+        provideRouter([])
       ]
     })
     .compileComponents();

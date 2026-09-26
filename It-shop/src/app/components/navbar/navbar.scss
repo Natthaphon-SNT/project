@@ -400,6 +400,7 @@
 
     .nav-left {
       gap: 10px;
+      flex: 1 0 100%;
     }
 
     .nav-links {
@@ -412,6 +413,10 @@
 
     .nav-right {
       flex-wrap: wrap;
+      order: 3;
+      flex: 0 0 auto;
+      width: auto;
+      margin-left: auto;
     }
 
     .nav-history {
@@ -424,8 +429,9 @@
     }
 
     .nav-search {
-      flex: 1 1 180px;
-      width: auto;
+      order: 2;
+      flex: 1 0 100%;
+      width: 100%;
       min-width: 0;
 
       .nav-search-input { min-width: 0; }

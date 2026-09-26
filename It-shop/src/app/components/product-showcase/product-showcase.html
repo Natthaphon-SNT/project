@@ -1,0 +1,69 @@
+<section class="showcase" aria-labelledby="showcase-title">
+  <div class="showcase-inner">
+
+    <header class="showcase-head">
+      <div class="showcase-bar">
+        <span class="showcase-eyebrow">IT-RECOMMEND</span>
+        <a class="showcase-all" routerLink="/products">ดูสินค้าทั้งหมด</a>
+      </div>
+
+      <h2 id="showcase-title" class="showcase-title">เลือกชิ้นส่วนที่ใช่</h2>
+      <p class="showcase-lede">
+        ราคาและสเปกจริงที่รวบรวมจาก Advice, JIB และ iHaveCPU
+        คัดมาใหม่ตามหมวด เพื่อให้เทียบกันได้ง่าย
+      </p>
+
+      <div class="showcase-tabs" role="tablist" aria-label="หมวดสินค้า">
+        <button
+          *ngFor="let category of categories"
+          type="button"
+          role="tab"
+          class="showcase-tab"
+          [class.is-active]="category.slug === activeCategory.slug"
+          [attr.aria-selected]="category.slug === activeCategory.slug"
+          (click)="select(category)">
+          {{ category.label }}
+        </button>
+      </div>
+    </header>
+
+    <div class="showcase-grid" *ngIf="!isLoading && !loadError && cards.length">
+      <a
+        #card
+        *ngFor="let item of cards; let i = index"
+        class="showcase-card"
+        [style.--stagger]="i"
+        [routerLink]="['/product', item.productId]">
+        <div class="showcase-media">
+          <img
+            [src]="item.image"
+            [alt]="item.name"
+            loading="lazy"
+            (error)="onImageError($event, item)">
+        </div>
+
+        <div class="showcase-body">
+          <span class="showcase-label">{{ item.category }}</span>
+          <h3 class="showcase-name" [title]="item.name">{{ item.name }}</h3>
+          <div class="showcase-foot">
+            <span class="showcase-price">{{ item.minPrice | number }} ฿</span>
+            <span class="showcase-stores" *ngIf="item.storeCount > 1">{{ item.storeCount }} ร้าน</span>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="showcase-state" *ngIf="isLoading">
+      <span class="showcase-skeleton" *ngFor="let i of [1,2,3,4]"></span>
+    </div>
+
+    <p class="showcase-state showcase-error" *ngIf="!isLoading && loadError" role="alert">
+      ไม่สามารถโหลดรายการสินค้าได้ กรุณาลองใหม่อีกครั้ง
+    </p>
+
+    <p class="showcase-state" *ngIf="!isLoading && !loadError && !cards.length">
+      ยังไม่มีสินค้าในหมวดนี้
+    </p>
+
+  </div>
+</section>

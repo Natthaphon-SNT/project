@@ -221,7 +221,7 @@ Backend ยังมี API คำสั่งซื้อและโปรโ�
 # รีเฟรชรายการ Advice จากหน้าแรก โดยเก็บรายละเอียดเดิมที่ยังใช้ได้
 ..\venv\Scripts\python.exe advice_full_scraper.py --refresh-listings --interval 1.5
 
-# ดาวน์โหลดไฟล์รูปหลักของทั้งสามร้านลงแคชในเครื่อง (รันซ้ำจะข้ามไฟล์ที่ได้แล้ว)
+# เติมรูปหลักของทั้งสามร้านลง private image bucket (รันซ้ำจะข้ามไฟล์ที่มีแล้ว)
 ..\venv\Scripts\python.exe prefetch_product_images.py
 ```
 
@@ -248,7 +248,15 @@ cd backend
 
 Advice เก็บรายละเอียดสินค้า URL ภาพหลักและภาพทั้งหมด รายการคุณสมบัติ และลิงก์ต้นทางไว้ใน `advice_scrape_inventory`; ดูคำอธิบายเพิ่มเติมใน [ADVICE_FULL_SCRAPE.md](backend/ADVICE_FULL_SCRAPE.md) ส่วนรายการ JIB ที่ไม่อยู่ในหน้าร้านรอบล่าสุดยังคงอยู่ใน inventory เป็นประวัติ ไม่ควรนำจำนวนสะสมมานับเป็นจำนวนสินค้าปัจจุบัน
 
-หน้าเว็บใช้ `/api/image-proxy` เพื่อเสิร์ฟไฟล์รูปจาก `backend/product_image_cache/` โดยจะดาวน์โหลดและตรวจชนิดไฟล์เมื่อยังไม่มีแคช คำสั่ง `prefetch_product_images.py` เติมแคชล่วงหน้าจาก URL รูปหลักที่ scraper เก็บไว้ (ไม่ใช่ภาพทั้งหมดใน gallery) แคชนี้อยู่ใน `.gitignore`; ย้ายโปรเจกต์ไปเครื่องใหม่ให้รันคำสั่งเติมแคชอีกครั้ง
+Production ใช้ `/api/image-proxy` ร่วมกับ private image bucket; CDN ของบางร้านอาจปฏิเสธ IP ของ Railway แม้ URL รูปยังเปิดได้จากเครื่องอื่น จึงต้องเติมรูปลง bucket หลังการอัปเดต catalog ไม่ควรพึ่ง proxy ดึงรูปที่ยังไม่แคชได้เสมอ หน้าเว็บจะลอง URL รูปของร้านโดยตรงหาก proxy ล้มเหลว แล้วใช้ภาพสำรองในเว็บหากทั้งสองทางใช้ไม่ได้
+
+เมื่อต้องการเติมรูปตามข้อมูล production ปัจจุบันจากเครื่องที่เข้าถึง CDN ได้ ให้รันจาก `backend` (ต้องมี `boto3` จาก `requirements.txt`):
+
+```powershell
+railway run --service api --environment production -- python prefetch_product_images.py --api-base https://api-production-8990.up.railway.app --categories GPU --stores advice jib ihavecpu
+```
+
+คำสั่งนี้อ่านสินค้าจาก API ที่ใช้งานจริงและข้ามรูปที่อยู่ใน bucket แล้ว หลัง scrape/นำเข้าสินค้าใหม่ให้รันซ้ำตามหมวดที่เปลี่ยน ไม่ควรใส่ค่า `IMAGE_S3_*` หรือ API key ลงในคำสั่งหรือ repository
 
 หลังเติมรายละเอียด สคริปต์ปรับข้อมูลสำหรับตรวจความเข้ากันได้อัตโนมัติ เว้นแต่ใช้ `--skip-compat-training`
 

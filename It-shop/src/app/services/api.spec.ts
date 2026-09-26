@@ -50,4 +50,14 @@ describe('Api', () => {
       `${API_BASE_URL}/api/image-proxy?url=${encodeURIComponent(retailerImage)}`
     );
   });
+
+  it('retries a failed proxy image directly before using the local placeholder', () => {
+    const retailerImage = 'https://img.advice.co.th/images_nas/item.jpg';
+    const image = document.createElement('img');
+    image.src = service.resolveProductImage(retailerImage, '/product-placeholder.svg');
+    service.handleProductImageError({ target: image } as unknown as Event, retailerImage);
+    expect(image.src).toBe(retailerImage);
+    service.handleProductImageError({ target: image } as unknown as Event, retailerImage);
+    expect(image.src).toContain('/product-placeholder.svg');
+  });
 });
