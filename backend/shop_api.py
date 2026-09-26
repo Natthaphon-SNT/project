@@ -642,6 +642,11 @@ def root():
     return {"status": "ok", "message": "IT-RECOMMEND Shop API v3"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # ─────────────────────────────────────────
 # Image Proxy — bypass hotlink/CORS/Referer blocking from store CDNs
 # ─────────────────────────────────────────

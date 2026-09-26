@@ -112,6 +112,11 @@ class QaFixTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/orders/1").status_code, 404)
         self.assertEqual(self.client.post("/api/orders", json={}).status_code, 404)
 
+    def test_health_endpoint_is_public_and_ok(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
     def test_spec_history_requires_auth_and_enforces_owner(self):
         self.assertEqual(self.client.get("/api/spec-history").status_code, 401)
         self.assertEqual(
