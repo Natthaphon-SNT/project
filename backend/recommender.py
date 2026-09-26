@@ -205,10 +205,11 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4,
         if cat == "GPU" and requested_gpu:
             requested = [(r, pr) for r, pr in priced
                          if gpu_name_matches_request(r.p_name or "", requested_gpu)]
-            if requested:
-                # Pin the GPU pool to the requested model. Other component
-                # categories still go through the normal compatibility checks.
-                priced = requested
+            if not requested:
+                raise RuntimeError(f"Requested GPU unavailable: {requested_gpu}")
+            # Pin the GPU pool to the requested model. Other component
+            # categories still go through the normal compatibility checks.
+            priced = requested
         # nearest-to-target first; keep some cheaper options too
         if cat == "RAM":
             priced = workload_ram_rows(priced)

@@ -185,6 +185,14 @@ class AiSessionTests(unittest.TestCase):
             'MSI GEFORCE RTX 4060 TI VENTUS 2X 8G', '4060'
         ))
 
+    def test_missing_requested_gpu_does_not_return_a_different_model(self):
+        response = self.client.post('/api/ai/recommend', json={
+            'prompt': 'จัดสเปกที่ใช้ RTX 4060 มาให้หน่อย',
+            'mode': 'recommend', 'provider': 'openrouter',
+        })
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('RTX 4060', response.json()['detail'])
+
     def test_retired_google_model_uses_verified_default(self):
         self.assertEqual(self.api.normalize_ai_model('google', 'gemini-2.5-pro'), 'gemini-3-flash-preview')
         self.assertEqual(self.api.normalize_ai_model('google', 'custom-model'), 'custom-model')

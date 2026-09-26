@@ -1540,6 +1540,12 @@ async def ai_recommend(
                 result = await rec.recommend_with_alternatives(db, contextual_prompt,
                                                                provider=provider, model=model, api_key=api_key)
             except (RuntimeError, httpx.TimeoutException, httpx.ConnectError) as provider_error:
+                if str(provider_error).startswith("Requested GPU unavailable:"):
+                    requested_gpu = str(provider_error).partition(":")[2].strip()
+                    raise HTTPException(
+                        422,
+                        f"ไม่พบการ์ดจอ {requested_gpu} ที่มีราคาในฐานข้อมูลตอนนี้ กรุณาเลือก GPU รุ่นอื่นหรือลองใหม่ภายหลัง",
+                    )
                 if str(provider_error) == "No complete compatible catalogue build available":
                     raise HTTPException(422, "ยังไม่มีชุดสินค้าที่ครบและผ่านการตรวจความเข้ากันได้ในฐานข้อมูล")
                 reason = ("rate_limit" if str(provider_error) == "rate_limit" else
