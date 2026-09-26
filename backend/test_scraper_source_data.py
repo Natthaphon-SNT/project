@@ -220,6 +220,22 @@ class ScraperSourceDataTests(unittest.TestCase):
         self.assertIn("Summary: Socket : AM5 6 cores 12 threads", description)
         self.assertIn("/product/24243/", scraper.ihc_product_url(24243, product["name_th"]))
 
+    def test_ihavecpu_listing_keeps_retailer_product_href(self):
+        product = {
+            "product_id": 10933,
+            "name_th": "PSU (อุปกรณ์จ่ายไฟ) AZZA PSAZ 550W (80+BRONZE) (3Y)",
+        }
+        href = "/product/10933/psu-(%E0%B8%AD%E0%B8%B8)-azza-psaz-550w-(80bronze)(3y)"
+        payload = {"props": {"pageProps": {"product": {"data": [product]}}}}
+        document = (
+            f'<a href="{href}">product</a>'
+            '<script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps(payload) + "</script>"
+        )
+        item = scraper.ihc_listing_products(document)[0]
+        self.assertEqual(scraper.ihc_item_url(item), "https://ihavecpu.com" + href)
+        self.assertNotEqual(scraper.ihc_item_url(item), scraper.ihc_product_url(10933, item["name_th"]))
+
     def test_ihavecpu_image_only_description_uses_source_meta_description(self):
         product = {
             "product_id": 44014,

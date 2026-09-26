@@ -379,7 +379,36 @@ def ihc_product_description(product: dict) -> str:
 def ihc_listing_products(document: str) -> list[dict]:
     data = extract_next_data(document)
     product = data.get("props", {}).get("pageProps", {}).get("product", {})
-    return product.get("data", []) if isinstance(product, dict) else []
+    items = product.get("data", []) if isinstance(product, dict) else []
+    if not isinstance(items, list):
+        return []
+    # The product ID alone is not a usable storefront URL, and rebuilding a
+    # slug from our cleaned display name drops iHaveCPU's Thai category prefix.
+    # Use the exact href rendered by the retailer for each listing card.
+    links = {}
+    for anchor in BeautifulSoup(document or "", "html.parser").select("a[href]"):
+        href = (anchor.get("href") or "").strip()
+        match = re.fullmatch(r"/product/(\d+)/[^?#]+", href)
+        if match:
+            links[int(match.group(1))] = "https://ihavecpu.com" + href
+    for item in items:
+        if isinstance(item, dict):
+            try:
+                product_id = int(item.get("product_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if product_id in links:
+                item["product_url"] = links[product_id]
+    return items
+
+
+def ihc_item_url(item: dict) -> str:
+    """Prefer the merchant's listing href; use an ID-based slug only as fallback."""
+    url = (item.get("product_url") or "").strip()
+    if re.fullmatch(r"https://ihavecpu\.com/product/\d+/[^?#]+", url):
+        return url
+    name = (item.get("name_th") or item.get("name_gb") or "").strip()
+    return ihc_product_url(item.get("product_id"), name)
 
 
 def ihc_listing_total(document: str) -> int:
@@ -2523,7 +2552,7 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                             continue
                         item_name = clean_ihc_name(raw_name)
                         detail_items.append({
-                            "url": ihc_product_url(item["product_id"], item_name),
+                            "url": ihc_item_url(item),
                             "name": item_name,
                             "category": ihc_full_category(item_name, cat_name),
                         })
@@ -2568,7 +2597,7 @@ async def scrape_ihavecpu(conn: sqlite3.Connection, matcher: SmartMatcher,
                     elif n_up.startswith(("POWER SUPPLY ", "PSU ")):
                         actual_cat = "PSU"
 
-                    prod_url = ihc_product_url(product_id, name)
+                    prod_url = ihc_item_url(item)
                     img = (item.get("image800") or item.get("image") or "").strip()
                     desc = ihc_product_description(item)
                     if full_catalog:

@@ -146,13 +146,13 @@ export class ProductDetail implements OnInit {
     switch (store) {
       case 'advice':
         return this.product.url_advice ||
-               `https://www.advice.co.th/search?keyword=${name}`;
+               `https://www.advice.co.th/product/search?keyword=${name}`;
       case 'jib':
         return this.product.url_jib ||
-               `https://www.jib.co.th/web/product/search_product/0?q=${name}`;
+               `https://www.jib.co.th/web/product/product_search/0?str_search=${name}`;
       case 'ihavecpu':
         return this.product.url_ihavecpu ||
-               `https://www.ihavecpu.com/search?keyword=${name}`;
+               `https://ihavecpu.com/product/search/${name}`;
     }
   }
 
