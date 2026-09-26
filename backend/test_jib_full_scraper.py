@@ -10,6 +10,24 @@ import full_scraper as core
 
 
 class JibFullScraperTests(unittest.TestCase):
+    def test_furniture_searches_have_paginated_urls(self):
+        self.assertEqual(
+            jib.listing_url(1263, 100),
+            "https://www.jib.co.th/web/product/product_search/100/"
+            "?str_search=gaming+chair&cate_id%5B0%5D=",
+        )
+        self.assertEqual(
+            jib.listing_url(1466, 0),
+            "https://www.jib.co.th/web/product/product_search/0/"
+            "?str_search=gaming+desk&cate_id%5B0%5D=",
+        )
+
+    def test_furniture_search_excludes_unrelated_matches(self):
+        self.assertEqual(jib.classify("GAMING CHAIR ONEX GX3", 1263), "Gaming Chair")
+        self.assertEqual(jib.classify("GAMING DESK COUGAR E-STAR", 1466), "Gaming Desk")
+        self.assertIsNone(jib.classify("ERGONOMIC CHAIR ERGONOZ", 1263))
+        self.assertIsNone(jib.classify("CASE MSI GAMING", 1466))
+
     def test_requested_exclusions(self):
         excluded = [
             (42, "DVD WRITER ASUS"), (42, "SOUND CARD CREATIVE"),

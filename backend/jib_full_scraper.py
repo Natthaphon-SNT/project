@@ -14,7 +14,7 @@ import re
 import sqlite3
 import subprocess
 import sys
-from urllib.parse import urljoin
+from urllib.parse import quote_plus, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -29,6 +29,15 @@ JIB_FULL_GROUPS = {
     1419: "Keyboard / Mouse",
     1420: "Headset",
     1393: "Cooling",
+    1263: "Gaming Chair",
+    1466: "Gaming Desk",
+}
+JIB_SEARCH_GROUPS = {
+    # JIB's category pages do not expose reliable pagination for these groups.
+    # Search provides an explicit next-page link; classify() rejects unrelated
+    # matches returned by its broad text search.
+    1263: "gaming chair",
+    1466: "gaming desk",
 }
 PRODUCT_ID = re.compile(r"/readProduct/(\d+)/", re.I)
 COLORS = ("BLACK", "WHITE", "RED", "BLUE", "PINK", "GREEN", "GRAY",
@@ -46,6 +55,10 @@ def explicit_color_conflict(first: str, second: str) -> bool:
 
 
 def listing_url(category_id: int, offset: int) -> str:
+    if category_id in JIB_SEARCH_GROUPS:
+        term = quote_plus(JIB_SEARCH_GROUPS[category_id])
+        return ("https://www.jib.co.th/web/product/product_search/"
+                f"{offset}/?str_search={term}&cate_id%5B0%5D=")
     return ("https://www.jib.co.th/web/product/product_search/"
             f"{offset}/?str_search=&cate_id%5B0%5D={category_id}")
 
@@ -55,6 +68,9 @@ def classify(name: str, category_id: int) -> str | None:
     title = re.sub(r"\s+", " ", name.upper()).strip()
     if not title:
         return None
+    if category_id in JIB_SEARCH_GROUPS:
+        expected = JIB_FULL_GROUPS[category_id]
+        return expected if title.startswith(expected.upper() + " ") else None
     if category_id == 42:
         if re.search(r"\b(?:CD[ -]?ROM|DVD|BLU[ -]?RAY|OPTICAL DRIVE|SOUND CARD|AUDIO CARD)\b|เครื่องอ่านแผ่น|การ์ดเสียง", title):
             return None
@@ -871,6 +887,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--categories", type=int, nargs="+", choices=JIB_FULL_GROUPS,
                         default=list(JIB_FULL_GROUPS))
+    parser.add_argument("--db-path", default="",
+                        help="Existing SQLite catalogue to update (required when it is outside backend/)")
     parser.add_argument("--list-only", action="store_true")
     parser.add_argument("--details-only", action="store_true")
     parser.add_argument("--skip-compat-training", action="store_true")
@@ -880,6 +898,11 @@ def main() -> None:
     parser.add_argument("--interval", type=float, default=1.2,
                         help="Minimum seconds between JIB requests (default: 1.2)")
     args = parser.parse_args()
+    if args.db_path:
+        db_path = os.path.abspath(args.db_path)
+        if not os.path.isfile(db_path):
+            parser.error(f"Catalogue database does not exist: {db_path}")
+        core.DB_PATH = db_path
     if args.repair_links_since:
         conn = sqlite3.connect(core.DB_PATH)
         try:
