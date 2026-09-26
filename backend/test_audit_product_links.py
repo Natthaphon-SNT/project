@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import audit_product_links as links
+import retire_missing_ihc_offers as retire
 
 
 class LinkAuditTests(unittest.IsolatedAsyncioTestCase):
@@ -38,6 +39,33 @@ class LinkAuditTests(unittest.IsolatedAsyncioTestCase):
                 url_ihavecpu FROM products WHERE product_id='psu1'""").fetchone()
             conn.close()
             self.assertEqual(row, (6500, 6500, 0, ""))
+
+    def test_retirement_checks_source_id_before_any_write(self):
+        self.assertEqual(retire.parse_pairs("psu1:49964"), [("psu1", 49964)])
+        with self.assertRaises(ValueError):
+            retire.parse_pairs("psu1:49964,psu1:49964")
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "shop.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute("""CREATE TABLE products (
+                product_id TEXT, p_price INTEGER,
+                price_advice INTEGER, price_jib INTEGER, price_ihavecpu INTEGER,
+                url_ihavecpu TEXT, updated_at TEXT
+            )""")
+            conn.execute("""INSERT INTO products VALUES
+                ('psu1',5990,0,6500,5990,'https://ihavecpu.com/product/49964/psu','')""")
+            conn.commit()
+            conn.close()
+            with self.assertRaises(ValueError):
+                retire.retire(db_path, [("psu1", 12345)], True)
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(conn.execute("SELECT price_ihavecpu FROM products").fetchone()[0], 5990)
+            conn.close()
+            self.assertEqual(retire.retire(db_path, [("psu1", 49964)], True), 1)
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(conn.execute("""SELECT p_price, price_ihavecpu, url_ihavecpu
+                FROM products""").fetchone(), (6500, 0, ""))
+            conn.close()
 
 
 if __name__ == "__main__":
