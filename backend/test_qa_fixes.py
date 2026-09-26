@@ -393,6 +393,31 @@ class QaFixTests(unittest.TestCase):
         self.assertEqual(len(page.json()["data"]), 1)
         self.assertEqual(self.client.get("/api/products?store=unknown").status_code, 400)
 
+    def test_jib_furniture_brand_skips_category_description(self):
+        with self.api.SessionLocal() as db:
+            db.add_all([
+                self.api.Product(
+                    product_id="qa-jib-chair-onex",
+                    p_name="GAMING CHAIR (เก้าอี้เกมมิ่ง) ONEX GX3",
+                    p_price=3500, price_jib=3500, category="Gaming Chair",
+                ),
+                self.api.Product(
+                    product_id="qa-jib-desk-eblue",
+                    p_name="GAMING DESK (โต๊ะเกมมิ่ง) E-BLUE EGT571",
+                    p_price=5900, price_jib=5900, category="Gaming Desk",
+                ),
+            ])
+            db.commit()
+
+        chair = self.client.get("/api/products/filters?category=Gaming%20Chair&store=jib")
+        desk = self.client.get("/api/products/filters?category=Gaming%20Desk&store=jib")
+        self.assertEqual(chair.json()["data"]["brands"], ["ONEX"])
+        self.assertEqual(desk.json()["data"]["brands"], ["E-BLUE"])
+        selected = self.client.get(
+            "/api/products?category=Gaming%20Chair&store=jib&brand=ONEX"
+        )
+        self.assertEqual(selected.json()["pagination"]["total"], 1)
+
     def test_admin_created_product_is_searchable_after_save(self):
         payload = {
             "product_id": "admin-qa-searchable",

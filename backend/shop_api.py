@@ -889,6 +889,11 @@ def product_brand(name: str) -> str:
     for brand in PRODUCT_BRANDS:
         if re.search(r"(?<![A-Z0-9])" + re.escape(brand) + r"(?![A-Z0-9])", title):
             return brand
+    # JIB prefixes furniture names with a Thai category description between
+    # the English category and the actual brand. Do not expose that description
+    # as a brand when the maker is not in PRODUCT_BRANDS.
+    title = re.sub(r"^GAMING\s+(?:CHAIR|DESK)\b\s*", "", title)
+    title = re.sub(r"^\([^A-Z]*\)\s*", "", title)
     for token in re.findall(r"[A-Z][A-Z0-9-]+|[ก-๙]+", title):
         if token not in GENERIC_PRODUCT_WORDS and not token.isdigit() and len(token) > 1:
             return token

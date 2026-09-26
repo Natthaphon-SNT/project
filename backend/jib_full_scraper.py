@@ -1,4 +1,4 @@
-"""Resumable full JIB crawl for the six user-selected search categories.
+"""Resumable full JIB crawl for selected product groups.
 
 Listings and product details are separate phases so a temporary block never
 turns an unfinished detail run into an apparently complete catalogue.
