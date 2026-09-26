@@ -22,6 +22,25 @@
     </div>
   </div>
 
+  <div class="retail-filters" *ngIf="showRetailFilters" aria-label="กรองสินค้า">
+    <label class="filter-field">
+      <span>ร้านค้า</span>
+      <select [(ngModel)]="selectedStore" (ngModelChange)="onStoreChange()">
+        <option value="">ทุกร้านค้า</option>
+        <option value="advice">Advice</option>
+        <option value="jib">JIB</option>
+        <option value="ihavecpu">iHaveCPU</option>
+      </select>
+    </label>
+    <label class="filter-field">
+      <span>ยี่ห้อ</span>
+      <select [(ngModel)]="selectedBrand" (ngModelChange)="onBrandChange()" [disabled]="!selectedStore || !availableBrands.length">
+        <option value="">{{ selectedStore ? 'ทุกยี่ห้อ' : 'เลือกร้านค้าก่อน' }}</option>
+        <option *ngFor="let brand of availableBrands" [value]="brand">{{ brand }}</option>
+      </select>
+    </label>
+  </div>
+
   <!-- Loading -->
   <div *ngIf="isLoading" class="loader-container">
     <div class="spinner"></div>
@@ -33,7 +52,7 @@
     <div *ngFor="let p of products" class="product-card">
 
       <div class="product-img-box" [routerLink]="['/product', p.product_id]">
-        <img [src]="getProductImage(p)" [alt]="p.p_name" (error)="onImgError($event, p)" loading="lazy">
+        <img [src]="getProductImage(p)" [alt]="p.p_name" (error)="onImgError($event)" loading="lazy">
         <div class="img-overlay"><span>ดูรายละเอียด</span></div>
       </div>
 

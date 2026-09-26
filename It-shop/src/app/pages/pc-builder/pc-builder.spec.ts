@@ -76,4 +76,20 @@ describe('PcBuilderComponent session recovery', () => {
     slot.search = 'JIB Mainboard 99';
     expect(builder.filteredProducts(slot).map(product => product.product_id)).toEqual(['jib-99']);
   });
+
+  it('only offers boards with the selected CPU socket, across all shops', () => {
+    const builder = new PcBuilderComponent({} as HttpClient, auth, {} as Router, cdr);
+    builder.slots.find(slot => slot.key === 'cpu')!.selected = {
+      product_id: 'cpu-am4', p_name: 'AMD Ryzen 5 Socket AM4', compatibility: { socket: 'AM4' }
+    } as Product;
+    const boards = builder.slots.find(slot => slot.key === 'mb')!;
+    boards.products = [
+      { product_id: 'am5-advice', p_name: 'Mainboard AM5', price_advice: 5000, compatibility: { socket: 'AM5' } },
+      { product_id: 'am4-jib', p_name: 'Mainboard AM4', price_jib: 3500, compatibility: { socket: 'AM4' } },
+      { product_id: 'intel-ihc', p_name: 'Mainboard LGA1700', price_ihavecpu: 4500, compatibility: { socket: 'LGA1700' } },
+      { product_id: 'unknown', p_name: 'Unspecified Mainboard', price_advice: 1000 },
+    ] as unknown as Product[];
+    expect(builder.filteredProducts(boards).map(product => product.product_id)).toEqual(['am4-jib']);
+    expect(builder.getPickerConstraint(boards)).toContain('AM4');
+  });
 });

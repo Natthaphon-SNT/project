@@ -13,7 +13,7 @@
 
   <section class="form-card" [class.is-editing]="editMode">
     <div class="section-heading">
-      <div class="section-icon" aria-hidden="true">{{ editMode ? '✎' : '+' }}</div>
+      <div class="section-icon" aria-hidden="true"><svg *ngIf="editMode" class="ui-icon"><use href="/icons.svg#edit"></use></svg><span *ngIf="!editMode">+</span></div>
       <div>
         <span class="section-kicker">{{ editMode ? 'EDIT PRODUCT' : 'NEW PRODUCT' }}</span>
         <h2>{{ editMode ? 'แก้ไขข้อมูลสินค้า' : 'เพิ่มสินค้าใหม่' }}</h2>
@@ -21,7 +21,7 @@
     </div>
 
     <div *ngIf="notice" class="notice" [class.notice-error]="noticeType === 'error'" role="status">
-      <span aria-hidden="true">{{ noticeType === 'success' ? '✓' : '!' }}</span>
+      <span aria-hidden="true"><svg class="ui-icon"><use [attr.href]="'/icons.svg#' + (noticeType === 'success' ? 'check' : 'warning')"></use></svg></span>
       {{ notice }}
     </div>
 
@@ -75,7 +75,7 @@
 
     <div class="form-actions">
       <button type="button" class="btn-primary" (click)="submitForm()" [disabled]="isSubmitting">
-        <span aria-hidden="true">{{ editMode ? '✓' : '+' }}</span>
+        <span aria-hidden="true"><svg *ngIf="editMode" class="ui-icon"><use href="/icons.svg#check"></use></svg><span *ngIf="!editMode">+</span></span>
         {{ isSubmitting ? 'กำลังบันทึก...' : (editMode ? 'บันทึกการแก้ไข' : 'เพิ่มสินค้า') }}
       </button>
       <button *ngIf="editMode" type="button" class="btn-secondary" (click)="cancelEdit()"

@@ -112,7 +112,7 @@ export class RegisterComponent {
     this.successMessage = '';
 
     if (!this.validateForm()) {
-      this.errorMessage = '⚠️ กรุณาตรวจสอบข้อมูลให้ครบถ้วนและถูกต้อง';
+      this.errorMessage = 'กรุณาตรวจสอบข้อมูลให้ครบถ้วนและถูกต้อง';
       return;
     }
 
@@ -122,11 +122,11 @@ export class RegisterComponent {
       next: (res) => {
         this.isLoading = false;
         if (res.status === 'success') {
-          this.successMessage = '🎉 สมัครสมาชิกสำเร็จ! กำลังพาไปหน้าล็อกอิน...';
+          this.successMessage = 'สมัครสมาชิกสำเร็จ กำลังพาไปหน้าล็อกอิน...';
           this.cdr.detectChanges();
           setTimeout(() => this.router.navigate(['/login']), 1800);
         } else {
-          this.errorMessage = '❌ ' + (res.message || 'เกิดข้อผิดพลาด');
+          this.errorMessage = res.message || 'เกิดข้อผิดพลาด';
         }
         this.cdr.detectChanges();
       },
@@ -134,15 +134,15 @@ export class RegisterComponent {
         this.isLoading = false;
         const detail = err?.error?.detail || '';
         if (detail.includes('อีเมล') || detail.toLowerCase().includes('email')) {
-          this.errorMessage = '❌ อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่น';
+          this.errorMessage = 'อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่น';
           this.fieldErrors['email'] = 'อีเมลนี้มีผู้ใช้งานแล้ว';
         } else if (detail.includes('ชื่อผู้ใช้') || detail.toLowerCase().includes('u_name') || detail.toLowerCase().includes('username')) {
-          this.errorMessage = '❌ ชื่อผู้ใช้นี้ถูกใช้งานแล้ว กรุณาเลือกชื่ออื่น';
+          this.errorMessage = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว กรุณาเลือกชื่ออื่น';
           this.fieldErrors['name'] = 'ชื่อผู้ใช้นี้มีผู้ใช้งานแล้ว';
         } else if (err.status === 0) {
-          this.errorMessage = '⚠️ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่ภายหลัง';
+          this.errorMessage = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่ภายหลัง';
         } else {
-          this.errorMessage = '❌ ' + (detail || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
+          this.errorMessage = detail || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
         }
         this.cdr.detectChanges();
       }

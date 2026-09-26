@@ -15,6 +15,10 @@
     <button routerLink="/products" class="btn-back">← กลับไปเลือกสินค้า</button>
   </div>
 
+  <nav *ngIf="product && !loadError" class="detail-navigation" aria-label="นำทางหน้าสินค้า">
+    <button type="button" (click)="goBack()" class="btn-back-list">← กลับไปหน้าก่อน</button>
+  </nav>
+
   <div *ngIf="product && !loadError" class="detail-card">
 
     <!-- รูปสินค้า -->
@@ -44,7 +48,7 @@
       <!-- Data freshness + price trend -->
       <div class="freshness-box" *ngIf="priceHistory">
         <div class="fresh-row">
-          <span class="fresh-icon">🕒</span>
+          <span class="fresh-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#clock"></use></svg></span>
           <span *ngIf="priceHistory.last_updated; else noUpdate">
             ราคาอัปเดตล่าสุด: <b>{{ formatLastUpdated(priceHistory.last_updated) }}</b>
           </span>
@@ -134,13 +138,6 @@
         </span>
       </div>
 
-      <!-- การกระทำของหน้านี้จำกัดไว้ที่การดูรายละเอียด -->
-      <div class="action-buttons">
-        <button (click)="goBack()" class="btn-back-list">
-          ← กลับ
-        </button>
-      </div>
-
     </div>
   </div>
 
@@ -189,24 +186,24 @@
     <ng-template #noDesc>
       <div class="no-desc-box">
         <p class="no-desc-msg">
-          📦 ยังไม่มีรายละเอียดสินค้าในระบบ<br>
+          ยังไม่มีรายละเอียดสินค้าในระบบ<br>
           <small>กดปุ่มด้านล่างเพื่อดูข้อมูลจากเว็บร้านค้าโดยตรง</small>
         </p>
         <div class="no-desc-links">
           <a *ngIf="product.price_advice || product.url_advice"
              [href]="getStoreUrl('advice')" target="_blank" rel="noopener noreferrer"
              class="btn-goto-store advice-btn">
-            🔗 ดูรายละเอียดที่ Advice
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#link"></use></svg> ดูรายละเอียดที่ Advice
           </a>
           <a *ngIf="product.price_jib || product.url_jib"
              [href]="getStoreUrl('jib')" target="_blank" rel="noopener noreferrer"
              class="btn-goto-store jib-btn">
-            🔗 ดูรายละเอียดที่ JIB
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#link"></use></svg> ดูรายละเอียดที่ JIB
           </a>
           <a *ngIf="product.price_ihavecpu || product.url_ihavecpu"
              [href]="getStoreUrl('ihavecpu')" target="_blank" rel="noopener noreferrer"
              class="btn-goto-store ihc-btn">
-            🔗 ดูรายละเอียดที่ iHaveCPU
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#link"></use></svg> ดูรายละเอียดที่ iHaveCPU
           </a>
         </div>
       </div>

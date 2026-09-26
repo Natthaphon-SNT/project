@@ -1,7 +1,7 @@
 <div class="admin-users-wrapper">
   <div class="page-header">
     <div>
-      <h1 class="page-title">👥 จัดการผู้ใช้งาน</h1>
+      <h1 class="page-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#users"></use></svg> จัดการผู้ใช้งาน</h1>
       <p class="page-sub">ดูและจัดการบัญชีผู้ใช้ทั้งหมดในระบบ</p>
     </div>
     <div class="header-stats">
@@ -29,7 +29,7 @@
   <!-- Filters -->
   <div class="filter-bar">
     <div class="search-box">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#search"></use></svg></span>
       <input type="text" [(ngModel)]="searchQuery" (input)="applyFilters()"
              placeholder="ค้นหาชื่อ, อีเมล, UID...">
     </div>
@@ -65,13 +65,13 @@
           <div class="user-email">{{ user.u_email }}</div>
           <div class="user-meta">
             <span class="user-role" [class]="getRoleClass(user.u_role)">{{ user.u_role }}</span>
-            <span class="user-stats">🤖 {{ user.spec_count }} สเปก</span>
+            <span class="user-stats">{{ user.spec_count }} สเปก</span>
           </div>
         </div>
         <div class="user-actions" (click)="$event.stopPropagation()">
-          <button (click)="selectUser(user); openEditModal(user)" class="btn-edit" title="แก้ไข">✏️</button>
-          <button (click)="selectUser(user); openRoleModal(user)" class="btn-role" title="เปลี่ยน Role">👑</button>
-          <button (click)="deleteUser(user)" class="btn-delete" title="ลบ">🗑️</button>
+          <button (click)="selectUser(user); openEditModal(user)" class="btn-edit" title="แก้ไข" aria-label="แก้ไขผู้ใช้"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#edit"></use></svg></button>
+          <button (click)="selectUser(user); openRoleModal(user)" class="btn-role" title="เปลี่ยน Role" aria-label="เปลี่ยน Role"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#shield"></use></svg></button>
+          <button (click)="deleteUser(user)" class="btn-delete" title="ลบ" aria-label="ลบผู้ใช้"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trash"></use></svg></button>
         </div>
       </div>
     </div>
@@ -86,16 +86,16 @@
           <span class="user-role" [class]="getRoleClass(selectedUser.u_role)">{{ selectedUser.u_role }}</span>
         </div>
         <div class="detail-quick-actions">
-          <button (click)="openEditModal(selectedUser)" class="btn-action-sm">✏️ แก้ไข</button>
-          <button (click)="openRoleModal(selectedUser)" class="btn-action-sm role">👑 เปลี่ยน Role</button>
-          <button (click)="deleteUser(selectedUser)" class="btn-action-sm danger">🗑️ ลบ</button>
+          <button (click)="openEditModal(selectedUser)" class="btn-action-sm"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#edit"></use></svg> แก้ไข</button>
+          <button (click)="openRoleModal(selectedUser)" class="btn-action-sm role"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#shield"></use></svg> เปลี่ยน Role</button>
+          <button (click)="deleteUser(selectedUser)" class="btn-action-sm danger"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trash"></use></svg> ลบ</button>
         </div>
       </div>
 
       <!-- Tabs -->
       <div class="detail-tabs">
-        <button [class.active]="activeDetailTab === 'info'"   (click)="activeDetailTab = 'info'">📋 ข้อมูล</button>
-        <button [class.active]="activeDetailTab === 'specs'"  (click)="activeDetailTab = 'specs'">🤖 สเปค ({{ userSpecs.length }})</button>
+        <button [class.active]="activeDetailTab === 'info'"   (click)="activeDetailTab = 'info'">ข้อมูล</button>
+        <button [class.active]="activeDetailTab === 'specs'"  (click)="activeDetailTab = 'specs'">สเปค ({{ userSpecs.length }})</button>
       </div>
 
       <!-- Tab: Info -->
@@ -133,7 +133,7 @@
         <div *ngIf="userSpecs.length === 0" class="empty-detail">ไม่มีประวัติการจัดสเปค</div>
         <div *ngFor="let spec of userSpecs" class="spec-item">
           <div class="spec-header">
-            <span>{{ getModeIcon(spec.mode) }} {{ spec.title }}</span>
+            <span><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + getModeIcon(spec.mode)"></use></svg> {{ spec.title }}</span>
             <span class="spec-date">{{ spec.createdAt | slice:0:10 }}</span>
           </div>
           <p class="spec-input">{{ spec.inputSummary }}</p>
@@ -145,7 +145,7 @@
     <!-- Placeholder when no user selected -->
     <div class="user-detail placeholder-panel" *ngIf="!selectedUser">
       <div class="placeholder-content">
-        <span class="placeholder-icon">👈</span>
+        <span class="placeholder-icon"><svg class="ui-icon ui-icon--xl" aria-hidden="true"><use href="/icons.svg#user"></use></svg></span>
         <p>เลือกผู้ใช้งานจากรายการเพื่อดูรายละเอียด</p>
       </div>
     </div>
@@ -155,7 +155,7 @@
 <!-- Edit Modal -->
 <div class="modal-overlay" *ngIf="showEditModal" (click)="showEditModal = false">
   <div class="modal-card" (click)="$event.stopPropagation()">
-    <h3 class="modal-title">✏️ แก้ไขข้อมูลผู้ใช้</h3>
+    <h3 class="modal-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#edit"></use></svg> แก้ไขข้อมูลผู้ใช้</h3>
     <div class="modal-body">
       <div class="form-group">
         <label>ชื่อผู้ใช้</label>
@@ -176,9 +176,9 @@
     </div>
     <div class="modal-actions">
       <button (click)="saveEdit()" class="btn-save" [disabled]="isSaving">
-        {{ isSaving ? '⏳ บันทึก...' : '💾 บันทึก' }}
+        <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#save"></use></svg> {{ isSaving ? 'กำลังบันทึก...' : 'บันทึก' }}
       </button>
-      <button (click)="showEditModal = false" class="btn-cancel">✖ ยกเลิก</button>
+      <button (click)="showEditModal = false" class="btn-cancel">ยกเลิก</button>
     </div>
   </div>
 </div>
@@ -186,24 +186,24 @@
 <!-- Role Modal -->
 <div class="modal-overlay" *ngIf="showRoleModal" (click)="showRoleModal = false">
   <div class="modal-card small" (click)="$event.stopPropagation()">
-    <h3 class="modal-title">👑 กำหนด Role</h3>
+    <h3 class="modal-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#shield"></use></svg> กำหนด Role</h3>
     <p class="modal-sub">ผู้ใช้: <strong>{{ selectedUser?.u_name }}</strong></p>
     <div class="role-options">
       <label class="role-option" [class.selected]="roleForm.role === 'customer'">
         <input type="radio" [(ngModel)]="roleForm.role" value="customer">
-        <span>👤 Customer</span>
+        <span>Customer</span>
       </label>
       <label class="role-option" [class.selected]="roleForm.role === 'staff'">
         <input type="radio" [(ngModel)]="roleForm.role" value="staff">
-        <span>🔧 Staff</span>
+        <span>Staff</span>
       </label>
       <label class="role-option" [class.selected]="roleForm.role === 'admin'">
         <input type="radio" [(ngModel)]="roleForm.role" value="admin">
-        <span>👑 Admin</span>
+        <span>Admin</span>
       </label>
     </div>
     <div class="modal-actions">
-      <button (click)="saveRole()" class="btn-save">✅ ยืนยัน</button>
+      <button (click)="saveRole()" class="btn-save"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg> ยืนยัน</button>
       <button (click)="showRoleModal = false" class="btn-cancel">ยกเลิก</button>
     </div>
   </div>

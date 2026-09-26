@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router'; // 🌟 1. นำเข้า RouterModule ตรงนี้
+import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-home',

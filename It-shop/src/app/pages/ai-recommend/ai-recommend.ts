@@ -3,7 +3,9 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AdminFilterPipe } from './admin-filter.pipe';
 import { HttpClient } from '@angular/common/http';
+import { finalize } from 'rxjs/operators';
 import { API_BASE_URL } from '../../services/api-base-url';
+import { stripEmojiDeep, stripEmojiText } from '../../utils/strip-emoji';
 
 // ─── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -41,7 +43,7 @@ interface RecommendResult {
   adjustments?: BudgetAdjustment[];
   compat?: { overall: string; summary: string; checks: CompatCheck[] };
   alternatives?: AltBuild[];
-  _meta?: { provider_fallback?: boolean; fallback_reason?: string };
+  _meta?: { provider_fallback?: boolean; fallback_reason?: string; requested_provider?: string; llm_provider?: string; llm_model?: string };
 }
 
 interface AltBuild {
@@ -87,7 +89,7 @@ interface CompatResult {
 
 // ─── AI Provider Settings ────────────────────────────────────────────────────
 export interface AiProviderSettings {
-  provider: 'google' | 'openai' | 'openrouter';
+  provider: 'google' | 'openai' | 'openrouter' | 'opencode_zen';
   model: string;
   api_key: string;
   custom_model: string;
@@ -140,6 +142,8 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   step: 1 | 2 | 3 = 1;
   mode: 'recommend' | 'compare' | 'compat' = 'recommend';
   activeTab: 'form' | 'history' | 'admin' = 'form';
+  /** Ids with a DELETE in flight. Guards against duplicate clicks. */
+  readonly deletingIds = new Set<string>();
 
   // ─── User Info (อ่านจาก localStorage ของ LT PC BUILD) ───────────────────────
   currentUser: { uid: string; username: string; role: string } = {
@@ -186,7 +190,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   // ─── AI Provider Settings ─────────────────────────────────────────────────────
   showSettingsPanel = false;
-  settingsTab: 'google' | 'openai' | 'openrouter' = 'openai';
+  settingsTab: AiProviderSettings['provider'] = 'openai';
   aiSettings: AiProviderSettings = {
     provider: 'openai', model: 'gpt-4o-mini', api_key: '', custom_model: ''
   };
@@ -219,7 +223,30 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       { id: 'google/gemini-2.0-flash',     name: 'Gemini 2.0 Flash (via OR)',      badge: 'FAST', description: 'Google Flash via OpenRouter' },
       { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B Free',    badge: 'FREE', description: 'OpenRouter Free Model' },
     ],
+    opencode_zen: [
+      { id: 'minimax-m2.5',     name: 'MiniMax M2.5',       badge: 'PAID', description: 'OpenCode Zen Chat Completions' },
+      { id: 'glm-5.3-flash',   name: 'GLM 5.3 Flash',      badge: 'FAST', description: 'OpenCode Zen Chat Completions' },
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', badge: 'PAID', description: 'OpenCode Zen Chat Completions' },
+      { id: 'gpt-6-luna',     name: 'GPT 6 Luna',         badge: 'PAID', description: 'OpenCode Zen Responses API' },
+    ],
   };
+
+  providerTabLabel(provider: AiProviderSettings['provider']): string {
+    return provider === 'opencode_zen' ? 'OpenCode Zen' : provider === 'openai' ? 'OpenAI' : provider === 'openrouter' ? 'OpenRouter' : 'Google';
+  }
+
+  providerLabel(provider: string): string {
+    return provider === 'opencode_zen' ? 'OpenCode Zen' : provider === 'openai' ? 'OpenAI' : provider === 'openrouter' ? 'OpenRouter' : 'Google AI';
+  }
+
+  fallbackDescription(reason?: string): string {
+    if (!reason || reason === 'no_api_key') return 'ยังไม่มี API key สำหรับผู้ให้บริการนี้';
+    if (reason.includes('quota_exhausted')) return 'เครดิตหรือวงเงินการใช้งาน API หมด กรุณาตรวจ Billing และ Limits ของบัญชี';
+    if (reason.includes('timed out') || reason.includes('ReadTimeout')) return 'หมดเวลารอคำตอบจากผู้ให้บริการ';
+    if (reason.includes('Auth/Credits')) return 'ตรวจสอบ API key หรือเครดิตของบัญชี';
+    if (reason.includes('rate_limit')) return 'คำขอเกินโควตาชั่วคราว';
+    return 'ผู้ให้บริการ AI ตอบกลับไม่สำเร็จ';
+  }
 
   get currentProviderModels(): AiModel[] {
     return this.PROVIDER_MODELS[this.settingsTab] || [];
@@ -231,6 +258,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       case 'google':     return 'GOOGLE AI';
       case 'openai':     return 'OPENAI';
       case 'openrouter': return 'OPENROUTER';
+      case 'opencode_zen': return 'OPENCODE ZEN';
       default:           return String(p).toUpperCase();
     }
   }
@@ -240,6 +268,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       case 'google':     return 'Google AI API Key';
       case 'openai':     return 'OpenAI API Key';
       case 'openrouter': return 'OpenRouter API Key';
+      case 'opencode_zen': return 'OpenCode Zen API Key';
       default:           return 'API Key';
     }
   }
@@ -249,6 +278,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       case 'google':     return 'AIzaSy... (จาก Google AI Studio)';
       case 'openai':     return 'sk-... (จาก platform.openai.com)';
       case 'openrouter': return 'sk-or-v1-... (จาก openrouter.ai)';
+      case 'opencode_zen': return 'API key จาก opencode.ai/zen';
       default:           return 'ใส่ API Key ของคุณ';
     }
   }
@@ -258,6 +288,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       case 'google':     return 'https://aistudio.google.com/app/apikey';
       case 'openai':     return 'https://platform.openai.com/api-keys';
       case 'openrouter': return 'https://openrouter.ai/keys';
+      case 'opencode_zen': return 'https://opencode.ai/zen';
       default:           return '#';
     }
   }
@@ -267,6 +298,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       case 'google':     return 'GEMINI MODEL';
       case 'openai':     return 'OPENAI MODEL';
       case 'openrouter': return 'OPENROUTER MODEL';
+      case 'opencode_zen': return 'OPENCODE ZEN MODEL';
       default:           return 'AI MODEL';
     }
   }
@@ -276,18 +308,19 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       case 'google':     return 'https://ai.google.dev/gemini-api/docs/models/gemini';
       case 'openai':     return 'https://platform.openai.com/docs/models';
       case 'openrouter': return 'https://openrouter.ai/models';
+      case 'opencode_zen': return 'https://opencode.ai/docs/zen';
       default:           return '#';
     }
   }
 
   // ─── Data constants ──────────────────────────────────────────────────────────
   useCases = [
-    { id: 'gaming',  icon: '🎮', label: 'เล่นเกม',      desc: 'AAA / Esports / Streaming' },
-    { id: 'work',    icon: '💼', label: 'ทำงานออฟฟิศ',   desc: 'Excel / Zoom / เอกสาร' },
-    { id: 'video',   icon: '🎬', label: 'ตัดต่อวิดีโอ',  desc: 'Premiere / DaVinci / After Effects' },
-    { id: '3d',      icon: '🧊', label: '3D / Render',   desc: 'Blender / Maya / Cinema4D' },
-    { id: 'ai',      icon: '🤖', label: 'AI / ML',        desc: 'Training / Stable Diffusion' },
-    { id: 'general', icon: '🖥️', label: 'ใช้งานทั่วไป',  desc: 'ท่องเน็ต / ดูหนัง / เรียน' },
+    { id: 'gaming',  icon: 'gamepad', label: 'เล่นเกม',      desc: 'AAA / Esports / Streaming' },
+    { id: 'work',    icon: 'briefcase', label: 'ทำงานออฟฟิศ',   desc: 'Excel / Zoom / เอกสาร' },
+    { id: 'video',   icon: 'video', label: 'ตัดต่อวิดีโอ',  desc: 'Premiere / DaVinci / After Effects' },
+    { id: '3d',      icon: 'cube', label: '3D / Render',   desc: 'Blender / Maya / Cinema4D' },
+    { id: 'ai',      icon: 'spark', label: 'AI / ML',        desc: 'Training / Stable Diffusion' },
+    { id: 'general', icon: 'monitor', label: 'ใช้งานทั่วไป',  desc: 'ท่องเน็ต / ดูหนัง / เรียน' },
   ];
 
   budgets = [
@@ -378,7 +411,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   // ─── AI Provider Settings API ─────────────────────────────────────────────────
   settingsError = '';
   authError = '';
-  readonly providerTabs = ['google', 'openai', 'openrouter'] as const;
+  readonly providerTabs = ['google', 'openai', 'openrouter', 'opencode_zen'] as const;
   private providerDrafts: Partial<Record<AiProviderSettings['provider'], AiProviderSettings>> = {};
   loadAiSettings() {
     localStorage.removeItem('ai_provider_settings');
@@ -469,6 +502,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     if (this.step === 2) return;
     this.chatMessages = []; this.followUp = ''; this.extraDetail = ''; this.spec1 = ''; this.spec2 = ''; this.compatText = ''; this.activeTab = 'form';
     this.activeSessionId = null;
+    this.mode = 'recommend';
     this.reset();
     this.showHistorySidebar = false;
     this.cdr.detectChanges();
@@ -495,7 +529,9 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
     try {
       const msgs = typeof s.messages === 'string' ? JSON.parse(s.messages) : s.messages;
-      this.chatMessages = msgs;
+      this.chatMessages = msgs.map((message: { role: string; content: string }) => message.role === 'assistant'
+        ? { ...message, content: stripEmojiText(message.content) }
+        : message);
       const source = [...msgs].reverse().find(m => m.spec1 && m.spec2);
       this.spec1 = source?.spec1 || ''; this.spec2 = source?.spec2 || '';
       if (Array.isArray(msgs) && msgs.length > 0) {
@@ -514,7 +550,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
           } catch { return false; }
         });
         if (s.mode === 'recommend' && assistantMessages.length && assistantMessages[0] !== buildMessage) {
-          this.askAnswer = assistantMessages[0].content;
+          this.askAnswer = stripEmojiText(assistantMessages[0].content);
         }
         if (buildMessage && buildMessage.content) {
           const parsed = this.parseJson(buildMessage.content);
@@ -544,7 +580,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   deleteSession(id: number, event?: Event) {
     if (event) event.stopPropagation();
     if (this.step === 2) return;
-    if (!confirm('⚠️ ยืนยันการลบประวัติการแชทนี้?')) return;
+    if (!confirm('ยืนยันการลบประวัติการแชทนี้?')) return;
 
     const token = localStorage.getItem('lt_token') || '';
     if (!token || this.currentUser.uid === 'guest') {
@@ -612,7 +648,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   private parseHistoryItem(h: any): SpecHistory {
     let parsed: any = {};
-    try { parsed = typeof h.result_data === 'string' ? JSON.parse(h.result_data) : h.result_data; } catch {}
+    try { parsed = stripEmojiDeep(typeof h.result_data === 'string' ? JSON.parse(h.result_data) : h.result_data); } catch {}
     return {
       id: String(h.id),
       uid: h.uid,
@@ -660,22 +696,38 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
 
   deleteHistory(id: string) {
-    if (!confirm('⚠️ ยืนยันการลบประวัตินี้?')) return;
+    // Drop repeat clicks while a DELETE for this id is still open, otherwise
+    // each click through the confirm dialog fires another request.
+    if (this.deletingIds.has(id)) return;
+    if (!confirm('ยืนยันการลบประวัตินี้?')) return;
+
     const token = localStorage.getItem('lt_token') || '';
-    
+    this.deletingIds.add(id);
+    this.cdr.detectChanges();
+
     this.http.delete<any>(`${API_BASE_URL}/api/spec-history/${id}`, {
       headers: { Authorization: `Bearer ${token}` }
-    }).subscribe({
+    }).pipe(
+      // Clears the flag on success, error and unsubscribe alike.
+      finalize(() => {
+        this.deletingIds.delete(id);
+        this.cdr.detectChanges();
+      })
+    ).subscribe({
       next: (res) => {
         if (res.status === 'success') {
           if (this.viewingDetail?.id === id) this.viewingDetail = null;
           this.loadHistory();
         } else {
-          alert('❌ ไม่สามารถลบประวัติได้: ' + res.message);
+          alert('ไม่สามารถลบประวัติได้: ' + res.message);
         }
       },
       error: (err) => console.error('Delete history HTTP error:', err)
     });
+  }
+
+  isDeletingHistory(id: string): boolean {
+    return this.deletingIds.has(id);
   }
 
   get filteredMyHistory(): SpecHistory[] {
@@ -723,11 +775,24 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
 
   getModeLabel(mode: string): string {
     const map: Record<string, string> = {
-      recommend: '🤖 แนะนำสเปค',
-      compare:   '⚖️ เปรียบเทียบ',
-      compat:    '🔗 เช็คความเข้ากัน',
+      recommend: 'แนะนำสเปค',
+      compare:   'เปรียบเทียบ',
+      compat:    'เช็คความเข้ากัน',
     };
     return map[mode] || mode;
+  }
+
+  partIcon(type: string): string {
+    const name = (type || '').toLowerCase();
+    if (/cpu|processor/.test(name)) return 'cpu';
+    if (/mainboard|motherboard/.test(name)) return 'motherboard';
+    if (/gpu|vga|graphics/.test(name)) return 'gpu';
+    if (/ram|memory/.test(name)) return 'ram';
+    if (/ssd|hdd|storage|m\.2/.test(name)) return 'storage';
+    if (/psu|power/.test(name)) return 'power';
+    if (/cooler|cooling|fan/.test(name)) return 'cooler';
+    if (/case/.test(name)) return 'case';
+    return 'package';
   }
 
   // ─── Navigation ───────────────────────────────────────────────────────────────
@@ -808,7 +873,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
         Array.isArray(d.parts) ? `เลือก ${d.parts.length} ชิ้นส่วน — ดูรายละเอียดตรงกลางหน้า` : '',
         d.recommendation || d.compat?.summary,
       ].filter(Boolean).join('\n') || JSON.stringify(d, null, 2);
-    } catch { return message.content; }
+    } catch { return stripEmojiText(message.content); }
   }
   followUp = '';
   private buildSpecContext(): string {
@@ -826,6 +891,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   async sendAskQuestion() {
     const q = this.askQuestion.trim();
     if (!q || this.askLoading || this.step === 2) return;
+    this.errorMessage = '';
     this.askLoading = true;
     this.cdr.detectChanges();
     try {
@@ -877,7 +943,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       ? cleaned.slice(firstBrace, lastBrace + 1)
       : cleaned;
     try {
-      return JSON.parse(json);
+      return stripEmojiDeep(JSON.parse(json));
     } catch {
       throw new Error('AI ส่งข้อมูลกลับมาไม่ครบถ้วน กรุณาลองใหม่อีกครั้ง');
     }
@@ -941,18 +1007,22 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   async handleCompat() { if (this.compatText.trim()) await this.runPrompt(this.compatText); }
   async sendFollowUp() {
     const prompt = this.followUp.trim();
-    if (!prompt || this.step === 2) return;
+    if (!prompt || this.step === 2 || this.askLoading) return;
+
+    // A new build request should create another recommendation even when the
+    // preceding assistant message was already a build, not enter ask-only mode.
+    if (this.isBuildRequest(prompt)) {
+      this.mode = 'recommend';
+      await this.runPrompt(prompt);
+      if (this.resultType !== 'error') this.followUp = '';
+      return;
+    }
     if (this.resultType === 'recommend' && this.recommendData) {
       this.askQuestion = prompt;
       await this.sendAskQuestion();
       if (!this.askQuestion) this.followUp = '';
       return;
     }
-
-    // A conversation may start as a comparison and continue as a build
-    // request. Route that follow-up to the recommendation pipeline instead of
-    // forcing the comparison JSON schema on an unrelated answer.
-    if (this.isBuildRequest(prompt)) this.mode = 'recommend';
 
     await this.runPrompt(prompt);
     if (this.resultType !== 'error') this.followUp = '';

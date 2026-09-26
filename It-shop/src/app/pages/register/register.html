@@ -3,7 +3,7 @@
 
     <!-- Header -->
     <div class="register-header">
-      <div class="logo-icon">🖥️</div>
+      <img class="logo-icon" src="/favicon-48x48.png" width="48" height="48" alt="IT-RECOMMEND">
       <h2>สร้างบัญชีใหม่</h2>
       <p>IT-RECOMMEND</p>
     </div>
@@ -25,7 +25,7 @@
       <div class="input-group" [class.has-error]="fieldErrors['name']">
         <label for="reg-name">ชื่อผู้ใช้ <span class="required">*</span></label>
         <div class="input-wrapper">
-          <span class="input-icon">👤</span>
+          <span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#user"></use></svg></span>
           <input
             id="reg-name"
             type="text"
@@ -36,14 +36,14 @@
             (input)="fieldErrors['name'] = ''"
           />
         </div>
-        <div class="field-error" *ngIf="fieldErrors['name']">⚠️ {{ fieldErrors['name'] }}</div>
+        <div class="field-error" *ngIf="fieldErrors['name']">{{ fieldErrors['name'] }}</div>
       </div>
 
       <!-- อีเมล -->
       <div class="input-group" [class.has-error]="fieldErrors['email']">
         <label for="reg-email">อีเมล <span class="required">*</span></label>
         <div class="input-wrapper">
-          <span class="input-icon">📧</span>
+          <span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#mail"></use></svg></span>
           <input
             id="reg-email"
             type="email"
@@ -54,14 +54,14 @@
             (input)="fieldErrors['email'] = ''"
           />
         </div>
-        <div class="field-error" *ngIf="fieldErrors['email']">⚠️ {{ fieldErrors['email'] }}</div>
+        <div class="field-error" *ngIf="fieldErrors['email']">{{ fieldErrors['email'] }}</div>
       </div>
 
       <!-- เบอร์โทร -->
       <div class="input-group" [class.has-error]="fieldErrors['phone']">
         <label for="reg-phone">เบอร์โทรศัพท์ <span class="required">*</span></label>
         <div class="input-wrapper">
-          <span class="input-icon">📱</span>
+          <span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#phone"></use></svg></span>
           <input
             id="reg-phone"
             type="tel"
@@ -72,14 +72,14 @@
             (input)="fieldErrors['phone'] = ''"
           />
         </div>
-        <div class="field-error" *ngIf="fieldErrors['phone']">⚠️ {{ fieldErrors['phone'] }}</div>
+        <div class="field-error" *ngIf="fieldErrors['phone']">{{ fieldErrors['phone'] }}</div>
       </div>
 
       <!-- วันเกิด -->
       <div class="input-group" [class.has-error]="fieldErrors['dob']">
         <label for="reg-dob">วันเกิด <span class="required">*</span></label>
         <div class="input-wrapper">
-          <span class="input-icon">🎂</span>
+          <span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#calendar"></use></svg></span>
           <input
             id="reg-dob"
             type="date"
@@ -89,14 +89,14 @@
             (change)="fieldErrors['dob'] = ''"
           />
         </div>
-        <div class="field-error" *ngIf="fieldErrors['dob']">⚠️ {{ fieldErrors['dob'] }}</div>
+        <div class="field-error" *ngIf="fieldErrors['dob']">{{ fieldErrors['dob'] }}</div>
       </div>
 
       <!-- รหัสผ่าน -->
       <div class="input-group" [class.has-error]="fieldErrors['password']">
         <label for="reg-password">รหัสผ่าน <span class="required">*</span></label>
         <div class="input-wrapper">
-          <span class="input-icon">🔒</span>
+          <span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg></span>
           <input
             id="reg-password"
             [type]="showPassword ? 'text' : 'password'"
@@ -106,8 +106,8 @@
             autocomplete="new-password"
             (input)="fieldErrors['password'] = ''"
           />
-          <button type="button" class="toggle-pw" (click)="togglePassword()" tabindex="-1">
-            {{ showPassword ? '🙈' : '👁️' }}
+          <button type="button" class="toggle-pw" (click)="togglePassword()" [attr.aria-label]="showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'">
+            <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (showPassword ? 'eye-off' : 'eye')"></use></svg>
           </button>
         </div>
         <!-- Password Strength -->
@@ -119,14 +119,14 @@
           </div>
           <span class="pw-label" [style.color]="passwordStrength.color">{{ passwordStrength.label }}</span>
         </div>
-        <div class="field-error" *ngIf="fieldErrors['password']">⚠️ {{ fieldErrors['password'] }}</div>
+        <div class="field-error" *ngIf="fieldErrors['password']">{{ fieldErrors['password'] }}</div>
       </div>
 
       <!-- ยืนยันรหัสผ่าน -->
       <div class="input-group" [class.has-error]="fieldErrors['confirmPassword']">
         <label for="reg-confirm">ยืนยันรหัสผ่าน <span class="required">*</span></label>
         <div class="input-wrapper">
-          <span class="input-icon">🔐</span>
+          <span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg></span>
           <input
             id="reg-confirm"
             [type]="showConfirmPassword ? 'text' : 'password'"
@@ -136,16 +136,16 @@
             autocomplete="new-password"
             (input)="fieldErrors['confirmPassword'] = ''"
           />
-          <button type="button" class="toggle-pw" (click)="toggleConfirmPassword()" tabindex="-1">
-            {{ showConfirmPassword ? '🙈' : '👁️' }}
+          <button type="button" class="toggle-pw" (click)="toggleConfirmPassword()" [attr.aria-label]="showConfirmPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'">
+            <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (showConfirmPassword ? 'eye-off' : 'eye')"></use></svg>
           </button>
         </div>
         <!-- Match indicator -->
         <div class="match-hint" *ngIf="user.confirmPassword">
-          <span *ngIf="user.password === user.confirmPassword" class="match-ok">✅ รหัสผ่านตรงกัน</span>
-          <span *ngIf="user.password !== user.confirmPassword" class="match-fail">❌ รหัสผ่านไม่ตรงกัน</span>
+          <span *ngIf="user.password === user.confirmPassword" class="match-ok"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg> รหัสผ่านตรงกัน</span>
+          <span *ngIf="user.password !== user.confirmPassword" class="match-fail"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#error"></use></svg> รหัสผ่านไม่ตรงกัน</span>
         </div>
-        <div class="field-error" *ngIf="fieldErrors['confirmPassword']">⚠️ {{ fieldErrors['confirmPassword'] }}</div>
+        <div class="field-error" *ngIf="fieldErrors['confirmPassword']">{{ fieldErrors['confirmPassword'] }}</div>
       </div>
 
       <!-- Submit -->

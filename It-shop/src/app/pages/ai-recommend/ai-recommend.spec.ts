@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http'; // ✅ 1. เพิ่มสิ่งนี้เพื่อแก้ Error HttpClient
+import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { vi } from 'vitest';
 import { AiRecommendComponent } from './ai-recommend'; 
 
-describe('AiRecommendComponent', () => { // ตั้งชื่อ describe ให้ตรงกับ Component
+describe('AiRecommendComponent', () => {
   let component: AiRecommendComponent;
   let fixture: ComponentFixture<AiRecommendComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      // ✅ 2. Import Component ที่ถูกต้อง (HomeComponent)
+      // Import the component under test.
       imports: [AiRecommendComponent], 
-      // ✅ 3. ต้อง Provide HttpClient เพราะใน Component คุณมีการเรียกใช้
+      // Provide HttpClient for the component.
       providers: [
         provideHttpClient(),
         provideHttpClientTesting() 
@@ -49,6 +49,18 @@ describe('AiRecommendComponent', () => { // ตั้งชื่อ describe �
     }
   });
 
+  it('offers OpenCode Zen with models routed by the backend', () => {
+    component.selectProviderTab('opencode_zen');
+    component.showSettingsPanel = true;
+    fixture.detectChanges();
+
+    expect(component.aiSettings.provider).toBe('opencode_zen');
+    expect(component.aiSettings.model).toBe('minimax-m2.5');
+    expect(component.PROVIDER_MODELS['opencode_zen'].some(model => model.id === 'gpt-6-luna')).toBe(true);
+    expect(component.providerKeyHelpUrl).toBe('https://opencode.ai/zen');
+    expect(fixture.nativeElement.textContent).toContain('OpenCode Zen');
+  });
+
   it('routes a build follow-up after a comparison to recommendation mode', async () => {
     component.mode = 'compare';
     component.resultType = 'compare';
@@ -61,6 +73,41 @@ describe('AiRecommendComponent', () => { // ตั้งชื่อ describe �
     expect(component.mode).toBe('recommend');
     expect(runPrompt).toHaveBeenCalledWith('จัดสเปกที่ใช้ 4060 มาให้หน่อย');
     expect(component.followUp).toBe('');
+  });
+
+  it('allows typing and sending the first message after starting a new chat', async () => {
+    component.mode = 'compare';
+    component.chatMessages = [{ role: 'assistant', content: 'old chat' }];
+    component.startNewChat();
+    fixture.detectChanges();
+
+    const composer = fixture.nativeElement.querySelector('#followup') as HTMLTextAreaElement;
+    expect(composer.disabled).toBe(false);
+    expect(component.mode).toBe('recommend');
+
+    composer.value = 'จัดสเปกคอมงบ 50000 บาท';
+    composer.dispatchEvent(new Event('input', { bubbles: true }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const sendButton = fixture.nativeElement.querySelector('.chat-composer button') as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(false);
+
+    const runPrompt = vi.spyOn(component as any, 'runPrompt').mockResolvedValue(undefined);
+    await component.sendFollowUp();
+    expect(runPrompt).toHaveBeenCalledWith('จัดสเปกคอมงบ 50000 บาท');
+  });
+
+  it('treats a new build request after a recommendation as another build', async () => {
+    component.resultType = 'recommend';
+    component.recommendData = { parts: [] } as any;
+    component.followUp = 'จัดสเปกคอมอีกชุดงบ 30000 บาท';
+    const ask = vi.spyOn(component, 'sendAskQuestion').mockResolvedValue(undefined);
+    const runPrompt = vi.spyOn(component as any, 'runPrompt').mockResolvedValue(undefined);
+
+    await component.sendFollowUp();
+
+    expect(runPrompt).toHaveBeenCalledWith('จัดสเปกคอมอีกชุดงบ 30000 บาท');
+    expect(ask).not.toHaveBeenCalled();
   });
 
   it('sends chat text on Enter and keeps Shift+Enter for a new line', () => {

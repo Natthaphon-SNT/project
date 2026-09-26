@@ -6,7 +6,7 @@ import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  // ✅ FastAPI backend - ไม่ต้องใช้ XAMPP อีกต่อไป!
+// FastAPI backend - ไม่ต้องใช้ XAMPP อีกต่อไป
   private baseUrl = environment.apiUrl;
 
   public currentUserSubject = new BehaviorSubject<any>(null);

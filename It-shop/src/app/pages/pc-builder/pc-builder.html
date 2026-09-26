@@ -7,13 +7,13 @@
 
   <!-- Header -->
   <div class="builder-header fade-in">
-    <h1 class="builder-title">🛠️ จัดสเปกเอง</h1>
+    <h1 class="builder-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#wrench"></use></svg> จัดสเปกเอง</h1>
     <p class="builder-subtitle">เลือก Component ที่ต้องการ เปรียบเทียบราคาแยก 3 ร้าน พร้อมระบบตรวจเช็คความเข้ากันได้</p>
   </div>
 
   <div *ngIf="catalogLoadError" class="compat-banner compat-error" role="alert">
     <div class="compat-header">
-      <span class="compat-icon">❌</span>
+      <span class="compat-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#error"></use></svg></span>
       <span class="compat-title">ไม่สามารถเชื่อมต่อเพื่อโหลดรายการสินค้าได้</span>
       <button type="button" class="btn-change" (click)="reloadCatalog()">ลองใหม่</button>
     </div>
@@ -27,7 +27,7 @@
 
         <!-- Slot Header -->
         <div class="slot-header">
-          <span class="slot-icon">{{ slot.icon }}</span>
+          <span class="slot-icon"><svg class="ui-icon ui-icon--lg" aria-hidden="true"><use [attr.href]="'/icons.svg#' + slot.icon"></use></svg></span>
           <span class="slot-label">{{ slot.label }}</span>
           <span class="slot-required" *ngIf="slot.required">*</span>
         </div>
@@ -40,7 +40,7 @@
 
         <!-- Selected Product -->
         <div class="slot-selected" *ngIf="slot.selected">
-          <img [src]="getProductImage(slot.selected)" [alt]="slot.selected.p_name" class="slot-img" (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
+          <img [src]="getProductImage(slot.selected)" [alt]="slot.selected.p_name" class="slot-img" (error)="onProductImageError($event)">
           <div class="slot-info">
             <p class="slot-product-name" [title]="slot.selected.p_name">{{ slot.selected.p_name }}</p>
             <div class="slot-meta" *ngIf="getProductMetadata(slot.selected, slot).length">
@@ -69,8 +69,8 @@
             <p class="slot-min-price">ราคาต่ำสุด: <strong>{{ getMinPrice(slot.selected) | number }} ฿</strong></p>
           </div>
           <div class="slot-actions">
-            <button class="btn-change" (click)="openPicker(slot)" title="เปลี่ยน">✏️</button>
-            <button class="btn-remove" (click)="removeProduct(slot)" title="ลบ">✕</button>
+            <button class="btn-change" (click)="openPicker(slot)" title="เปลี่ยน" aria-label="เปลี่ยนสินค้า"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#edit"></use></svg></button>
+            <button class="btn-remove" (click)="removeProduct(slot)" title="ลบ" aria-label="ลบสินค้า"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trash"></use></svg></button>
           </div>
         </div>
 
@@ -79,15 +79,16 @@
           <div class="picker-modal" (click)="$event.stopPropagation()">
             <div class="picker-header">
               <h3>เลือก {{ slot.label }}</h3>
-              <button class="picker-close" (click)="closePicker(slot)">✕</button>
+              <button class="picker-close" (click)="closePicker(slot)" aria-label="ปิด">×</button>
             </div>
 
             <!-- Search -->
             <div class="picker-search">
               <input type="text" [(ngModel)]="slot.search" (ngModelChange)="slot.displayLimit = 60" placeholder="ค้นหา {{ slot.label }}..."
                 class="picker-search-input" autofocus />
-              <span class="picker-search-icon">🔍</span>
+              <span class="picker-search-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#search"></use></svg></span>
             </div>
+            <p class="picker-constraint" *ngIf="getPickerConstraint(slot)">{{ getPickerConstraint(slot) }}</p>
 
             <!-- Loading -->
             <div class="picker-loading" *ngIf="slot.isLoading">
@@ -106,7 +107,7 @@
               <div class="picker-item" *ngFor="let p of slot.loadError ? [] : filteredProducts(slot).slice(0, slot.displayLimit || 60)"
                    (click)="selectProduct(slot, p)">
                 <img [src]="getProductImage(p)" [alt]="p.p_name" class="picker-img"
-                     (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
+                     (error)="onProductImageError($event)">
                 <div class="picker-item-info">
                   <p class="picker-item-name">{{ p.p_name }}</p>
                   <div class="picker-meta" *ngIf="getProductMetadata(p, slot).length">
@@ -139,7 +140,7 @@
         <!-- Compatibility Alert Banner -->
         <div class="compat-banner" *ngIf="compatResult" [ngClass]="'compat-' + compatResult.overall">
           <div class="compat-header">
-            <span class="compat-icon">{{ compatResult.overall === 'error' ? '❌' : compatResult.overall === 'warning' ? '⚠️' : '✅' }}</span>
+            <span class="compat-icon"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (compatResult.overall === 'error' ? 'error' : compatResult.overall === 'warning' ? 'warning' : 'check')"></use></svg></span>
             <span class="compat-title">{{ compatResult.summary }}</span>
           </div>
 
@@ -147,7 +148,7 @@
           <div class="compat-details">
             <div *ngFor="let c of compatResult.checks" class="compat-check-row">
               <span [class.compat-item-fail]="c.severity === 'ERROR'"
-                [class.compat-item-warning]="c.severity === 'WARNING' || c.severity === 'UNKNOWN'">{{ c.severity === 'PASS' ? '✓' : c.severity === 'ERROR' ? '✗' : '⚠' }} {{ c.detail }}</span>
+                [class.compat-item-warning]="c.severity === 'WARNING' || c.severity === 'UNKNOWN'"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (c.severity === 'PASS' ? 'check' : c.severity === 'ERROR' ? 'error' : 'warning')"></use></svg> {{ c.detail }}</span>
               <div *ngFor="let source of c.sources" class="compat-source">
                 <a [href]="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
                 — {{ source.field === 'recommended_psu_watt' ? 'PSU ระบบที่แนะนำ' : 'กำลังไฟอุปกรณ์' }} {{ source.value }}{{ source.unit }}
@@ -155,7 +156,7 @@
               </div>
             </div>
             <div *ngIf="compatResult.suggestions.length > 0" class="compat-suggestions">
-              <strong>💡 แนะนำ:</strong>
+              <strong><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lightbulb"></use></svg> แนะนำ:</strong>
               <div *ngFor="let s of compatResult.suggestions" class="sug-item">- {{ s }}</div>
             </div>
           </div>
@@ -164,7 +165,7 @@
         <!-- Selected Parts List -->
         <div class="summary-list">
           <div class="summary-row" *ngFor="let slot of slots" [class.summary-empty]="!slot.selected">
-            <span class="summary-icon">{{ slot.icon }}</span>
+            <span class="summary-icon"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + slot.icon"></use></svg></span>
             <span class="summary-slot-name">{{ slot.label }}</span>
             <span class="summary-product-name">
               {{ slot.selected ? slot.selected.p_name : '—' }}
@@ -179,7 +180,7 @@
 
         <!-- 3-Store Breakdown -->
         <div class="store-breakdown-box" *ngIf="getSelectedCount() > 0">
-          <h3 class="breakdown-title">🏪 เปรียบเทียบราคารวมแยก 3 ร้าน</h3>
+          <h3 class="breakdown-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#chart"></use></svg> เปรียบเทียบราคารวมแยก 3 ร้าน</h3>
           <div class="store-row">
             <span class="store-name advice">Advice</span>
             <span class="store-val" *ngIf="getStoreTotal('advice') > 0">
@@ -208,7 +209,7 @@
           </div>
 
           <div class="best-store-badge">
-            🏆 ราคาดีที่สุด: <strong>{{ getBestStoreInfo().bestStore }}</strong>
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trophy"></use></svg> ราคาดีที่สุด: <strong>{{ getBestStoreInfo().bestStore }}</strong>
           </div>
         </div>
 
@@ -223,7 +224,7 @@
         <!-- Actions -->
         <div class="summary-actions">
           <button class="btn-save-spec" (click)="saveAndNavigateToHistory()" [disabled]="getSelectedCount() === 0 || isSaving">
-            💾 {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกและดูสรุปสเปก (แยก 3 ร้าน)' }}
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#save"></use></svg> {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกและดูสรุปสเปก (แยก 3 ร้าน)' }}
           </button>
           <button class="btn-clear" (click)="clearAll()" [disabled]="getSelectedCount() === 0">
             ล้างทั้งหมด

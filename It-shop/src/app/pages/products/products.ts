@@ -79,12 +79,28 @@ export class ProductsComponent implements OnInit, OnDestroy {
   readonly pageSize = 20;
   totalProducts = 0;
   isAdmin = false;
+  selectedStore = '';
+  selectedBrand = '';
+  availableBrands: string[] = [];
+  private readonly retailCategories = new Set([
+    'mouse', 'keyboard', 'keypad', 'graphic tablet', 'keyboard accessories',
+    'headset', 'gaming headset', 'wireless headset', 'in-ear headphone',
+    'true wireless earbuds', 'microphone', 'monitor', 'dual mode monitor',
+    'portable monitor', 'curved monitor', 'monitor accessories',
+    'gaming chair', 'gaming desk', 'chair', 'desk', 'furniture', 'gaming gear'
+  ]);
+
+  get showRetailFilters(): boolean {
+    return this.retailCategories.has(this.category.toLowerCase());
+  }
 
   // Toast notification
   toastMessage = '';
   toastType: 'success' | 'error' | '' = '';
   private toastTimer: any;
   private routeSub?: Subscription;
+  private productsRequestId = 0;
+  private brandRequestId = 0;
 
   // Modal แก้ไข
   showEditModal = false;
@@ -107,7 +123,7 @@ export class ProductsComponent implements OnInit, OnDestroy {
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
   }
 
-  private readonly FALLBACK_ICON = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+  private readonly FALLBACK_ICON = '/product-placeholder.svg';
 
   getProductImage(p: Product): string {
     return this.api.resolveProductImage(
@@ -121,11 +137,11 @@ export class ProductsComponent implements OnInit, OnDestroy {
     return prices.length ? Math.min(...prices) : (p.p_price || 0);
   }
 
-  onImgError(event: Event, p: Product) {
+  onImgError(event: Event) {
     const img = event.target as HTMLImageElement;
-    if (!img.src.includes('flaticon')) {
-      img.src = CATEGORY_ICONS[p.category] || this.FALLBACK_ICON;
-    }
+    // Both the retailer image and the old remote category icon can fail.
+    // The local asset guarantees a visible, honest placeholder.
+    if (!img.src.endsWith(this.FALLBACK_ICON)) img.src = this.FALLBACK_ICON;
     img.style.padding = '10px';
     img.style.objectFit = 'contain';
   }
@@ -142,6 +158,9 @@ export class ProductsComponent implements OnInit, OnDestroy {
     ]).subscribe(([params, qp]) => {
       this.category    = params.get('type') || '';
       this.searchQuery = qp.get('search') || '';
+      this.selectedStore = '';
+      this.selectedBrand = '';
+      this.availableBrands = [];
       // Angular reuses this component when navigating between categories.
       // Always reset pagination so a page from the previous category cannot
       // request an out-of-range page and make the new category look empty.
@@ -159,17 +178,21 @@ export class ProductsComponent implements OnInit, OnDestroy {
   }
 
   loadProducts(page = this.page) {
+    const requestId = ++this.productsRequestId;
     this.page = page;
     this.isLoading = true;
     this.loadError = false;
-    this.api.getProducts(this.category, this.searchQuery, this.page, this.pageSize).subscribe({
+    this.api.getProducts(this.category, this.searchQuery, this.page, this.pageSize,
+      this.selectedStore, this.selectedBrand).subscribe({
       next: (res) => {
+        if (requestId !== this.productsRequestId) return;
         this.products = res.status === 'success' ? res.data : [];
         this.totalProducts = res.pagination?.total ?? this.products.length;
         this.isLoading = false;
         this.cdr.detectChanges();
       },
       error: () => {
+        if (requestId !== this.productsRequestId) return;
         this.isLoading = false;
         this.loadError = true;
         this.products = [];
@@ -182,7 +205,46 @@ export class ProductsComponent implements OnInit, OnDestroy {
 
   onSearch() {
     // ไม่ clear category เพื่อให้ค้นหาภายในหมวดหมู่ปัจจุบันได้
+    this.selectedBrand = '';
     this.loadProducts(1);
+    if (this.showRetailFilters && this.selectedStore) this.loadBrandOptions();
+  }
+
+  onStoreChange(): void {
+    ++this.brandRequestId;
+    this.selectedBrand = '';
+    this.availableBrands = [];
+    if (this.selectedStore) this.loadBrandOptions();
+    this.loadProducts(1);
+  }
+
+  onBrandChange(): void {
+    this.loadProducts(1);
+  }
+
+  private loadBrandOptions(): void {
+    const requestId = ++this.brandRequestId;
+    const store = this.selectedStore;
+    const category = this.category;
+    const search = this.searchQuery;
+    this.api.getProductFilters(category, this.searchQuery, store).subscribe({
+      next: res => {
+        if (requestId !== this.brandRequestId || store !== this.selectedStore ||
+            category !== this.category || search !== this.searchQuery) return;
+        this.availableBrands = res.status === 'success' && Array.isArray(res.data?.brands)
+          ? res.data.brands : [];
+        if (this.selectedBrand && !this.availableBrands.includes(this.selectedBrand)) {
+          this.selectedBrand = '';
+          this.loadProducts(1);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        if (requestId !== this.brandRequestId) return;
+        this.availableBrands = [];
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   showToast(msg: string, type: 'success' | 'error') {

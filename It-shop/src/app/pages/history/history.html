@@ -3,22 +3,22 @@
   <!-- Header -->
   <div class="page-header">
     <div>
-      <h1>📜 ประวัติการจัดสเปค</h1>
+      <h1><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#history"></use></svg> ประวัติการจัดสเปค</h1>
       <p class="header-sub">ดูสเปกที่เคยจัด เปรียบเทียบราคาและเปิดดูสินค้าจากทั้ง 3 ร้าน</p>
     </div>
     <div class="header-actions">
-      <button routerLink="/pc-builder" class="btn-new btn-builder">🛠️ จัดสเปกเองใหม่</button>
-      <button routerLink="/ai-recommend" class="btn-new">🤖 AI จัดสเปกใหม่</button>
+      <button routerLink="/pc-builder" class="btn-new btn-builder"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#wrench"></use></svg> จัดสเปกเองใหม่</button>
+      <button routerLink="/ai-recommend" class="btn-new"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#spark"></use></svg> AI จัดสเปกใหม่</button>
     </div>
   </div>
 
   <!-- Filter Tabs -->
   <div class="filter-tabs">
     <button [class.active]="filterMode === 'all'"       (click)="filterMode = 'all'">ทั้งหมด ({{ historyList.length }})</button>
-    <button [class.active]="filterMode === 'manual'"    (click)="filterMode = 'manual'">🛠️ จัดสเปกเอง</button>
-    <button [class.active]="filterMode === 'recommend'" (click)="filterMode = 'recommend'">🤖 แนะนำสเปค</button>
-    <button [class.active]="filterMode === 'compare'"   (click)="filterMode = 'compare'">⚖️ เปรียบเทียบ</button>
-    <button [class.active]="filterMode === 'compat'"    (click)="filterMode = 'compat'">🔗 เช็คความเข้ากัน</button>
+    <button [class.active]="filterMode === 'manual'"    (click)="filterMode = 'manual'">จัดสเปกเอง</button>
+    <button [class.active]="filterMode === 'recommend'" (click)="filterMode = 'recommend'">แนะนำสเปค</button>
+    <button [class.active]="filterMode === 'compare'"   (click)="filterMode = 'compare'">เปรียบเทียบ</button>
+    <button [class.active]="filterMode === 'compat'"    (click)="filterMode = 'compat'">เช็คความเข้ากัน</button>
   </div>
 
   <!-- Loading -->
@@ -28,19 +28,19 @@
   </div>
 
   <div *ngIf="!isLoading && loadError" class="empty-state" role="alert">
-    <div class="empty-icon">❌</div>
+    <div class="empty-icon"><svg class="ui-icon ui-icon--xl" aria-hidden="true"><use href="/icons.svg#error"></use></svg></div>
     <h3>ไม่สามารถเชื่อมต่อเพื่อโหลดประวัติได้</h3>
     <button type="button" (click)="fetchHistory()" class="btn-new">ลองใหม่</button>
   </div>
 
   <!-- Empty -->
   <div *ngIf="!isLoading && !loadError && filteredHistory.length === 0" class="empty-state">
-    <div class="empty-icon">📭</div>
+    <div class="empty-icon"><svg class="ui-icon ui-icon--xl" aria-hidden="true"><use href="/icons.svg#history"></use></svg></div>
     <h3>ยังไม่มีประวัติการจัดสเปค</h3>
     <p>ลองจัดสเปกเอง หรือใช้ AI Recommend เพื่อบันทึกประวัติ</p>
     <div class="empty-actions">
-      <button routerLink="/pc-builder" class="btn-new btn-builder">🛠️ เริ่มจัดสเปกเอง</button>
-      <button routerLink="/ai-recommend" class="btn-new">🤖 เริ่มใช้ AI Recommend</button>
+      <button routerLink="/pc-builder" class="btn-new btn-builder"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#wrench"></use></svg> เริ่มจัดสเปกเอง</button>
+      <button routerLink="/ai-recommend" class="btn-new"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#spark"></use></svg> เริ่มใช้ AI Recommend</button>
     </div>
   </div>
 
@@ -65,11 +65,17 @@
             [class.ok]="getCompatOverall(item) === 'ok'"
             [class.warning]="getCompatOverall(item) === 'warning'"
             [class.error]="getCompatOverall(item) === 'error'">
-            {{ getCompatOverall(item) === 'ok' ? '✅ เข้ากันได้' : getCompatOverall(item) === 'warning' ? '⚠️ มีคำเตือน' : '❌ ไม่เข้ากัน' }}
+            <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (getCompatOverall(item) === 'ok' ? 'check' : getCompatOverall(item) === 'warning' ? 'warning' : 'error')"></use></svg> {{ getCompatOverall(item) === 'ok' ? 'เข้ากันได้' : getCompatOverall(item) === 'warning' ? 'มีคำเตือน' : 'ไม่เข้ากัน' }}
           </span>
           <div class="card-date">{{ formatDate(item.createdAt) }}</div>
           <div class="card-actions">
-            <button class="btn-delete" (click)="$event.stopPropagation(); deleteItem(item.id)">🗑️</button>
+            <button
+              class="btn-delete"
+              [disabled]="isDeleting(item.id)"
+              [attr.aria-busy]="isDeleting(item.id)"
+              [title]="isDeleting(item.id) ? 'กำลังลบ…' : 'ลบ'"
+              (click)="$event.stopPropagation(); deleteItem(item.id)"
+            ><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trash"></use></svg></button>
             <span class="expand-icon">{{ expandedId === item.id ? '▲' : '▼' }}</span>
           </div>
         </div>
@@ -123,7 +129,7 @@
             </div>
 
             <div class="store-card best">
-              <div class="store-card-title">🏆 ราคาดีที่สุด</div>
+              <div class="store-card-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trophy"></use></svg> ราคาดีที่สุด</div>
               <div class="store-card-price highlight">
                 {{ (item.result_data.totals.min || item.result_data.totals.best_total) | number }} ฿
               </div>
@@ -158,7 +164,7 @@
             <tbody>
               <tr *ngFor="let p of getParts(item)">
                 <td>
-                  <span class="part-type">{{ p.label || p.key }}</span>
+                  <span class="part-type"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + partIcon(p.label || p.key)"></use></svg> {{ p.label || p.key }}</span>
                 </td>
                 <td class="part-name-cell">
                   <img *ngIf="p.img_url" [src]="p.img_url" class="part-thumb" (error)="$any($event.target).style.display='none'">
@@ -212,7 +218,7 @@
             </thead>
             <tbody>
               <tr *ngFor="let part of getParts(item)">
-                <td><span class="part-type">{{ part.type }}</span></td>
+                <td><span class="part-type"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + partIcon(part.type)"></use></svg> {{ part.type }}</span></td>
                 <td class="part-name">{{ part.name }}</td>
                 <td class="part-price">{{ part.price }}</td>
                 <td class="part-reason">{{ part.reason }}</td>
@@ -234,15 +240,15 @@
           <!-- Performance -->
           <div class="perf-grid" *ngIf="item.result_data?.performance">
             <div class="perf-item">
-              <div class="perf-label">🎮 Gaming</div>
+              <div class="perf-label"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#gamepad"></use></svg> Gaming</div>
               <div class="perf-value">{{ item.result_data.performance.gaming }}</div>
             </div>
             <div class="perf-item">
-              <div class="perf-label">💼 Productivity</div>
+              <div class="perf-label"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#briefcase"></use></svg> Productivity</div>
               <div class="perf-value">{{ item.result_data.performance.productivity }}</div>
             </div>
             <div class="perf-item">
-              <div class="perf-label">🔧 Upgrade</div>
+              <div class="perf-label"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#chart"></use></svg> Upgrade</div>
               <div class="perf-value">{{ item.result_data.performance.upgrade }}</div>
             </div>
           </div>
@@ -251,8 +257,8 @@
         <!-- COMPARE: Categories Table -->
         <ng-container *ngIf="item.mode === 'compare' && getCategories(item).length > 0">
           <div class="compare-names">
-            <div class="compare-name spec1">📌 {{ item.result_data?.spec1Name }}</div>
-            <div class="compare-name spec2">📌 {{ item.result_data?.spec2Name }}</div>
+            <div class="compare-name spec1">{{ item.result_data?.spec1Name }}</div>
+            <div class="compare-name spec2">{{ item.result_data?.spec2Name }}</div>
           </div>
           <table class="parts-table">
             <thead>
@@ -269,21 +275,21 @@
                 <td>{{ cat.spec1 }}</td>
                 <td>{{ cat.spec2 }}</td>
                 <td>
-                  <span *ngIf="cat.winner === '1'" class="winner-badge">🏆 {{ item.result_data?.spec1Name }}</span>
-                  <span *ngIf="cat.winner === '2'" class="winner-badge">🏆 {{ item.result_data?.spec2Name }}</span>
-                  <span *ngIf="cat.winner === 'tie'" class="winner-badge tie">🤝 เสมอ</span>
+                  <span *ngIf="cat.winner === '1'" class="winner-badge"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trophy"></use></svg> {{ item.result_data?.spec1Name }}</span>
+                  <span *ngIf="cat.winner === '2'" class="winner-badge"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trophy"></use></svg> {{ item.result_data?.spec2Name }}</span>
+                  <span *ngIf="cat.winner === 'tie'" class="winner-badge tie">เสมอ</span>
                 </td>
               </tr>
             </tbody>
           </table>
           <p class="recommend-note" *ngIf="item.result_data?.recommendation">
-            💡 {{ item.result_data.recommendation }}
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lightbulb"></use></svg> {{ item.result_data.recommendation }}
           </p>
         </ng-container>
 
         <!-- COMPAT: Checks Table -->
         <ng-container *ngIf="getChecks(item).length > 0">
-          <h4 class="checks-header" *ngIf="item.mode === 'manual'">🔗 รายการตรวจสอบความเข้ากันได้</h4>
+          <h4 class="checks-header" *ngIf="item.mode === 'manual'"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#link"></use></svg> รายการตรวจสอบความเข้ากันได้</h4>
           <table class="parts-table">
             <thead>
               <tr>
@@ -300,7 +306,7 @@
                     [class.check-ok]="check.severity === 'PASS' || (!check.severity && check.ok)"
                     [class.check-warning]="check.severity === 'WARNING' || check.severity === 'UNKNOWN'"
                     [class.check-fail]="check.severity === 'ERROR' || (!check.severity && !check.ok)">
-                    {{ check.severity === 'PASS' || (!check.severity && check.ok) ? '✅ ผ่าน' : check.severity === 'ERROR' || (!check.severity && !check.ok) ? '❌ ไม่ผ่าน' : '⚠️ ต้องตรวจเพิ่ม' }}
+                    <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (check.severity === 'PASS' || (!check.severity && check.ok) ? 'check' : check.severity === 'ERROR' || (!check.severity && !check.ok) ? 'error' : 'warning')"></use></svg> {{ check.severity === 'PASS' || (!check.severity && check.ok) ? 'ผ่าน' : check.severity === 'ERROR' || (!check.severity && !check.ok) ? 'ไม่ผ่าน' : 'ต้องตรวจเพิ่ม' }}
                   </span>
                 </td>
                 <td class="part-reason">{{ check.detail }}</td>
@@ -308,7 +314,7 @@
             </tbody>
           </table>
           <div *ngIf="item.result_data?.suggestions?.length > 0" class="suggest-box">
-            <strong>💡 คำแนะนำ:</strong>
+            <strong><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lightbulb"></use></svg> คำแนะนำ:</strong>
             <ul>
               <li *ngFor="let s of item.result_data.suggestions">{{ s }}</li>
             </ul>

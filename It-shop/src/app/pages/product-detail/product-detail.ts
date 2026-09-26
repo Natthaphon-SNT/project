@@ -94,9 +94,9 @@ export class ProductDetail implements OnInit {
     }).join(' ');
     const change = points[points.length - 1] - points[0];
     this.trendLabel = change < 0
-      ? `📉 แนวโน้มราคาลดลง ${Math.abs(change).toLocaleString()}฿`
-      : change > 0 ? `📈 แนวโน้มราคาเพิ่มขึ้น ${change.toLocaleString()}฿`
-      : '➖ ราคาคงที่';
+      ? `แนวโน้มราคาลดลง ${Math.abs(change).toLocaleString()}฿`
+      : change > 0 ? `แนวโน้มราคาเพิ่มขึ้น ${change.toLocaleString()}฿`
+      : 'ราคาคงที่';
   }
 
   formatLastUpdated(ts: string): string {
@@ -156,7 +156,7 @@ export class ProductDetail implements OnInit {
     }
   }
 
-  private readonly FALLBACK = 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+  private readonly FALLBACK = '/product-placeholder.svg';
 
   getProductImage(): string {
     const raw = this.product?.img_url || '';
@@ -165,10 +165,7 @@ export class ProductDetail implements OnInit {
 
   onImgError(event: Event) {
     const img = event.target as HTMLImageElement;
-    // ถ้า proxy ล้มเหลว ให้ fallback icon
-    if (!img.src.includes('flaticon')) {
-      img.src = this.FALLBACK;
-    }
+    if (!img.src.endsWith(this.FALLBACK)) img.src = this.FALLBACK;
     img.style.padding = '20px';
     img.style.objectFit = 'contain';
   }

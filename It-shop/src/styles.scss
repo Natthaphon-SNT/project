@@ -22,6 +22,10 @@ app-admin-products { @include adminProducts.component-styles; }
   --bg-dark: #111111;         /* สีพื้นหลังเข้ม */
   --card-bg: #ffffff;         /* สีพื้นหลังการ์ด */
   --text-dark: #333333;
+  --motion-fast: 160ms;
+  --motion-base: 260ms;
+  --motion-enter: 420ms;
+  --motion-ease: cubic-bezier(.22, 1, .36, 1);
 }
 
 body {
@@ -119,4 +123,53 @@ body {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.ui-icon {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  vertical-align: -0.18em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ui-icon--lg { width: 1.5em; height: 1.5em; }
+.ui-icon--xl { width: 1em; height: 1em; }
+
+button, a, input, select, textarea {
+  -webkit-tap-highlight-color: rgba(251, 113, 133, .18);
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #fb7185;
+  outline-offset: 3px;
+}
+
+@keyframes ui-surface-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ui-dialog-enter {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ui-overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

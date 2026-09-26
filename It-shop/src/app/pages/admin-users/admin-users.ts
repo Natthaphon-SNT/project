@@ -135,16 +135,16 @@ export class AdminUsersComponent implements OnInit {
         this.isSaving = false;
         this.showEditModal = false;
         if (res.status === 'success') {
-          this.showMessage('✅ แก้ไขข้อมูลสำเร็จ', 'success');
+          this.showMessage('แก้ไขข้อมูลสำเร็จ', 'success');
           this.loadUsers();
         } else {
-          this.showMessage('❌ ' + (res.detail || res.message), 'error');
+          this.showMessage(res.detail || res.message, 'error');
         }
         this.cdr.detectChanges();
       },
       error: (err) => {
         this.isSaving = false;
-        this.showMessage('❌ ' + (err.error?.detail || 'เกิดข้อผิดพลาด'), 'error');
+        this.showMessage(err.error?.detail || 'เกิดข้อผิดพลาด', 'error');
         this.cdr.detectChanges();
       }
     });
@@ -164,37 +164,37 @@ export class AdminUsersComponent implements OnInit {
       next: (res) => {
         this.showRoleModal = false;
         if (res.status === 'success') {
-          this.showMessage(`✅ เปลี่ยน role เป็น "${this.roleForm.role}" สำเร็จ`, 'success');
+          this.showMessage(`เปลี่ยน role เป็น "${this.roleForm.role}" สำเร็จ`, 'success');
           this.loadUsers();
           this.selectedUser.u_role = this.roleForm.role;
         } else {
-          this.showMessage('❌ ' + (res.detail || res.message), 'error');
+          this.showMessage(res.detail || res.message, 'error');
         }
         this.cdr.detectChanges();
       },
       error: (err) => {
         this.showRoleModal = false;
-        this.showMessage('❌ ' + (err.error?.detail || 'เกิดข้อผิดพลาด'), 'error');
+        this.showMessage(err.error?.detail || 'เกิดข้อผิดพลาด', 'error');
         this.cdr.detectChanges();
       }
     });
   }
 
   deleteUser(user: any) {
-    if (!confirm(`⚠️ ยืนยันการลบบัญชี "${user.u_name}"?\nการลบนี้ไม่สามารถย้อนกลับได้`)) return;
+    if (!confirm(`ยืนยันการลบบัญชี "${user.u_name}"?\nการลบนี้ไม่สามารถย้อนกลับได้`)) return;
     this.http.delete<any>(`${this.API}/api/admin/users/${user.uid}`, { headers: this.getHeaders() }).subscribe({
       next: (res) => {
         if (res.status === 'success') {
-          this.showMessage(`✅ ลบบัญชี "${user.u_name}" สำเร็จ`, 'success');
+          this.showMessage(`ลบบัญชี "${user.u_name}" สำเร็จ`, 'success');
           if (this.selectedUser?.uid === user.uid) this.selectedUser = null;
           this.loadUsers();
         } else {
-          this.showMessage('❌ ' + (res.detail || res.message), 'error');
+          this.showMessage(res.detail || res.message, 'error');
         }
         this.cdr.detectChanges();
       },
       error: (err) => {
-        this.showMessage('❌ ' + (err.error?.detail || 'เกิดข้อผิดพลาด'), 'error');
+        this.showMessage(err.error?.detail || 'เกิดข้อผิดพลาด', 'error');
         this.cdr.detectChanges();
       }
     });
@@ -214,8 +214,8 @@ export class AdminUsersComponent implements OnInit {
   }
 
   getModeIcon(mode: string): string {
-    const map: Record<string, string> = { recommend: '🤖', compare: '⚖️', compat: '🔗' };
-    return map[mode] || '📋';
+    const map: Record<string, string> = { recommend: 'spark', compare: 'compare', compat: 'link' };
+    return map[mode] || 'wrench';
   }
 
   private showMessage(msg: string, type: 'success' | 'error') {

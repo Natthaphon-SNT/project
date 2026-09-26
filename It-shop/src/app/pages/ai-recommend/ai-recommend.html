@@ -2,7 +2,7 @@
 <div class="ai-workspace">
 <aside class="ai-right-rail" *ngIf="activeTab === 'form'" aria-label="AI conversation and settings">
 <div class="ai-toolbar">
-<div class="ai-toolbar-brand"><strong>IT-RECOMMEND AI</strong><span>{{ aiSettings.provider | uppercase }}</span></div>
+<div class="ai-toolbar-brand"><strong>IT-RECOMMEND AI</strong><span>{{ providerBadgeLabel }}</span></div>
 <div class="ai-toolbar-actions" aria-label="Chat actions">
 <button class="icon-btn" type="button" (click)="toggleHistorySidebar()" aria-label="ประวัติแชท" title="ประวัติแชท">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
@@ -25,12 +25,12 @@
 </header>
 <div class="provider-tabs" role="tablist">
   <button *ngFor="let tab of providerTabs" type="button" role="tab" [attr.aria-selected]="settingsTab === tab"
-    [class.active]="settingsTab === tab" (click)="selectProviderTab(tab)">{{ tab | titlecase }}</button>
+    [class.active]="settingsTab === tab" (click)="selectProviderTab(tab)">{{ providerTabLabel(tab) }}</button>
 </div>
 <div class="settings-fields">
   <div class="panel-field">
     <div class="field-label-row"><label for="provider-key">API Key</label>
-      <a [href]="settingsTab === 'google' ? 'https://aistudio.google.com/apikey' : settingsTab === 'openai' ? 'https://platform.openai.com/api-keys' : 'https://openrouter.ai/keys'" target="_blank" rel="noopener noreferrer">รับ API key ↗</a>
+      <a [href]="providerKeyHelpUrl" target="_blank" rel="noopener noreferrer">รับ API key ↗</a>
     </div>
     <div class="key-input">
       <input id="provider-key" autocomplete="off" [type]="showApiKey[settingsTab] ? 'text' : 'password'" [(ngModel)]="aiSettings.api_key" placeholder="วาง API key">
@@ -47,6 +47,7 @@
   </div>
 </div>
 <p class="panel-note">โควตาและโมเดลที่ใช้ได้ขึ้นอยู่กับผู้ให้บริการ</p>
+<p class="panel-note" *ngIf="settingsTab === 'opencode_zen'">โมเดลที่แสดงรองรับ Chat Completions หรือ Responses ของ Zen; โมเดลอื่นอาจใช้ endpoint ต่างกัน <a [href]="providerModelsHelpUrl" target="_blank" rel="noopener noreferrer">ดูรายการโมเดล</a></p>
 <p class="panel-note" *ngIf="currentUser.uid === 'guest'">เข้าสู่ระบบเพื่อบันทึกการตั้งค่าและประวัติแชท</p>
 <p class="panel-status error" role="alert" *ngIf="settingsError">{{ settingsError }}</p>
 <footer class="panel-footer">
@@ -91,9 +92,9 @@
 </div>
 <div class="chat-composer">
   <label for="followup">Continue this conversation</label>
-  <textarea id="followup" [(ngModel)]="followUp" [disabled]="step === 2 || !chatMessages.length" rows="2"
-    (keydown.enter)="onFollowUpEnter($event)" placeholder="พิมพ์คำถามต่อหลังได้ผลลัพธ์ (Shift+Enter เพื่อขึ้นบรรทัดใหม่)"></textarea>
-  <button (click)="sendFollowUp()" [disabled]="step === 2 || !followUp.trim() || !chatMessages.length">Send</button>
+  <textarea id="followup" [(ngModel)]="followUp" [disabled]="step === 2 || askLoading" rows="2"
+    (keydown.enter)="onFollowUpEnter($event)" placeholder="พิมพ์เพื่อเริ่มหรือคุยต่อ (Shift+Enter เพื่อขึ้นบรรทัดใหม่)"></textarea>
+  <button type="button" (click)="sendFollowUp()" [disabled]="step === 2 || askLoading || !followUp.trim()">{{ askLoading ? 'กำลังส่ง...' : 'Send' }}</button>
 </div>
 </section>
 </aside>
@@ -143,8 +144,8 @@
 
     <!-- ─── VIEWING FROM HISTORY BANNER ─── -->
     <div class="history-banner" *ngIf="viewingDetail">
-      <span>📋 กำลังดูประวัติ: <strong>{{ viewingDetail.title }}</strong></span>
-      <button class="btn-sm" (click)="reset()">✕ ปิด</button>
+      <span><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#history"></use></svg> กำลังดูประวัติ: <strong>{{ viewingDetail.title }}</strong></span>
+      <button class="btn-sm" (click)="reset()">ปิด</button>
     </div>
 
     <!-- ─── FORMS ─── -->
@@ -156,7 +157,7 @@
         <div class="usecase-grid">
           <button *ngFor="let uc of useCases" class="usecase-btn"
             [class.selected]="selectedUseCase === uc.id" (click)="selectedUseCase = uc.id">
-            <span class="uc-icon">{{ uc.icon }}</span>
+            <span class="uc-icon"><svg class="ui-icon ui-icon--lg" aria-hidden="true"><use [attr.href]="'/icons.svg#' + uc.icon"></use></svg></span>
             <span class="uc-label">{{ uc.label }}</span>
             <span class="uc-desc">{{ uc.desc }}</span>
           </button>
@@ -181,7 +182,7 @@
       </div>
 
       <button class="btn-ai-glow" [disabled]="!selectedUseCase || !selectedBudget" (click)="handleRecommend()">
-        🤖 ให้ AI แนะนำสเปค
+        <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#spark"></use></svg> ให้ AI แนะนำสเปค
       </button>
     </div>
 
@@ -189,19 +190,19 @@
     <div class="ai-card glow-card" *ngIf="step === 1 && mode === 'compare'">
       <p class="form-hint">ใส่สเปคสองชุดที่ต้องการเปรียบเทียบ เช่น CPU + GPU หรือสเปคทั้งชุด</p>
       <div class="form-section">
-        <label class="form-label">⚙️ สเปคชุดที่ 1</label>
+        <label class="form-label">สเปคชุดที่ 1</label>
         <textarea class="ai-textarea" rows="4" [(ngModel)]="spec1"
           placeholder="เช่น Intel Core i5-14400F + RTX 4060 + 16GB DDR5 + B760 งบ 25,000 บาท">
         </textarea>
       </div>
       <div class="form-section">
-        <label class="form-label">⚙️ สเปคชุดที่ 2</label>
+        <label class="form-label">สเปคชุดที่ 2</label>
         <textarea class="ai-textarea" rows="4" [(ngModel)]="spec2"
           placeholder="เช่น AMD Ryzen 5 7600 + RX 7600 + 16GB DDR5 + B650 งบ 25,000 บาท">
         </textarea>
       </div>
       <button class="btn-ai-glow" [disabled]="!spec1 || !spec2" (click)="handleCompare()">
-        ⚖️ เปรียบเทียบสเปค
+        <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#compare"></use></svg> เปรียบเทียบสเปค
       </button>
     </div>
 
@@ -209,13 +210,13 @@
     <div class="ai-card glow-card" *ngIf="step === 1 && mode === 'compat'">
       <p class="form-hint">ใส่รายชื่อชิ้นส่วนทั้งหมดที่ต้องการตรวจสอบ (แต่ละชิ้นบรรทัดละชิ้น)</p>
       <div class="form-section">
-        <label class="form-label">🔩 รายการชิ้นส่วน</label>
+        <label class="form-label">รายการชิ้นส่วน</label>
         <textarea class="ai-textarea" rows="9" [(ngModel)]="compatText"
           placeholder="CPU: Intel Core i9-13900K&#10;Mainboard: ASUS ROG STRIX Z790-F&#10;RAM: 32GB DDR5 5600MHz&#10;GPU: RTX 4090&#10;PSU: 850W 80+ Gold&#10;Case: Lian Li PC-O11 Dynamic&#10;Cooler: Noctua NH-D15">
         </textarea>
       </div>
       <button class="btn-ai-glow" [disabled]="!compatText.trim()" (click)="handleCompat()">
-        🔗 ตรวจสอบความเข้ากันได้
+        <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#link"></use></svg> ตรวจสอบความเข้ากันได้
       </button>
     </div>
 
@@ -235,7 +236,8 @@
 
     <!-- RESULT: แนะนำสเปค -->
     <div class="result-wrapper" *ngIf="step === 3 && resultType === 'recommend' && recommendData">
-      <p role="status" *ngIf="recommendData._meta?.provider_fallback">ไม่สามารถใช้ผลลัพธ์ AI ภายนอกได้ ข้อมูลด้านล่างจัดจากฐานข้อมูลสินค้าและระบบตรวจความเข้ากันได้อัตโนมัติ</p>
+      <p role="status" *ngIf="recommendData._meta?.provider_fallback">{{ providerLabel(recommendData._meta?.requested_provider || aiSettings.provider) }}: {{ fallbackDescription(recommendData._meta?.fallback_reason) }} — ผลด้านล่างจัดจากฐานข้อมูลสินค้าและระบบตรวจความเข้ากันได้อัตโนมัติ</p>
+      <p role="status" *ngIf="!recommendData._meta?.provider_fallback && recommendData._meta?.llm_provider">ใช้คำอธิบายจาก {{ providerLabel(recommendData._meta?.llm_provider || '') }} ({{ recommendData._meta?.llm_model }}) โดยสินค้าและราคาอ้างอิงจากฐานข้อมูลร้านค้า</p>
       <div class="recommend-alerts" *ngIf="recommendData.warnings?.length" role="alert">
         <p *ngFor="let warning of recommendData.warnings">{{ warning }}</p>
       </div>
@@ -252,17 +254,17 @@
         </div>
         <div class="perf-grid">
           <div class="perf-card">
-            <span class="perf-icon">🎮</span>
+            <span class="perf-icon"><svg class="ui-icon ui-icon--lg" aria-hidden="true"><use href="/icons.svg#gamepad"></use></svg></span>
             <div class="perf-name">Gaming</div>
             <div class="perf-val">{{ recommendData.performance.gaming }}</div>
           </div>
           <div class="perf-card">
-            <span class="perf-icon">💼</span>
+            <span class="perf-icon"><svg class="ui-icon ui-icon--lg" aria-hidden="true"><use href="/icons.svg#briefcase"></use></svg></span>
             <div class="perf-name">Productivity</div>
             <div class="perf-val">{{ recommendData.performance.productivity }}</div>
           </div>
           <div class="perf-card">
-            <span class="perf-icon">⬆️</span>
+            <span class="perf-icon"><svg class="ui-icon ui-icon--lg" aria-hidden="true"><use href="/icons.svg#chart"></use></svg></span>
             <div class="perf-name">Upgrade Path</div>
             <div class="perf-val">{{ recommendData.performance.upgrade }}</div>
           </div>
@@ -274,7 +276,7 @@
           class="part-card" [class.visible]="visibleCards[i]">
           <div class="part-header">
             <div>
-              <span class="part-type">{{ part.type }}</span>
+              <span class="part-type"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + partIcon(part.type)"></use></svg> {{ part.type }}</span>
               <div class="part-name">{{ part.name }}</div>
             </div>
             <div class="part-price-wrap">
@@ -298,11 +300,11 @@
 
       <div class="pros-cons-grid">
         <div class="ai-card">
-          <div class="pros-title">✅ ข้อดี</div>
+          <div class="pros-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg> ข้อดี</div>
           <div *ngFor="let p of recommendData.pros" class="pros-item">• {{ p }}</div>
         </div>
         <div class="ai-card">
-          <div class="cons-title">⚠️ ข้อควรรู้</div>
+          <div class="cons-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#warning"></use></svg> ข้อควรรู้</div>
           <div *ngFor="let c of recommendData.cons" class="cons-item">• {{ c }}</div>
         </div>
       </div>
@@ -310,9 +312,7 @@
       <!-- Compatibility Engine verdict (deterministic) -->
       <div class="ai-card compat-verdict" *ngIf="recommendData.compat">
         <div class="compat-verdict-head">
-          <span class="compat-emoji">
-            {{ recommendData.compat.overall === 'ok' ? '✅' : recommendData.compat.overall === 'warning' ? '⚠️' : '❌' }}
-          </span>
+          <span class="compat-emoji"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (recommendData.compat.overall === 'ok' ? 'check' : recommendData.compat.overall === 'warning' ? 'warning' : 'error')"></use></svg></span>
           <span>{{ recommendData.compat.summary }}</span>
         </div>
         <div class="check-badge-row">
@@ -321,20 +321,20 @@
             [class.unknown]="check.ok && isBadDetail(check.detail)"
             [class.fail]="!check.ok"
             [title]="check.detail">
-            {{ check.ok ? (isBadDetail(check.detail) ? '➖' : '✅') : '❌' }} {{ check.item }}
+            <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (check.ok ? (isBadDetail(check.detail) ? 'warning' : 'check') : 'error')"></use></svg> {{ check.item }}
           </div>
         </div>
       </div>
 
       <!-- Scoring Engine: AI ranking explanation -->
       <div class="ai-card ranking-box" *ngIf="recommendData.ranking_explanation">
-        <div class="ranking-title">🏆 เหตุผลการจัดอันดับ (Scoring Engine + AI)</div>
+        <div class="ranking-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trophy"></use></svg> เหตุผลการจัดอันดับ (Scoring Engine + AI)</div>
         <p class="ranking-text">{{ recommendData.ranking_explanation }}</p>
       </div>
 
       <!-- Top-3 scored alternatives -->
       <div class="alt-section" *ngIf="recommendData.alternatives?.length">
-        <h2 class="alt-heading">📊 Top ทางเลือกจาก Scoring Engine</h2>
+        <h2 class="alt-heading"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#chart"></use></svg> Top ทางเลือกจาก Scoring Engine</h2>
         <p class="alt-sub">Performance 40% · Budget 25% · Compatibility 20% · Preference 10% · Availability 5%</p>
 
         <div *ngFor="let alt of recommendData.alternatives; let altIndex = index" class="ai-card alt-card" [class.primary-alt]="altIndex === 0">
@@ -360,7 +360,7 @@
 
           <table class="alt-parts">
             <tr *ngFor="let part of alt.parts">
-              <td class="ap-type">{{ part.type }}</td>
+              <td class="ap-type"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + partIcon(part.type)"></use></svg> {{ part.type }}</td>
               <td class="ap-name">{{ part.name }}</td>
               <td class="ap-price">{{ formatPartPrice(part.price) }}</td>
             </tr>
@@ -380,7 +380,7 @@
         </button>
         <div class="spec-answer" *ngIf="askAnswer" role="status">{{ askAnswer }}</div>
       </section>
-      <button class="btn-ai-glow" (click)="reset()">🔄 แนะนำใหม่</button>
+      <button class="btn-ai-glow" (click)="reset()"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#refresh"></use></svg> แนะนำใหม่</button>
     </div>
 
     <!-- RESULT: เปรียบเทียบ -->
@@ -391,7 +391,7 @@
             <div class="vs-label">ชุดที่ 1</div>
             <div class="vs-name">{{ compareData.spec1Name }}</div>
           </div>
-          <div class="vs-icon">⚔️</div>
+          <div class="vs-icon"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#compare"></use></svg></div>
           <div class="vs-side">
             <div class="vs-label">ชุดที่ 2</div>
             <div class="vs-name">{{ compareData.spec2Name }}</div>
@@ -399,7 +399,7 @@
         </div>
         <div class="winner-box">
           <div class="winner-title">
-            🏆 {{ compareData.winner === 'tie' ? 'เสมอกัน' : 'สเปคชุดที่ ' + compareData.winner + ' ดีกว่า' }}
+            <svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trophy"></use></svg> {{ compareData.winner === 'tie' ? 'เสมอกัน' : 'สเปคชุดที่ ' + compareData.winner + ' ดีกว่า' }}
           </div>
           <div class="winner-verdict">{{ compareData.verdict }}</div>
         </div>
@@ -414,20 +414,18 @@
           <div class="compare-cell" [class.winner]="cat.winner === '2'">{{ cat.spec2 }}</div>
         </div>
         <div class="recommendation-box">
-          <div class="rec-title">💡 คำแนะนำ</div>
+          <div class="rec-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lightbulb"></use></svg> คำแนะนำ</div>
           <div class="rec-text">{{ compareData.recommendation }}</div>
         </div>
       </div>
-      <button class="btn-ai-glow" (click)="reset()">🔄 เปรียบเทียบใหม่</button>
+      <button class="btn-ai-glow" (click)="reset()"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#refresh"></use></svg> เปรียบเทียบใหม่</button>
     </div>
 
     <!-- RESULT: เช็คความเข้ากัน -->
     <div class="result-wrapper" *ngIf="step === 3 && resultType === 'compat' && compatData">
       <div class="ai-card animate-slide-up">
         <div class="compat-header">
-          <div class="compat-icon">
-            {{ compatData.overall === 'ok' ? '✅' : compatData.overall === 'warning' ? '⚠️' : '❌' }}
-          </div>
+          <div class="compat-icon"><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (compatData.overall === 'ok' ? 'check' : compatData.overall === 'warning' ? 'warning' : 'error')"></use></svg></div>
           <div>
             <div class="compat-title">
               {{ compatData.overall === 'ok' ? 'ชิ้นส่วนเข้ากันได้ทั้งหมด' : compatData.overall === 'warning' ? 'มีบางจุดที่ควรระวัง' : 'พบปัญหาความเข้ากันได้' }}
@@ -438,21 +436,21 @@
         <div class="checks-list">
           <div *ngFor="let check of compatData.checks" class="check-badge"
             [class.check-ok]="check.ok" [class.check-fail]="!check.ok">
-            <span>{{ check.ok ? '✅' : '⚠️' }}</span>
+            <span><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (check.ok ? 'check' : 'warning')"></use></svg></span>
             <span>{{ check.item }}: {{ check.detail }}</span>
           </div>
         </div>
       <div class="suggestions-box" *ngIf="compatData.suggestions.length">
-          <div class="sug-title">💡 คำแนะนำเพิ่มเติม</div>
+          <div class="sug-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#lightbulb"></use></svg> คำแนะนำเพิ่มเติม</div>
           <div *ngFor="let s of compatData.suggestions" class="sug-item">• {{ s }}</div>
         </div>
       </div>
-      <button class="btn-ai-glow" (click)="reset()">🔄 ตรวจสอบใหม่</button>
+      <button class="btn-ai-glow" (click)="reset()"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#refresh"></use></svg> ตรวจสอบใหม่</button>
     </div>
 
     <!-- ERROR -->
     <div class="ai-card error-card" *ngIf="step === 3 && resultType === 'error'">
-      <div class="error-icon">❌</div>
+      <div class="error-icon"><svg class="ui-icon ui-icon--xl" aria-hidden="true"><use href="/icons.svg#error"></use></svg></div>
       <div class="error-title">เกิดข้อผิดพลาด</div>
       <div class="error-sub">{{ errorMessage || 'ไม่สามารถเรียก AI ได้ กรุณาลองใหม่' }}</div>
       <button class="btn-ai-glow" (click)="reset()">ลองใหม่</button>
@@ -466,21 +464,21 @@
     <div class="history-container">
 
       <div class="history-header">
-        <h2 class="history-title">📋 ประวัติการจัดสเปคของฉัน</h2>
+        <h2 class="history-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#history"></use></svg> ประวัติการจัดสเปคของฉัน</h2>
         <div class="history-filter-row">
           <button class="filter-btn" [class.active]="historyFilter === 'all'"    (click)="historyFilter = 'all'">ทั้งหมด</button>
-          <button class="filter-btn" [class.active]="historyFilter === 'ai'"     (click)="historyFilter = 'ai'">🤖 AI จัดให้</button>
-          <button class="filter-btn" [class.active]="historyFilter === 'manual'" (click)="historyFilter = 'manual'">✍️ จัดเอง</button>
+          <button class="filter-btn" [class.active]="historyFilter === 'ai'"     (click)="historyFilter = 'ai'">AI จัดให้</button>
+          <button class="filter-btn" [class.active]="historyFilter === 'manual'" (click)="historyFilter = 'manual'">จัดเอง</button>
         </div>
       </div>
 
       <!-- Empty State -->
       <div class="empty-state" *ngIf="filteredMyHistory.length === 0">
-        <div class="empty-icon">📭</div>
+        <div class="empty-icon"><svg class="ui-icon ui-icon--xl" aria-hidden="true"><use href="/icons.svg#history"></use></svg></div>
         <div class="empty-text">ยังไม่มีประวัติการจัดสเปค</div>
         <div class="empty-sub">ลองใช้ AI แนะนำสเปคก่อนเลยครับ</div>
         <button class="btn-ai-glow" style="max-width:200px;margin-top:16px" (click)="setTab('form')">
-          🤖 เริ่มเลย
+          เริ่มเลย
         </button>
       </div>
 
@@ -491,15 +489,21 @@
             <div class="hc-badges">
               <span class="hc-mode-badge">{{ getModeLabel(h.mode) }}</span>
               <span class="hc-type-badge" [class.ai]="h.type === 'ai'">
-                {{ h.type === 'ai' ? '🤖 AI' : '✍️ Manual' }}
+                {{ h.type === 'ai' ? 'AI' : 'Manual' }}
               </span>
             </div>
-            <button class="hc-delete" (click)="deleteHistory(h.id)" title="ลบ">🗑️</button>
+            <button
+              class="hc-delete"
+              [disabled]="isDeletingHistory(h.id)"
+              [attr.aria-busy]="isDeletingHistory(h.id)"
+              [title]="isDeletingHistory(h.id) ? 'กำลังลบ…' : 'ลบ'"
+              (click)="deleteHistory(h.id)"
+            ><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trash"></use></svg></button>
           </div>
           <div class="hc-title">{{ h.title }}</div>
           <div class="hc-input">{{ h.inputSummary }}</div>
-          <div class="hc-date">🕐 {{ formatDate(h.createdAt) }}</div>
-          <button class="hc-view-btn" (click)="viewDetail(h)">👁️ ดูผลลัพธ์</button>
+          <div class="hc-date"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#clock"></use></svg> {{ formatDate(h.createdAt) }}</div>
+          <button class="hc-view-btn" (click)="viewDetail(h)"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#eye"></use></svg> ดูผลลัพธ์</button>
         </div>
       </div>
 
@@ -512,7 +516,7 @@
     <div class="admin-container">
 
       <div class="admin-header">
-        <h2 class="admin-title">🛡️ Admin — ประวัติสเปคทั้งหมด</h2>
+        <h2 class="admin-title"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#shield"></use></svg> Admin — ประวัติสเปคทั้งหมด</h2>
         <div class="admin-stats">
           <div class="stat-pill">รวม <strong>{{ allHistory.length }}</strong> รายการ</div>
           <div class="stat-pill">AI <strong>{{ allHistory | adminFilter:'ai' }}</strong></div>
@@ -523,12 +527,12 @@
       <!-- Search -->
       <div class="admin-search-wrap">
         <input class="admin-search" [(ngModel)]="adminSearch"
-          placeholder="🔍 ค้นหาตาม username, ชื่อสเปค, uid...">
+          placeholder="ค้นหาตาม username, ชื่อสเปค, uid...">
       </div>
 
       <!-- Empty -->
       <div class="empty-state" *ngIf="filteredAdminHistory.length === 0">
-        <div class="empty-icon">📭</div>
+        <div class="empty-icon"><svg class="ui-icon ui-icon--xl" aria-hidden="true"><use href="/icons.svg#history"></use></svg></div>
         <div class="empty-text">ไม่พบประวัติ</div>
       </div>
 
@@ -556,15 +560,21 @@
               <td>
                 <span class="hc-mode-badge small">{{ getModeLabel(h.mode) }}</span><br>
                 <span class="hc-type-badge small" [class.ai]="h.type === 'ai'">
-                  {{ h.type === 'ai' ? '🤖 AI' : '✍️ Manual' }}
+                  {{ h.type === 'ai' ? 'AI' : 'Manual' }}
                 </span>
               </td>
               <td class="td-title">{{ h.title }}</td>
               <td>
-                <button class="btn-sm blue" (click)="viewDetail(h); setTab('form')">👁️ ดู</button>
+                <button class="btn-sm blue" (click)="viewDetail(h); setTab('form')"><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#eye"></use></svg> ดู</button>
               </td>
               <td>
-                <button class="btn-sm red" (click)="deleteHistory(h.id)">🗑️</button>
+                <button
+                  class="btn-sm red"
+                  [disabled]="isDeletingHistory(h.id)"
+                  [attr.aria-busy]="isDeletingHistory(h.id)"
+                  [title]="isDeletingHistory(h.id) ? 'กำลังลบ…' : 'ลบ'"
+                  (click)="deleteHistory(h.id)"
+                ><svg class="ui-icon" aria-hidden="true"><use href="/icons.svg#trash"></use></svg></button>
               </td>
             </tr>
           </tbody>

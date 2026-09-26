@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-labelledby="title">
+  <title id="title">ยังไม่มีรูปสินค้า</title>
+  <rect width="320" height="240" rx="16" fill="#f8fafc"/>
+  <rect x="68" y="46" width="184" height="132" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="4"/>
+  <circle cx="124" cy="91" r="15" fill="#cbd5e1"/>
+  <path d="m79 157 50-43 33 28 30-24 49 39" fill="none" stroke="#94a3b8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M90 67 230 157" stroke="#ef4444" stroke-width="6" stroke-linecap="round"/>
+  <text x="160" y="213" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#475569">ไม่มีรูปสินค้า</text>
+</svg>

@@ -112,9 +112,13 @@
   border: 1px solid #2f2f35;
   border-radius: 12px;
   overflow: hidden;
-  transition: border-color 0.2s;
+  transition: border-color var(--motion-base) ease,
+              transform var(--motion-base) var(--motion-ease),
+              box-shadow var(--motion-base) ease;
 
-  &:hover { border-color: rgba(220,38,38,.65); }
+  &:nth-child(-n+6) { animation: ui-surface-enter var(--motion-enter) var(--motion-ease) backwards; }
+
+  &:hover { border-color: rgba(220,38,38,.65); transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,.2); }
 }
 
 /* ─── Card Header ─── */
@@ -213,7 +217,12 @@
   transition: opacity 0.2s;
   padding: 0.25rem;
 
-  &:hover { opacity: 1; }
+  &:hover:not(:disabled) { opacity: 1; }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
 }
 
 .expand-icon {

@@ -2,8 +2,10 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
+import { finalize } from 'rxjs/operators';
 import { AuthService } from '../../services/auth';
 import { API_BASE_URL } from '../../services/api-base-url';
+import { stripEmojiDeep } from '../../utils/strip-emoji';
 
 export interface SpecHistoryItem {
   id: number;
@@ -35,6 +37,8 @@ export class HistoryComponent implements OnInit {
   loadError = false;
   expandedId: number | null = null;
   filterMode: 'all' | 'manual' | 'recommend' | 'compare' | 'compat' = 'all';
+  /** Ids with a DELETE in flight. Guards against duplicate clicks. */
+  readonly deletingIds = new Set<number>();
 
   readonly shops: HistoryShop[] = [
     { key: 'advice', label: 'Advice' },
@@ -98,7 +102,7 @@ export class HistoryComponent implements OnInit {
                 title: item.title || '',
                 inputSummary: item.inputSummary || '',
                 createdAt: item.createdAt || '',
-                result_data: parsed
+                result_data: stripEmojiDeep(parsed)
               };
             });
             // Automatically expand the first (latest) item if present
@@ -122,8 +126,24 @@ export class HistoryComponent implements OnInit {
   }
 
   deleteItem(id: number) {
+    // Second click while the first DELETE is still open: drop it. Without this
+    // the row stays rendered (and clickable) until the response arrives, so
+    // every extra click fired another independent request for the same id.
+    if (this.deletingIds.has(id)) return;
     if (!confirm('ยืนยันการลบประวัตินี้?')) return;
+
+    this.deletingIds.add(id);
+    this.cdr.detectChanges();
+
     this.http.delete<any>(`${this.API}/api/spec-history/${id}`, { headers: this.getHeaders() })
+      .pipe(
+        // Runs on success, error and unsubscribe, so the button can never get
+        // stuck disabled if the request fails.
+        finalize(() => {
+          this.deletingIds.delete(id);
+          this.cdr.detectChanges();
+        })
+      )
       .subscribe({
         next: (res) => {
           if (res.status === 'success') {
@@ -138,6 +158,10 @@ export class HistoryComponent implements OnInit {
       });
   }
 
+  isDeleting(id: number): boolean {
+    return this.deletingIds.has(id);
+  }
+
   toggleExpand(id: number) {
     this.expandedId = this.expandedId === id ? null : id;
   }
@@ -149,12 +173,25 @@ export class HistoryComponent implements OnInit {
 
   getModeLabel(mode: string): string {
     const map: Record<string, string> = {
-      manual:    '🛠️ จัดสเปกเอง',
-      recommend: '🤖 แนะนำสเปค',
-      compare:   '⚖️ เปรียบเทียบ',
-      compat:    '🔗 เช็คความเข้ากัน',
+      manual:    'จัดสเปกเอง',
+      recommend: 'แนะนำสเปค',
+      compare:   'เปรียบเทียบ',
+      compat:    'เช็คความเข้ากัน',
     };
     return map[mode] || mode;
+  }
+
+  partIcon(type: string): string {
+    const name = (type || '').toLowerCase();
+    if (/cpu|processor/.test(name)) return 'cpu';
+    if (/mainboard|motherboard/.test(name)) return 'motherboard';
+    if (/gpu|vga|graphics/.test(name)) return 'gpu';
+    if (/ram|memory/.test(name)) return 'ram';
+    if (/ssd|hdd|storage|m\.2/.test(name)) return 'storage';
+    if (/psu|power/.test(name)) return 'power';
+    if (/cooler|cooling|fan/.test(name)) return 'cooler';
+    if (/case/.test(name)) return 'case';
+    return 'package';
   }
 
   getModeClass(mode: string): string {

@@ -16,7 +16,7 @@ import { adminGuard } from './guards/admin.guard';
 export const routes: Routes = [
   { path: '', component: Home },
 
-  // ✅ ลูกค้าทั่วไป (ต้องล็อกอิน)
+  // ลูกค้าทั่วไป (ต้องล็อกอิน)
   { path: 'products', component: ProductsComponent, canActivate: [authGuard] },
   { path: 'category/:type', component: ProductsComponent, canActivate: [authGuard] },
   { path: 'product/:id', component: ProductDetail, canActivate: [authGuard] },
@@ -25,7 +25,7 @@ export const routes: Routes = [
   { path: 'pc-builder',   component: PcBuilderComponent,   canActivate: [authGuard] },
   { path: 'history', component: HistoryComponent, canActivate: [authGuard] },
 
-  // ✅ Admin เท่านั้น
+  // Admin เท่านั้น
   { path: 'admin/products', component: AdminProductsComponent, canActivate: [adminGuard] },
   { path: 'admin/users',    component: AdminUsersComponent,    canActivate: [adminGuard] },
 

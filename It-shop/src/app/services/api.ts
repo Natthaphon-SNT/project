@@ -6,7 +6,7 @@ import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  // ✅ FastAPI backend
+  // FastAPI backend
   readonly baseUrl = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
@@ -49,11 +49,21 @@ export class ApiService {
   }
 
   // Products
-  getProducts(category = '', search = '', page = 1, limit = 20): Observable<any> {
+  getProducts(category = '', search = '', page = 1, limit = 20, store = '', brand = ''): Observable<any> {
     let params = new HttpParams().set('page', page).set('limit', limit);
     if (category) params = params.set('category', category);
     if (search) params = params.set('search', search);
+    if (store) params = params.set('store', store);
+    if (brand) params = params.set('brand', brand);
     return this.http.get(`${this.baseUrl}/api/products`, { params });
+  }
+
+  getProductFilters(category = '', search = '', store = ''): Observable<any> {
+    let params = new HttpParams();
+    if (category) params = params.set('category', category);
+    if (search) params = params.set('search', search);
+    if (store) params = params.set('store', store);
+    return this.http.get(`${this.baseUrl}/api/products/filters`, { params });
   }
 
   getAdminProducts(category = '', search = '', page = 1, limit = 20): Observable<any> {
@@ -142,7 +152,7 @@ export class ApiService {
     return this.http.delete(`${this.baseUrl}/api/spec-history/${id}`, { headers: this.authHeaders() });
   }
 
-  // 🔄 Live polling
+  // Live polling
   getProductsLive(category: string = '', search: string = '', interval_ms: number = 30000): Observable<any> {
     return interval(interval_ms).pipe(
       switchMap(() => this.getProducts(category, search))

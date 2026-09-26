@@ -143,12 +143,21 @@
   border: 1px solid #1f2937;
   border-radius: 12px;
   overflow: hidden;
-  transition: all 0.3s ease-in-out;
+  transition: transform var(--motion-base) var(--motion-ease),
+              border-color var(--motion-base) ease,
+              box-shadow var(--motion-base) ease;
+
+  &:nth-child(-n+8) {
+    animation: ui-surface-enter var(--motion-enter) var(--motion-ease) backwards;
+  }
+  @for $i from 2 through 8 {
+    &:nth-child(#{$i}) { animation-delay: #{($i - 1) * 40}ms; }
+  }
 
   &:hover {
     border-color: #dc2626;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(220, 38, 38, 0.2);
-    transform: translateY(-5px);
+    transform: translateY(-3px);
   }
 }
 
@@ -167,7 +176,7 @@
     max-height: 100%;
     max-width: 100%;
     object-fit: contain;
-    transition: transform 0.5s ease;
+    transition: transform var(--motion-base) var(--motion-ease);
   }
 
   .img-overlay {
@@ -178,13 +187,13 @@
     align-items: center;
     justify-content: center;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--motion-fast) ease;
 
     span { color: #fff; font-weight: bold; font-size: 1.2rem; }
   }
 
   &:hover {
-    img { transform: scale(1.1); }
+    img { transform: scale(1.045); }
     .img-overlay { opacity: 1; }
   }
 }
@@ -360,6 +369,38 @@
   justify-content: center;
   z-index: 999;
   padding: 20px;
+  animation: ui-overlay-enter var(--motion-base) ease both;
+}
+
+.retail-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  max-width: 600px;
+  margin: -24px auto 36px;
+}
+
+.filter-field {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  gap: 6px;
+  color: #d4d4d8;
+  font-size: 13px;
+  font-weight: 600;
+
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #3f3f46;
+    border-radius: 9px;
+    background: #111;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  select:disabled { color: #71717a; }
 }
 
 .modal-card {
@@ -371,6 +412,7 @@
   width: 100%;
   max-width: 520px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  animation: ui-dialog-enter var(--motion-base) var(--motion-ease) both;
 
   h2 { color: #fff; margin: 0 0 24px; font-size: 1.3rem; }
 }

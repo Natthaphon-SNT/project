@@ -87,15 +87,15 @@ const PENDING_BUILD_KEY = 'lt_pending_manual_build';
 })
 export class PcBuilderComponent implements OnInit {
   slots: BuildSlot[] = [
-    { key: 'cpu',     label: 'CPU / Processor',  icon: '🔲', category: 'cpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'mb',      label: 'Mainboard',         icon: '🟦', category: 'mainboard',     selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'gpu',     label: 'GPU / VGA',         icon: '🎮', category: 'gpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
-    { key: 'ram',     label: 'RAM',               icon: '📊', category: 'ram',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'ssd',     label: 'SSD / M.2',         icon: '💾', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'hdd',     label: 'HDD / Hard Disk',   icon: '🗄️', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
-    { key: 'psu',     label: 'Power Supply',      icon: '⚡', category: 'psu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
-    { key: 'case',    label: 'Case',              icon: '🖥️', category: 'case',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
-    { key: 'cooler',  label: 'CPU Cooler (Air / Liquid)', icon: '❄️', category: 'cooler', selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'cpu',     label: 'CPU / Processor',  icon: 'cpu', category: 'cpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'mb',      label: 'Mainboard',         icon: 'motherboard', category: 'mainboard',     selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'gpu',     label: 'GPU / VGA',         icon: 'gpu', category: 'gpu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'ram',     label: 'RAM',               icon: 'ram', category: 'ram',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'ssd',     label: 'SSD / M.2',         icon: 'storage', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'hdd',     label: 'HDD / Hard Disk',   icon: 'storage', category: 'ssd',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'psu',     label: 'Power Supply',      icon: 'power', category: 'psu',           selected: null, products: [], isLoading: false, showPicker: false, search: '', required: true },
+    { key: 'case',    label: 'Case',              icon: 'case', category: 'case',          selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
+    { key: 'cooler',  label: 'CPU Cooler (Air / Liquid)', icon: 'cooler', category: 'cooler', selected: null, products: [], isLoading: false, showPicker: false, search: '', required: false },
   ];
 
   toastMessage = '';
@@ -238,13 +238,55 @@ export class PcBuilderComponent implements OnInit {
 
   filteredProducts(slot: BuildSlot): Product[] {
     const q = slot.search.trim().toLowerCase();
-    if (!q) return slot.products;
     return slot.products.filter(p => {
+      if (!this.matchesSelectedParts(slot, p)) return false;
+      if (!q) return true;
       const searchable = [p.p_name, ...this.getProductMetadata(p, slot)]
         .join(' ')
         .toLowerCase();
       return searchable.includes(q);
     });
+  }
+
+  private selectedPart(key: string): Product | null {
+    return this.slots.find(slot => slot.key === key)?.selected || null;
+  }
+
+  private socketOf(product: Product): string {
+    const value = product.compatibility?.socket || product.p_name || '';
+    return value.toUpperCase().match(/\b(?:AM[45]|LGA\s*\d{3,4})\b/)?.[0].replace(/\s/g, '') || '';
+  }
+
+  getPickerConstraint(slot: BuildSlot): string {
+    const cpu = this.selectedPart('cpu');
+    const board = this.selectedPart('mb');
+    if (slot.key === 'mb' && cpu && this.socketOf(cpu)) return `แสดงเฉพาะ Mainboard Socket ${this.socketOf(cpu)}`;
+    if (slot.key === 'cpu' && board && this.socketOf(board)) return `แสดงเฉพาะ CPU Socket ${this.socketOf(board)}`;
+    if (slot.key === 'ram' && board?.compatibility?.ram_support?.length) {
+      return `แสดง RAM ${board.compatibility.ram_support.join(' / ')}`;
+    }
+    return '';
+  }
+
+  private matchesSelectedParts(slot: BuildSlot, candidate: Product): boolean {
+    const cpu = slot.key === 'cpu' ? candidate : this.selectedPart('cpu');
+    const board = slot.key === 'mb' ? candidate : this.selectedPart('mb');
+    const cpuSocket = cpu && this.socketOf(cpu);
+    const boardSocket = board && this.socketOf(board);
+
+    // If one socket is known, an unclassified opposite part must not be
+    // presented as compatible (AM4 must never show AM5/Intel boards).
+    if (cpuSocket && board && cpuSocket !== boardSocket) return false;
+    if (boardSocket && cpu && boardSocket !== cpuSocket) return false;
+
+    if (slot.key === 'ram' && board?.compatibility?.ram_support?.length) {
+      const generation = candidate.compatibility?.ddr_gen || candidate.p_name.match(/DDR\s*[345]/i)?.[0].replace(/\s/g, '');
+      if (generation && !board.compatibility.ram_support.some(value => value.toUpperCase() === generation.toUpperCase())) return false;
+    }
+    if (slot.key === 'cooler' && cpuSocket && candidate.compatibility?.sockets?.length) {
+      if (!candidate.compatibility.sockets.some(value => value.toUpperCase().replace(/\s/g, '') === cpuSocket)) return false;
+    }
+    return true;
   }
 
   /** Small, searchable facts shown below a product name in the picker. */
@@ -544,7 +586,12 @@ export class PcBuilderComponent implements OnInit {
 
   getProductImage(p: Product): string {
     if (p.img_url && p.img_url.startsWith('http')) return p.img_url;
-    return 'https://cdn-icons-png.flaticon.com/512/2991/2991100.png';
+    return '/product-placeholder.svg';
+  }
+
+  onProductImageError(event: Event): void {
+    const image = event.target as HTMLImageElement;
+    if (!image.src.endsWith('/product-placeholder.svg')) image.src = '/product-placeholder.svg';
   }
 
   showToast(msg: string, type: 'success' | 'error') {

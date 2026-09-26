@@ -33,11 +33,11 @@ export class LoginComponent {
 
     // Validation
     if (!this.credentials.email.trim()) {
-      this.errorMessage = '⚠️ กรุณากรอกอีเมลหรือชื่อผู้ใช้';
+      this.errorMessage = 'กรุณากรอกอีเมลหรือชื่อผู้ใช้';
       return;
     }
     if (!this.credentials.password) {
-      this.errorMessage = '⚠️ กรุณากรอกรหัสผ่าน';
+      this.errorMessage = 'กรุณากรอกรหัสผ่าน';
       return;
     }
 
@@ -52,7 +52,7 @@ export class LoginComponent {
           const redirect = this.route.snapshot.queryParams['redirect'] || '/';
           this.router.navigateByUrl(redirect);
         } else {
-          this.errorMessage = '❌ ' + (res.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
+          this.errorMessage = res.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
         }
         this.cdr.detectChanges();
       },
@@ -60,11 +60,11 @@ export class LoginComponent {
         this.isLoading = false;
         const detail = err?.error?.detail || '';
         if (err.status === 401 || detail.includes('รหัสผ่าน') || detail.includes('ผู้ใช้')) {
-          this.errorMessage = '❌ อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง';
+          this.errorMessage = 'อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง';
         } else if (err.status === 0) {
-          this.errorMessage = '⚠️ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่ภายหลัง';
+          this.errorMessage = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่ภายหลัง';
         } else {
-          this.errorMessage = '❌ ' + (detail || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
+          this.errorMessage = detail || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
         }
         this.cdr.detectChanges();
       }

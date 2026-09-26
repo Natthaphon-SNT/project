@@ -123,10 +123,10 @@ export class ProfileComponent implements OnInit {
           saved.name = res.data?.u_name || this.editForm.u_name;
           localStorage.setItem('lt_user', JSON.stringify(saved));
           this.auth.currentUserSubject.next(saved);
-          this.showMessage('✅ อัปเดตโปรไฟล์สำเร็จ!', 'success');
+          this.showMessage('อัปเดตโปรไฟล์สำเร็จ', 'success');
           this.loadProfile();
         } else {
-          this.showMessage('❌ ' + (res.detail || res.message || 'เกิดข้อผิดพลาด'), 'error');
+          this.showMessage(res.detail || res.message || 'เกิดข้อผิดพลาด', 'error');
         }
         this.cdr.detectChanges();
       },
@@ -136,7 +136,7 @@ export class ProfileComponent implements OnInit {
           this.auth.handleUnauthorized('/profile');
           return;
         }
-        this.showMessage('❌ ' + (err.error?.detail || 'ไม่สามารถบันทึกได้'), 'error');
+        this.showMessage(err.error?.detail || 'ไม่สามารถบันทึกได้', 'error');
         this.cdr.detectChanges();
       }
     });
@@ -161,11 +161,11 @@ export class ProfileComponent implements OnInit {
         this.isChangingPassword = false;
         if (res.status === 'success') {
           if (res.token) this.auth.updateToken(res.token);
-          this.showMessage('✅ เปลี่ยนรหัสผ่านสำเร็จ!', 'success');
+          this.showMessage('เปลี่ยนรหัสผ่านสำเร็จ', 'success');
           this.passwordForm = { current_password: '', new_password: '', confirm_password: '' };
           this.showPasswordForm = false;
         } else {
-          this.showMessage('❌ ' + (res.detail || res.message || 'เกิดข้อผิดพลาด'), 'error');
+          this.showMessage(res.detail || res.message || 'เกิดข้อผิดพลาด', 'error');
         }
         this.cdr.detectChanges();
       },
@@ -175,7 +175,7 @@ export class ProfileComponent implements OnInit {
           this.auth.handleUnauthorized('/profile');
           return;
         }
-        this.showMessage('❌ ' + (err.error?.detail || 'รหัสผ่านปัจจุบันไม่ถูกต้อง'), 'error');
+        this.showMessage(err.error?.detail || 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'error');
         this.cdr.detectChanges();
       }
     });
@@ -194,9 +194,9 @@ export class ProfileComponent implements OnInit {
         this.uploadingImage = false;
         if (res.status === 'success') {
           this.profileData.u_image = res.image_url;
-          this.showMessage('✅ อัปโหลดรูปโปรไฟล์สำเร็จ!', 'success');
+          this.showMessage('อัปโหลดรูปโปรไฟล์สำเร็จ', 'success');
         } else {
-          this.showMessage('❌ อัปโหลดไม่สำเร็จ', 'error');
+          this.showMessage('อัปโหลดไม่สำเร็จ', 'error');
         }
         this.cdr.detectChanges();
       },
@@ -206,7 +206,7 @@ export class ProfileComponent implements OnInit {
           this.auth.handleUnauthorized('/profile');
           return;
         }
-        this.showMessage('❌ ' + (err.error?.detail || 'อัปโหลดไม่สำเร็จ'), 'error');
+        this.showMessage(err.error?.detail || 'อัปโหลดไม่สำเร็จ', 'error');
         this.cdr.detectChanges();
       }
     });
@@ -231,10 +231,10 @@ export class ProfileComponent implements OnInit {
 
   getStatusLabel(status: string): string {
     const map: Record<string, string> = {
-      pending: '⏳ รอดำเนินการ',
-      shipping: '🚚 กำลังจัดส่ง',
-      completed: '✅ สำเร็จ',
-      cancelled: '❌ ยกเลิก'
+      pending: 'รอดำเนินการ',
+      shipping: 'กำลังจัดส่ง',
+      completed: 'สำเร็จ',
+      cancelled: 'ยกเลิก'
     };
     return map[status] || status;
   }

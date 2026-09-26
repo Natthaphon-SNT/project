@@ -18,7 +18,7 @@ export const adminGuard: CanActivateFn = () => {
   }
 
   // ล็อกอินแล้วแต่ไม่ใช่ admin → ไปหน้าแรก
-  alert('⛔ คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
+  alert('คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
   router.navigate(['/']);
   return false;
 };
