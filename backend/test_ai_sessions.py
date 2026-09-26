@@ -137,6 +137,54 @@ class AiSessionTests(unittest.TestCase):
         self.assertEqual(result, 'ตอบสั้น')
         self.assertIn('CPU: Ryzen, GPU: RTX', chat.call_args.args[0][0]['content'])
 
+    def test_compare_session_can_continue_as_a_gpu_build_request(self):
+        compared = json.dumps({
+            'spec1Name': 'RTX 4060', 'spec2Name': 'RX 7600', 'winner': '1',
+            'verdict': 'test', 'categories': [], 'spec1Pros': [],
+            'spec2Pros': [], 'recommendation': 'test',
+        })
+        with patch.object(self.rec, 'compare_specs', new_callable=AsyncMock,
+                          return_value=compared):
+            first = self.client.post('/api/ai/recommend', headers=self.auth(), json={
+                'prompt': 'Spec 1: RTX 4060 | Spec 2: RX 7600',
+                'mode': 'compare', 'provider': 'google', 'api_key': 'test-key',
+            })
+        self.assertEqual(first.status_code, 200)
+        sid = first.json()['session_id']
+
+        build = {'summary': '4060 build', 'parts': []}
+        with patch.object(self.rec, 'recommend_with_alternatives', new_callable=AsyncMock,
+                          return_value=build) as recommend:
+            follow_up = self.client.post('/api/ai/recommend', headers=self.auth(), json={
+                'prompt': 'จัดสเปกที่ใช้ 4060 มาให้หน่อย', 'mode': 'recommend',
+                'session_id': sid, 'provider': 'google', 'api_key': 'test-key',
+            })
+
+        self.assertEqual(follow_up.status_code, 200)
+        self.assertEqual(follow_up.json()['session_id'], sid)
+        self.assertIn('Spec 1: RTX 4060', recommend.call_args.args[1])
+        self.assertIn('Current request:\nจัดสเปกที่ใช้ 4060', recommend.call_args.args[1])
+        saved = self.client.get(
+            f'/api/ai/sessions/{sid}', headers=self.auth()
+        ).json()['data']
+        self.assertEqual(saved['mode'], 'recommend')
+
+    def test_gpu_model_is_not_mistaken_for_budget_and_is_detected(self):
+        self.assertIsNone(self.rec.detect_budget_thb('จัดสเปกที่ใช้ 4060 มาให้หน่อย'))
+        self.assertEqual(
+            self.rec.detect_requested_gpu(
+                'Previous conversation: RTX 4060 vs RX 7600\n\n'
+                'Current request:\nจัดสเปกที่ใช้ 4060 มาให้หน่อย'
+            ),
+            '4060',
+        )
+        self.assertTrue(self.rec.gpu_name_matches_request(
+            'MSI GEFORCE RTX 4060 VENTUS 2X 8G', '4060'
+        ))
+        self.assertFalse(self.rec.gpu_name_matches_request(
+            'MSI GEFORCE RTX 4060 TI VENTUS 2X 8G', '4060'
+        ))
+
     def test_retired_google_model_uses_verified_default(self):
         self.assertEqual(self.api.normalize_ai_model('google', 'gemini-2.5-pro'), 'gemini-3-flash-preview')
         self.assertEqual(self.api.normalize_ai_model('google', 'custom-model'), 'custom-model')

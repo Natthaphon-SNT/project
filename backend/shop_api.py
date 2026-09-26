@@ -1481,8 +1481,8 @@ async def ai_recommend(
         session = db.query(AiChatSession).filter(AiChatSession.id == body.session_id, AiChatSession.uid == user.uid).first()
         if session is None:
             raise HTTPException(404, "Session not found")
-        if session.mode != body.mode and body.mode != "ask":
-            raise HTTPException(400, "Start a new session to change mode")
+        # A conversation may naturally move from a comparison to a build
+        # request. Keep the same session so the earlier context is available.
     if not body.prompt.strip():
         raise HTTPException(422, "Prompt cannot be empty")
 
@@ -1577,6 +1577,8 @@ async def ai_recommend(
             msgs.append({"role": "user",      "content": body.prompt, "ts": now, "spec1": body.spec1, "spec2": body.spec2})
             msgs.append({"role": "assistant", "content": raw,         "ts": now})
             session.messages   = json.dumps(msgs, ensure_ascii=False)
+            if body.mode != "ask":
+                session.mode = body.mode
             session.provider = provider
             session.model = model
             if session.title == "New Chat": session.title = body.prompt[:40].replace("\n", " ")

@@ -91,7 +91,8 @@
 </div>
 <div class="chat-composer">
   <label for="followup">Continue this conversation</label>
-  <textarea id="followup" [(ngModel)]="followUp" [disabled]="step === 2 || !chatMessages.length" rows="2" placeholder="พิมพ์คำถามต่อหลังได้ผลลัพธ์"></textarea>
+  <textarea id="followup" [(ngModel)]="followUp" [disabled]="step === 2 || !chatMessages.length" rows="2"
+    (keydown.enter)="onFollowUpEnter($event)" placeholder="พิมพ์คำถามต่อหลังได้ผลลัพธ์ (Shift+Enter เพื่อขึ้นบรรทัดใหม่)"></textarea>
   <button (click)="sendFollowUp()" [disabled]="step === 2 || !followUp.trim() || !chatMessages.length">Send</button>
 </div>
 </section>
@@ -371,7 +372,8 @@
         <h2>ถามต่อเกี่ยวกับสเปคนี้</h2>
         <p>เช่น เล่น Valorant ได้ไหม หรือตัดต่อวิดีโอ 4K ไหวไหม</p>
         <textarea class="ai-textarea" rows="2" [(ngModel)]="askQuestion"
-          [disabled]="askLoading" placeholder="พิมพ์คำถามเกี่ยวกับชุดที่แนะนำ"></textarea>
+          [disabled]="askLoading" (keydown.enter)="onAskQuestionEnter($event)"
+          placeholder="พิมพ์คำถามเกี่ยวกับชุดที่แนะนำ (Shift+Enter เพื่อขึ้นบรรทัดใหม่)"></textarea>
         <button class="btn-ai-glow" type="button" (click)="sendAskQuestion()"
           [disabled]="askLoading || !askQuestion.trim()">
           {{ askLoading ? 'กำลังตอบ…' : 'ถาม AI' }}

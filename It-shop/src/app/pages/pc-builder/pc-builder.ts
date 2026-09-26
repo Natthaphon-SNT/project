@@ -3,6 +3,7 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { forkJoin } from 'rxjs';
 import { AuthService } from '../../services/auth';
 import { API_BASE_URL } from '../../services/api-base-url';
 
@@ -53,6 +54,9 @@ export interface BuildSlot {
   showPicker: boolean;
   search: string;
   required: boolean;
+  catalogLoaded?: boolean;
+  displayLimit?: number;
+  loadError?: boolean;
 }
 
 export interface CompatibilityCheckItem {
@@ -113,7 +117,6 @@ export class PcBuilderComponent implements OnInit {
 
   ngOnInit() {
     this.restorePendingBuild();
-    this.reloadCatalog();
   }
 
   private restorePendingBuild(): void {
@@ -149,29 +152,88 @@ export class PcBuilderComponent implements OnInit {
 
   reloadCatalog() {
     this.catalogLoadError = false;
-    this.slots.forEach(slot => this.loadSlotProducts(slot));
+    this.slots.forEach(slot => {
+      slot.catalogLoaded = false;
+      if (slot.showPicker) this.loadSlotProducts(slot);
+    });
   }
 
   // ─── Load products for a slot ───
-  loadSlotProducts(slot: BuildSlot, search: string = '') {
+  loadSlotProducts(slot: BuildSlot) {
     slot.isLoading = true;
-    const params: any = { component: slot.key, page: '1', limit: '100' };
-    if (search) params['search'] = search;
-
-    const query = new URLSearchParams(params).toString();
-    this.http.get<any>(`${API}/api/products?${query}`).subscribe({
+    slot.loadError = false;
+    const pageUrl = (page: number) =>
+      `${API}/api/products?${new URLSearchParams({ component: slot.key, page: String(page), limit: '100' })}`;
+    this.http.get<any>(pageUrl(1)).subscribe({
       next: (res) => {
-        slot.products = res.status === 'success' ? res.data : [];
-        slot.isLoading = false;
-        this.cdr.detectChanges();
+        if (res.status !== 'success' || !Array.isArray(res.data)) {
+          this.catalogLoadFailed(slot);
+          return;
+        }
+        const totalPages = Math.max(1, Number(res.pagination?.total_pages) || 1);
+        const remaining = Array.from({ length: totalPages - 1 }, (_, index) =>
+          this.http.get<any>(pageUrl(index + 2)));
+        if (!remaining.length) {
+          this.setSlotProducts(slot, res.data);
+          return;
+        }
+        forkJoin(remaining).subscribe({
+          next: (pages) => {
+            if (pages.some(page => page.status !== 'success' || !Array.isArray(page.data))) {
+              this.catalogLoadFailed(slot);
+              return;
+            }
+            this.setSlotProducts(slot, [res.data, ...pages.map(page => page.data)].flat());
+          },
+          error: () => this.catalogLoadFailed(slot)
+        });
       },
-      error: () => {
-        slot.isLoading = false;
-        slot.products = [];
-        this.catalogLoadError = true;
-        this.cdr.detectChanges();
-      }
+      error: () => this.catalogLoadFailed(slot)
     });
+  }
+
+  private setSlotProducts(slot: BuildSlot, products: Product[]) {
+    // Each product may have prices from several shops. Rotate between the
+    // three shop lists while keeping each product only once in the picker.
+    const stores = [
+      products.filter(p => p.price_advice > 0),
+      products.filter(p => p.price_jib > 0),
+      products.filter(p => p.price_ihavecpu > 0)
+    ];
+    const ordered: Product[] = [];
+    const seen = new Set<string>();
+    const positions = [0, 0, 0];
+    while (stores.some((items, index) => positions[index] < items.length)) {
+      stores.forEach((items, index) => {
+        while (positions[index] < items.length) {
+          const product = items[positions[index]++];
+          if (seen.has(product.product_id)) continue;
+          seen.add(product.product_id);
+          ordered.push(product);
+          break;
+        }
+      });
+    }
+    for (const product of products) {
+      if (seen.has(product.product_id)) continue;
+      seen.add(product.product_id);
+      ordered.push(product);
+    }
+    slot.products = ordered;
+    slot.catalogLoaded = true;
+    slot.displayLimit = 60;
+    slot.isLoading = false;
+    slot.loadError = false;
+    this.catalogLoadError = false;
+    this.cdr.detectChanges();
+  }
+
+  private catalogLoadFailed(slot: BuildSlot) {
+    slot.isLoading = false;
+    slot.catalogLoaded = false;
+    slot.loadError = true;
+    this.catalogLoadError = true;
+    this.cdr.detectChanges();
   }
 
   filteredProducts(slot: BuildSlot): Product[] {
@@ -262,6 +324,8 @@ export class PcBuilderComponent implements OnInit {
     this.slots.forEach(s => s.showPicker = false);
     slot.showPicker = true;
     slot.search = '';
+    slot.displayLimit = 60;
+    if (!slot.catalogLoaded && !slot.isLoading) this.loadSlotProducts(slot);
   }
 
   closePicker(slot: BuildSlot) {

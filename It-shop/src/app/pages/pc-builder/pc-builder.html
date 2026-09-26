@@ -84,7 +84,7 @@
 
             <!-- Search -->
             <div class="picker-search">
-              <input type="text" [(ngModel)]="slot.search" placeholder="ค้นหา {{ slot.label }}..."
+              <input type="text" [(ngModel)]="slot.search" (ngModelChange)="slot.displayLimit = 60" placeholder="ค้นหา {{ slot.label }}..."
                 class="picker-search-input" autofocus />
               <span class="picker-search-icon">🔍</span>
             </div>
@@ -96,10 +96,14 @@
 
             <!-- Product List -->
             <div class="picker-list" *ngIf="!slot.isLoading">
-              <div class="picker-empty" *ngIf="filteredProducts(slot).length === 0">
+              <div class="picker-empty" *ngIf="slot.loadError">
+                โหลดรายการสินค้าไม่สำเร็จ
+                <button type="button" class="picker-more" (click)="loadSlotProducts(slot)">ลองใหม่</button>
+              </div>
+              <div class="picker-empty" *ngIf="!slot.loadError && filteredProducts(slot).length === 0">
                 ไม่พบสินค้า
               </div>
-              <div class="picker-item" *ngFor="let p of filteredProducts(slot)"
+              <div class="picker-item" *ngFor="let p of slot.loadError ? [] : filteredProducts(slot).slice(0, slot.displayLimit || 60)"
                    (click)="selectProduct(slot, p)">
                 <img [src]="getProductImage(p)" [alt]="p.p_name" class="picker-img"
                      (error)="$any($event.target).src='https://cdn-icons-png.flaticon.com/512/2991/2991100.png'">
@@ -116,6 +120,10 @@
                 </div>
                 <span class="picker-min">{{ getMinPrice(p) | number }}฿</span>
               </div>
+              <button type="button" class="picker-more" *ngIf="filteredProducts(slot).length > (slot.displayLimit || 60)"
+                (click)="slot.displayLimit = (slot.displayLimit || 60) + 60">
+                แสดงเพิ่ม ({{ filteredProducts(slot).length - (slot.displayLimit || 60) }} รายการ)
+              </button>
             </div>
           </div>
         </div>

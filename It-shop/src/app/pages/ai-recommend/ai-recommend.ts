@@ -870,7 +870,17 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
 
   private parseJson(raw: string): any {
-    return JSON.parse(raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    const json = firstBrace >= 0 && lastBrace > firstBrace
+      ? cleaned.slice(firstBrace, lastBrace + 1)
+      : cleaned;
+    try {
+      return JSON.parse(json);
+    } catch {
+      throw new Error('AI ส่งข้อมูลกลับมาไม่ครบถ้วน กรุณาลองใหม่อีกครั้ง');
+    }
   }
   private async callGemini(prompt: string): Promise<string> {
     if (this.authError) throw new Error(this.authError);
@@ -930,15 +940,37 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
   async handleCompat() { if (this.compatText.trim()) await this.runPrompt(this.compatText); }
   async sendFollowUp() {
-    if (!this.followUp.trim() || this.step === 2) return;
+    const prompt = this.followUp.trim();
+    if (!prompt || this.step === 2) return;
     if (this.resultType === 'recommend' && this.recommendData) {
-      this.askQuestion = this.followUp;
+      this.askQuestion = prompt;
       await this.sendAskQuestion();
       if (!this.askQuestion) this.followUp = '';
       return;
     }
-    await this.runPrompt(this.followUp);
+
+    // A conversation may start as a comparison and continue as a build
+    // request. Route that follow-up to the recommendation pipeline instead of
+    // forcing the comparison JSON schema on an unrelated answer.
+    if (this.isBuildRequest(prompt)) this.mode = 'recommend';
+
+    await this.runPrompt(prompt);
     if (this.resultType !== 'error') this.followUp = '';
+  }
+  private isBuildRequest(prompt: string): boolean {
+    return /จัด\s*(?:สเป[กค]|ชุด)|ประกอบ\s*(?:คอม|pc)|แนะนำ\s*(?:สเป[กค]|คอม|ชุด)|(?:build|recommend)\s+(?:a\s+)?pc/i.test(prompt);
+  }
+  onFollowUpEnter(event: Event) {
+    const keyEvent = event as KeyboardEvent;
+    if (keyEvent.shiftKey || keyEvent.isComposing) return;
+    keyEvent.preventDefault();
+    void this.sendFollowUp();
+  }
+  onAskQuestionEnter(event: Event) {
+    const keyEvent = event as KeyboardEvent;
+    if (keyEvent.shiftKey || keyEvent.isComposing) return;
+    keyEvent.preventDefault();
+    void this.sendAskQuestion();
   }
   async sendSuggestedPrompt(prompt: string, mode: 'recommend' | 'compare' | 'compat') {
     if (this.step === 2) return;

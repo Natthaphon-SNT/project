@@ -77,10 +77,52 @@ def detect_budget_thb(text: str) -> Optional[int]:
     )
     nums = [int((left or right).replace(",", "")) for left, right in explicit]
     if not nums:
-        nums = [int(n.replace(",", "")) for n in re.findall(r"\d{1,3}(?:,\d{3})+|\d{4,7}", text)]
+        # A bare GPU model such as "4060" is not a 4,060-baht budget. Bare
+        # values are only treated as PC budgets from 10,000 THB upward; smaller
+        # budgets still work when introduced by "งบ" / "budget" above.
+        nums = [value for n in re.findall(r"\d{1,3}(?:,\d{3})+|\d{4,7}", text)
+                if (value := int(n.replace(",", ""))) >= 10000]
     if not nums:
         return None
     return max(nums)
+
+
+def detect_requested_gpu(text: str) -> str:
+    """Return an explicitly requested GPU model from the current request."""
+    # Conversation context can mention several compared GPUs, so only inspect
+    # the final request section when the API supplied one.
+    current = (text or "").rsplit("Current request:\n", 1)[-1]
+    qualified = re.findall(
+        r"\b(?:RTX|GTX|RX)\s*[- ]?\s*\d{3,4}(?:\s*(?:TI|SUPER|XT|XTX))?\b",
+        current,
+        re.IGNORECASE,
+    )
+    if qualified:
+        return re.sub(r"\s+", " ", qualified[-1].replace("-", " ")).strip().upper()
+    bare = re.findall(
+        r"(?<!\d)(?:[345]0[5-9]0|6[5-9]00|7[5-9]00)(?:\s*(?:TI|SUPER|XT|XTX))?(?!\d)",
+        current,
+        re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", bare[-1]).strip().upper() if bare else ""
+
+
+def gpu_name_matches_request(name: str, requested_gpu: str) -> bool:
+    """Match a catalogue GPU to a requested model without mixing variants."""
+    request = re.search(r"(RTX|GTX|RX)?\s*(\d{3,4})(?:\s*(TI|SUPER|XT|XTX))?", requested_gpu, re.I)
+    if not request:
+        return False
+    family, model, suffix = request.groups()
+    family_pattern = re.escape(family) + r"\W*" if family else r"(?:RTX|GTX|RX)\W*"
+    found = re.search(
+        family_pattern + re.escape(model) + r"(?:\W*(TI|SUPER|XT|XTX))?\b",
+        name or "",
+        re.IGNORECASE,
+    )
+    if not found:
+        return False
+    found_suffix = (found.group(1) or "").upper()
+    return found_suffix == (suffix or "").upper()
 
 
 def budget_is_lower_bound(text: str) -> bool:
@@ -128,7 +170,8 @@ def _ram_is_single_channel(parsed_ram: dict) -> bool:
 # ─────────────────────────────────────────
 # Candidate retrieval (RAG from Product DB)
 # ─────────────────────────────────────────
-def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> list:
+def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4,
+                      requested_gpu: str = "") -> list:
     from shop_api import Product
     alloc = ALLOCATIONS.get(use_case, ALLOCATIONS["general"])
     candidates = []
@@ -159,6 +202,13 @@ def select_candidates(db, budget: int, use_case: str, k_per_cat: int = 4) -> lis
         rows = db.query(Product).filter(Product.category == cat).all()
         priced = [(r, best_price(r)) for r in rows]
         priced = [(r, pr) for r, pr in priced if pr > 0]
+        if cat == "GPU" and requested_gpu:
+            requested = [(r, pr) for r, pr in priced
+                         if gpu_name_matches_request(r.p_name or "", requested_gpu)]
+            if requested:
+                # Pin the GPU pool to the requested model. Other component
+                # categories still go through the normal compatibility checks.
+                priced = requested
         # nearest-to-target first; keep some cheaper options too
         if cat == "RAM":
             priced = workload_ram_rows(priced)
@@ -1473,7 +1523,9 @@ def recommend_without_provider(db, prompt: str, reason: str = "provider_unavaila
     budget_eff = budget or 25000
     lower_bound = budget_is_lower_bound(prompt)
     target = round(budget_eff * 1.1) if lower_bound else budget_eff
-    alternatives = top3_builds(select_candidates(db, target, use_case),
+    requested_gpu = detect_requested_gpu(prompt)
+    alternatives = top3_builds(select_candidates(db, target, use_case,
+                                                   requested_gpu=requested_gpu),
                                budget_eff, use_case, budget_ceiling=not lower_bound,
                                target_budget=target)
     return _scored_recommendation_result(alternatives, prompt, True, reason)
@@ -1487,7 +1539,9 @@ async def recommend_with_alternatives(db, prompt: str, extra: str = "",
     budget_eff = budget or 25000
     lower_bound = budget_is_lower_bound(prompt)
     target = round(budget_eff * 1.1) if lower_bound else budget_eff
-    candidates = select_candidates(db, target, use_case)
+    requested_gpu = detect_requested_gpu(prompt)
+    candidates = select_candidates(db, target, use_case,
+                                   requested_gpu=requested_gpu)
     alternatives = top3_builds(candidates, budget_eff, use_case,
                                budget_ceiling=not lower_bound, target_budget=target)
     result = _scored_recommendation_result(alternatives, prompt)
