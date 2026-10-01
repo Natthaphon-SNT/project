@@ -316,12 +316,17 @@
           <span>{{ recommendData.compat.summary }}</span>
         </div>
         <div class="check-badge-row">
+          <!-- Driven by severity, not by `ok`: PASS, WARNING, UNKNOWN and ERROR
+               are four distinct outcomes and each gets its own state, label and
+               icon. UNKNOWN is rendered as "ยังไม่ยืนยัน" rather than as a pass. -->
           <div *ngFor="let check of recommendData.compat.checks" class="check-pill"
-            [class.ok]="check.ok && !isBadDetail(check.detail)"
-            [class.unknown]="check.ok && isBadDetail(check.detail)"
-            [class.fail]="!check.ok"
-            [title]="check.detail">
-            <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (check.ok ? (isBadDetail(check.detail) ? 'warning' : 'check') : 'error')"></use></svg> {{ check.item }}
+            [ngClass]="'state-' + checkState(check)"
+            [attr.data-severity]="check.severity || 'UNKNOWN'"
+            [attr.data-state]="checkState(check)"
+            [title]="check.detail || 'ยังไม่มีรายละเอียดการตรวจสอบ'">
+            <svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + checkStateIcon(checkState(check))"></use></svg>
+            <span class="check-item">{{ check.item }}</span>
+            <span class="check-state-label">{{ checkStateLabel(checkState(check)) }}</span>
           </div>
         </div>
       </div>
@@ -434,10 +439,13 @@
           </div>
         </div>
         <div class="checks-list">
-          <div *ngFor="let check of compatData.checks" class="check-badge"
-            [class.check-ok]="check.ok" [class.check-fail]="!check.ok">
-            <span><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + (check.ok ? 'check' : 'warning')"></use></svg></span>
+            <div *ngFor="let check of compatData.checks" class="check-badge"
+            [ngClass]="'state-' + checkState(check)"
+            [attr.data-severity]="check.severity || 'UNKNOWN'"
+            [attr.data-state]="checkState(check)">
+            <span><svg class="ui-icon" aria-hidden="true"><use [attr.href]="'/icons.svg#' + checkStateIcon(checkState(check))"></use></svg></span>
             <span>{{ check.item }}: {{ check.detail }}</span>
+            <span class="check-state-label">{{ checkStateLabel(checkState(check)) }}</span>
           </div>
         </div>
       <div class="suggestions-box" *ngIf="compatData.suggestions.length">

@@ -30,6 +30,7 @@ backend/.deploy/
 
 .vercel
 .env*
+!.env.example
 
 # Local one-off migration/deployment helpers (not application code)
 backend/_fix_shop_api.py

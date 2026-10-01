@@ -13,6 +13,7 @@ import { RouterModule } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { ApiService } from '../../services/api';
+import { AuthService } from '../../services/auth';
 import { stripEmojiText } from '../../utils/strip-emoji';
 
 interface ShowcaseCategory {
@@ -68,7 +69,7 @@ export class ProductShowcaseComponent implements OnInit, AfterViewInit, OnDestro
   private observer: IntersectionObserver | null = null;
   private revealAll = false;
 
-  constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
+  constructor(private api: ApiService, private cdr: ChangeDetectorRef, private auth: AuthService) {}
 
   ngOnInit(): void {
     this.load(this.activeCategory);
@@ -100,6 +101,10 @@ export class ProductShowcaseComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   select(category: ShowcaseCategory): void {
+    if (!this.auth.isLoggedIn()) {
+      this.auth.handleUnauthorized(`/category/${encodeURIComponent(category.slug)}`);
+      return;
+    }
     if (category.slug === this.activeCategory.slug) {
       return;
     }

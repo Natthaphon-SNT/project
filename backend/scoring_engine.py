@@ -117,7 +117,11 @@ def score_compatibility(compat_result: dict) -> float:
     """Score existing compatibility results without changing any rule verdict."""
     checks = compat_result.get("checks") or []
     if not checks:
-        return 100.0
+        # No rule ran, so nothing was verified. Returning 100.0 would claim a
+        # perfect compatibility for a build that was never checked, and would
+        # feed that claim into the weighted ranking. Neutral matches how
+        # score_budget treats an unusable input.
+        return 50.0
 
     failed = [check for check in checks
               if str(check.get("severity") or "UNKNOWN").upper() != "PASS"]

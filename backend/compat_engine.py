@@ -53,7 +53,9 @@ def check_socket(parts) -> Optional[dict]:
         return None
     cs, ms = cpu.get("socket"), mb.get("socket")
     if not cs or not ms:
-        return {"rule": "R1 CPU ↔ Mainboard Socket", "ok": True,
+        # `ok` is only true when the rule was actually evaluated and passed.
+        # An unevaluated rule must not read as compatible.
+        return {"rule": "R1 CPU ↔ Mainboard Socket", "ok": False,
                 "severity": "UNKNOWN",
                 "detail": f"ข้ามการตรวจ (ไม่ทราบ socket จากชื่อสินค้า: CPU={cs}, MB={ms})"}
     ok = cs == ms
@@ -70,10 +72,10 @@ def check_ram_gen(parts) -> Optional[dict]:
         return None
     gen, support = ram.get("ddr_gen"), mb.get("ram_support")
     if not gen:
-        return {"rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": True, "severity": "UNKNOWN",
+        return {"rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": False, "severity": "UNKNOWN",
                 "detail": "ข้ามการตรวจ (ไม่พบ DDR generation ใน RAM)"}
     if not support:
-        return {"rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": True, "severity": "UNKNOWN",
+        return {"rule": "R2 RAM ↔ Mainboard DDR Gen", "ok": False, "severity": "UNKNOWN",
                 "detail": f"ข้ามการตรวจ (ไม่ทราบ DDR ที่ Mainboard รองรับ, RAM = {gen})"}
     ok = gen in support
     return {
@@ -227,7 +229,7 @@ def check_cooler_tdp(parts) -> Optional[dict]:
     if not cooler or not cpu:
         return None
     if not cooler.get("is_cpu_cooler"):
-        return {"rule": "R4 CPU Cooler TDP", "ok": True, "severity": "UNKNOWN",
+        return {"rule": "R4 CPU Cooler TDP", "ok": False, "severity": "UNKNOWN",
                 "detail": "รายการนี้ดูเหมือนพัดลมเคส/อุปกรณ์เสริม ไม่ใช่ CPU cooler — ตรวจสอบว่ามี CPU cooler หรือไม่"}
     socket_result = check_cooler_socket(parts)
     if socket_result and socket_result.get("severity") == "ERROR":
@@ -235,7 +237,7 @@ def check_cooler_tdp(parts) -> Optional[dict]:
     rating, tdp = cooler.get("rating_watt"), cpu.get("tdp")
     estimated_range = cooler.get("estimated_watt_range")
     if tdp is None:
-        return {"rule": "R4 CPU Cooler TDP", "ok": True, "severity": "UNKNOWN",
+        return {"rule": "R4 CPU Cooler TDP", "ok": False, "severity": "UNKNOWN",
                 "detail": "ข้ามการตรวจ (ไม่พบ CPU TDP สำหรับเปรียบเทียบ)"}
     if rating is not None:
         ok = rating >= tdp
@@ -261,7 +263,7 @@ def check_cooler_tdp(parts) -> Optional[dict]:
         }
     return {
         "rule": "R4 CPU Cooler TDP",
-        "ok": True,
+        "ok": False,
         "severity": "UNKNOWN",
         "detail": cooler.get("skip_reason") or
                   "ข้ามการตรวจ (ประเมิน TDP/cooler rating ไม่ได้จากชื่อสินค้า)",
@@ -290,7 +292,7 @@ def check_case_ff(parts) -> Optional[dict]:
         return None
     supports, mff = case.get("supports_ff"), mb.get("form_factor")
     if not supports or not mff:
-        return {"rule": "R5 Case ↔ Mainboard Form Factor", "ok": True, "severity": "UNKNOWN",
+        return {"rule": "R5 Case ↔ Mainboard Form Factor", "ok": False, "severity": "UNKNOWN",
                 "detail": "ข้ามการตรวจ"}
     ok = mff in supports
     return {"rule": "R5 Case ↔ Mainboard Form Factor", "ok": ok,
@@ -386,6 +388,18 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
     Returns frontend-compatible structure:
       {overall, summary, checks:[{item, ok, detail}], warnings, suggestions}
     overall: 'error' | 'warning' | 'ok'
+
+    Check contract for every entry in `checks`:
+      - `severity` is the verdict: PASS | WARNING | UNKNOWN | ERROR.
+      - `ok` is true only when `severity == "PASS"`.  It means "this rule was
+        evaluated and the parts satisfy it", never "nothing was found wrong".
+        An UNKNOWN verdict means the rule could not be evaluated, so `ok` must
+        be false; otherwise a missing datum would read as a confirmation.
+      - `ok` is derived from `severity` here rather than trusted from the rule
+        function, so the guarantee holds for every rule including future ones.
+      - `severity` is still reported unchanged, so the UI can distinguish an
+        unevaluated rule from a confirmed mismatch, and UNKNOWN keeps counting
+        towards `overall == "warning"` and towards `_engine.unknown`.
     """
     checks = []
     for fn in ALL_CHECKS:
@@ -394,7 +408,8 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
             result["score_severity"] = score_severity_for(result)
             checks.append(result)
 
-    if isinstance(budget, (int, float)) and budget > 0:
+    priced_parts = [p for p in parts if (p.get("price") or 0) > 0]
+    if isinstance(budget, (int, float)) and budget > 0 and (priced_parts or parts):
         b = check_budget(parts, budget)
         if b:
             b["score_severity"] = score_severity_for(b)
@@ -409,6 +424,12 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
             worst = "warning"
     if not checks:
         worst = "warning"
+    if not parts:
+        # Nothing to verify. R7 alone would otherwise pass an empty build,
+        # because 0฿ is inside any budget, producing overall "ok" and the
+        # summary "ผ่านการตรวจ compatibility 1/1 ข้อ" for a build with no
+        # parts. An unverified build is never a verified one.
+        worst = "warning"
 
     errors = [c for c in checks if c.get("severity") == "ERROR"]
     warnings = [c for c in checks if c.get("severity") == "WARNING"]
@@ -419,6 +440,8 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
         summary = f"พบปัญหาความเข้ากันได้ {len(errors)} จุด ที่ต้องแก้ก่อนใช้งาน"
     elif worst == "warning":
         summary = f"ยังยืนยันความเข้ากันได้ครบไม่ได้: ควรตรวจเพิ่ม {len(warnings)} จุด / ข้อมูลไม่พอ {len(unknowns)} จุด"
+        if not parts:
+            summary = "ไม่มีชิ้นส่วนให้ตรวจสอบ จึงยังยืนยันความเข้ากันได้ไม่ได้"
     else:
         summary = f"ผ่านการตรวจ compatibility {passed}/{len(checks)} ข้อ"
 
@@ -440,7 +463,10 @@ def check_build(parts: list, budget: Optional[int] = None) -> dict:
         elif e["rule"].startswith("R9"):
             suggestions.append("เลือกหม้อน้ำตามขนาดที่เคสระบุรองรับ หรือตรวจคู่มือเคสและตำแหน่งติดตั้ง")
 
-    # Frontend shape: item/ok/detail
+    # Frontend shape: item/ok/detail.
+    # `ok` is recomputed from `severity` so an UNKNOWN rule can never be
+    # presented to the UI as a passing check, regardless of what the individual
+    # rule function returned.
     fe_checks = [{**c, "item": c["rule"], "ok": c.get("severity") == "PASS"} for c in checks]
 
     return {

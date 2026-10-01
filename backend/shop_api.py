@@ -133,6 +133,9 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from access_log import install_access_logging
+install_access_logging(app)
+
 # ─────────────────────────────────────────
 # Models
 # ─────────────────────────────────────────
@@ -465,7 +468,8 @@ def decode_token(token: str) -> dict:
 
 def get_current_user(
     creds: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None,
 ):
     if not creds:
         raise HTTPException(status_code=401, detail="ไม่ได้เข้าสู่ระบบ")
@@ -476,6 +480,8 @@ def get_current_user(
             raise HTTPException(status_code=401, detail="ไม่พบผู้ใช้")
         if payload.get("token_version", 0) != (user.token_version or 0):
             raise HTTPException(status_code=401, detail="Token ถูกยกเลิกแล้ว")
+        if request is not None:
+            request.state.user_id = user.uid
         return user
     except Exception:
         raise HTTPException(status_code=401, detail="Token ไม่ถูกต้องหรือหมดอายุ")
@@ -734,6 +740,7 @@ def login(request: Request, body: LoginBody, db: Session = Depends(get_db)):
         "role": user.u_role,
         "token_version": user.token_version or 0,
     })
+    request.state.user_id = user.uid
     return {
         "status": "success",
         "message": "เข้าสู่ระบบสำเร็จ",
@@ -1509,7 +1516,7 @@ def delete_session(session_id: int, user: User = Depends(get_current_user), db: 
 
 
 # ─────────────────────────────────────────
-# AI Recommend — optional auth, per-user provider/key
+# AI Recommend — authenticated, per-user provider/key
 # ─────────────────────────────────────────
 class AIRecommendBody(BaseModel):
     spec1: Optional[str] = None
@@ -1522,20 +1529,17 @@ class AIRecommendBody(BaseModel):
     session_id:   Optional[int] = None
     spec_context: Optional[str] = None  # plain-text build summary for mode="ask"
 
-def get_ai_optional_user(creds: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    return get_current_user(creds, db) if creds else None
-
 @app.post("/api/ai/recommend")
 @limiter.limit("10/minute")
 async def ai_recommend(
     request: Request,
     body: AIRecommendBody,
-    user: Optional[User] = Depends(get_ai_optional_user),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Hybrid recommendation pipeline (no login required).
-    If logged in, uses user's stored AI settings and saves to session.
+    Hybrid recommendation pipeline for authenticated users.
+    Uses the user's stored AI settings and saves to their session.
     Provider priority: body override > DB settings > env defaults
 
     Recommendation responses expose a severity-based compatibility score in
@@ -1797,7 +1801,7 @@ class CompatCheckBody(BaseModel):
     parts_text: str
 
 @app.post("/api/compat/check")
-async def compat_check(body: CompatCheckBody):
+async def compat_check(body: CompatCheckBody, user: User = Depends(get_current_user)):
     """Deterministic compatibility engine — no LLM involved in the verdict.
 
     Every check retains its PASS/ERROR/WARNING/UNKNOWN result and also exposes
@@ -1824,7 +1828,11 @@ class CompatibilityPartsBody(BaseModel):
 
 @app.post("/api/compatibility/check-parts")
 @app.post("/api/compatibility/check")
-def check_compatibility_parts(body: CompatibilityPartsBody, db: Session = Depends(get_db)):
+def check_compatibility_parts(
+    body: CompatibilityPartsBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Real-time deterministic compatibility check for structured parts.
 
     Check results include `score_severity`; confirmed critical failures cap the

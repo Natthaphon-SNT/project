@@ -530,6 +530,52 @@ $text-dim:   #9ca3af;
   font-size: 13px;
   &.check-ok   { background: rgba(34,197,94,0.07);  border: 1px solid rgba(34,197,94,0.22);  color: #4ade80; }
   &.check-fail { background: rgba(239,68,68,0.07);   border: 1px solid rgba(239,68,68,0.22);   color: #f87171; }
+
+  // Four distinct outcomes, keyed off the backend severity rather than the
+  // boolean `ok`. UNKNOWN means the rule could not be evaluated, so it is
+  // styled as pending, never as a pass and never as a failure.
+  &.state-pass    { background: rgba(34,197,94,0.07);  border: 1px solid rgba(34,197,94,0.22);  color: #4ade80; }
+  &.state-warning { background: rgba(251,191,36,0.07); border: 1px solid rgba(251,191,36,0.26); color: #fbbf24; }
+  &.state-unknown {
+    background: rgba(148,163,184,0.07); border: 1px dashed rgba(148,163,184,0.38); color: #cbd5e1;
+  }
+  &.state-error   { background: rgba(239,68,68,0.07);  border: 1px solid rgba(239,68,68,0.22);  color: #f87171; }
+
+  .check-state-label {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.9;
+    white-space: nowrap;
+  }
+}
+
+// Pill variant used on the recommendation card.
+.check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: default;
+
+  .check-state-label {
+    margin-left: 0;
+    padding-left: 6px;
+    border-left: 1px solid currentColor;
+    opacity: 0.75;
+  }
+
+  &.state-pass    { background: rgba(34,197,94,0.12);  border: 1px solid rgba(34,197,94,0.35);  color: #86efac; }
+  &.state-warning { background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.38); color: #fcd34d; }
+  &.state-unknown {
+    background: rgba(148,163,184,0.12);
+    border: 1px dashed rgba(148,163,184,0.45);
+    color: #cbd5e1;
+  }
+  &.state-error   { background: rgba(239,68,68,0.12);  border: 1px solid rgba(239,68,68,0.35);  color: #fca5a5; }
 }
 .suggestions-box {
   background: rgba(251,191,36,0.04);

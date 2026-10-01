@@ -22,6 +22,7 @@ class QaFixTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.original_cwd = os.getcwd()
+        cls.original_db_url = os.environ.get("DATABASE_URL")
         cls.temp_dir = tempfile.TemporaryDirectory(
             dir=str(Path(__file__).resolve().parent)
         )
@@ -33,9 +34,17 @@ class QaFixTests(unittest.TestCase):
         # Other test modules also import shop_api against their own temporary
         # databases.  Discovery runs in one interpreter, so force this suite
         # to construct a fresh engine after changing into its isolated cwd.
+        #
+        # DATABASE_URL is set before the import as well: shop_api reads it once
+        # at import time and builds its engine from it, so setting it afterwards
+        # would leave the engine pointing wherever the cwd happened to resolve.
+        # This makes the target explicit and order-independent.
+        cls.db_path = Path(cls.temp_dir.name) / "qa_fixes_test.db"
+        os.environ["DATABASE_URL"] = f"sqlite:///{cls.db_path.as_posix()}"
         sys.modules.pop("shop_api", None)
         with contextlib.redirect_stdout(io.StringIO()):
             cls.api = importlib.import_module("shop_api")
+        cls.assert_isolated_database()
         cls.api.Base.metadata.create_all(cls.api.engine)
         cls.client = TestClient(cls.api.app)
         with cls.api.SessionLocal() as db:
@@ -65,9 +74,27 @@ class QaFixTests(unittest.TestCase):
             db.commit()
 
     @classmethod
+    def assert_isolated_database(cls):
+        """Fail loudly rather than write to the real catalogue."""
+        url = str(cls.api.engine.url)
+        assert cls.db_path.name in url, f"expected a temporary database, got {url}"
+        assert url != "sqlite:///./shop.db", "refusing to run against the real shop.db"
+        assert Path.cwd().resolve() != Path(__file__).resolve().parent, \
+            "cwd must be the temporary directory, not the backend source directory"
+
+    @classmethod
     def tearDownClass(cls):
         cls.client.close()
+        # Release the SQLite handle before cleanup(); Windows keeps the file
+        # locked otherwise and TemporaryDirectory.cleanup() raises
+        # PermissionError. Dropping the module also stops the next suite from
+        # reusing this engine.
         cls.api.engine.dispose()
+        sys.modules.pop("shop_api", None)
+        if cls.original_db_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = cls.original_db_url
         os.chdir(cls.original_cwd)
         cls.temp_dir.cleanup()
 
@@ -259,7 +286,7 @@ class QaFixTests(unittest.TestCase):
             {"category": "CPU", "name": "Ryzen 5", "price": {"amount": 1000}},
         ):
             response = self.client.post(
-                "/api/compatibility/check-parts", json={"parts": [part]}
+                "/api/compatibility/check-parts", headers=self.auth("qa-alice"), json={"parts": [part]}
             )
             self.assertEqual(response.status_code, 422)
 
@@ -575,7 +602,7 @@ class QaFixTests(unittest.TestCase):
             new_callable=AsyncMock,
             side_effect=httpx.ReadTimeout("provider timed out"),
         ):
-            response = self.client.post("/api/ai/recommend", json={
+            response = self.client.post("/api/ai/recommend", headers=self.auth("qa-alice"), json={
                 "prompt": "compare",
                 "mode": "compare",
                 "spec1": "A",
@@ -859,7 +886,7 @@ class QaFixTests(unittest.TestCase):
         ):
             with self.subTest(error=type(error).__name__ + ": " + str(error)):
                 with patch.object(rec, "compare_specs", new_callable=AsyncMock, side_effect=error):
-                    response = self.client.post("/api/ai/recommend", json={
+                    response = self.client.post("/api/ai/recommend", headers=self.auth("qa-alice"), json={
                         "prompt": "compare", "mode": "compare",
                         "spec1": "CPU AMD RYZEN 5 5600", "spec2": "CPU INTEL CORE I5 12400F",
                         "provider": "openai", "api_key": "test-key",
@@ -876,7 +903,7 @@ class QaFixTests(unittest.TestCase):
         rec = importlib.import_module("recommender")
         with patch.object(rec, "answer_spec_question", new_callable=AsyncMock,
                           side_effect=RuntimeError("Auth/Credits error (401): bad key")):
-            response = self.client.post("/api/ai/recommend", json={
+            response = self.client.post("/api/ai/recommend", headers=self.auth("qa-alice"), json={
                 "prompt": "ทำไมต้อง DDR5", "mode": "ask",
                 "provider": "openai", "api_key": "test-key",
                 "spec_context": "CPU AMD RYZEN 5 5600 (9,900 ฿)",
@@ -900,7 +927,7 @@ class QaFixTests(unittest.TestCase):
             with self.subTest(error=type(provider_error).__name__ + ": " + str(provider_error)):
                 with patch.object(rec, "recommend_with_alternatives", new_callable=AsyncMock,
                                   side_effect=provider_error):
-                    response = self.client.post("/api/ai/recommend", json={
+                    response = self.client.post("/api/ai/recommend", headers=self.auth("qa-alice"), json={
                         "prompt": "คอมเล่นเกม 25000", "mode": "recommend",
                         "provider": "openai", "api_key": "test-key",
                     })

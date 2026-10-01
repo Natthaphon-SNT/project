@@ -16,14 +16,25 @@ class AiSessionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.original = os.getcwd()
+        cls.original_db_url = os.environ.get("DATABASE_URL")
         cls.temp = tempfile.TemporaryDirectory()
         os.chdir(cls.temp.name)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         os.environ.setdefault(
             "JWT_SECRET", "qa-ai-sessions-secret-012345678901234567890123"
         )
+        # Point DATABASE_URL at this suite's own temporary file *before* shop_api
+        # is imported. shop_api reads it once at import time and builds its
+        # engine from it, so setting it later would be too late. Depending on
+        # the process cwd alone is not enough: another suite that imported
+        # shop_api earlier in the same interpreter would hand us its engine.
+        cls.db_path = Path(cls.temp.name) / "ai_sessions_test.db"
+        os.environ["DATABASE_URL"] = f"sqlite:///{cls.db_path.as_posix()}"
+        # Force a fresh module so the engine is rebuilt against the URL above.
+        sys.modules.pop("shop_api", None)
         with contextlib.redirect_stdout(io.StringIO()):
             cls.api = importlib.import_module('shop_api')
+        cls.assertIsolatedDatabase()
         cls.api.Base.metadata.create_all(cls.api.engine)
         cls.rec = importlib.import_module('recommender')
         cls.client = TestClient(cls.api.app)
@@ -32,9 +43,25 @@ class AiSessionTests(unittest.TestCase):
             db.commit()
 
     @classmethod
+    def assertIsolatedDatabase(cls):
+        """Fail loudly if this suite is pointed at the real shop.db."""
+        url = str(cls.api.engine.url)
+        assert cls.db_path.name in url, f"expected a temporary database, got {url}"
+        assert url != "sqlite:///./shop.db", "refusing to run against the real shop.db"
+        assert Path.cwd().resolve() != Path(__file__).resolve().parent, \
+            "cwd must be the temporary directory, not the backend source directory"
+
+    @classmethod
     def tearDownClass(cls):
         cls.client.close()
+        # Release the SQLite handle before TemporaryDirectory.cleanup(), or
+        # Windows keeps the file locked and cleanup raises PermissionError.
         cls.api.engine.dispose()
+        sys.modules.pop("shop_api", None)
+        if cls.original_db_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = cls.original_db_url
         os.chdir(cls.original)
         cls.temp.cleanup()
 
@@ -44,6 +71,95 @@ class AiSessionTests(unittest.TestCase):
     def setUp(self):
         # Endpoint rate limits should not leak between independent unit tests.
         self.api.limiter._storage.reset()
+
+    def test_access_logs_for_real_login_admin_and_owner_routes(self):
+        import httpx
+        import access_log
+        rows = []
+        original = httpx.AsyncClient
+        async def store(req):
+            rows.append(json.loads(req.content))
+            return httpx.Response(201)
+        headers = {'x-forwarded-for': '203.0.113.7, 192.0.2.5',
+                   'x-real-ip': '198.51.100.8', 'user-agent': 'AccessAudit/1.0',
+                   'x-vercel-ip-country': 'TH'}
+        with patch.dict(os.environ, {'SUPABASE_URL': 'https://logs.example.test',
+                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key'}), \
+             patch.object(access_log.httpx, 'AsyncClient', side_effect=lambda **kwargs:
+                          original(transport=httpx.MockTransport(store), **kwargs)):
+            with TestClient(self.api.app) as client:
+                self.assertEqual(client.post('/api/login?password=do-not-log', headers=headers,
+                    json={'email': 'missing@example.com', 'password': 'wrong-password'}).status_code, 401)
+                self.assertEqual(client.get('/api/admin/users', headers=headers).status_code, 401)
+                self.assertEqual(client.get('/api/admin/users', headers={**headers, **self.auth()}).status_code, 403)
+                self.assertEqual(client.get('/api/profile', headers={**headers, **self.auth()}).status_code, 200)
+                self.assertEqual(client.get('/api/products', headers=headers).status_code, 200)
+                self.assertEqual(client.get('/products', headers=headers).status_code, 404)
+                with self.api.SessionLocal() as db:
+                    db.add(self.api.User(uid='log-admin', u_name='log-admin',
+                        u_email='log-admin@example.com', u_password=self.api.hash_password('synthetic-password'),
+                        u_role='admin'))
+                    db.commit()
+                self.assertEqual(client.post('/api/login', headers=headers, json={
+                    'email': 'log-admin@example.com', 'password': 'wrong-password'}).status_code, 401)
+                login = client.post('/api/login', headers=headers, json={
+                    'email': 'log-admin@example.com', 'password': 'synthetic-password'})
+                self.assertEqual(login.status_code, 200)
+                admin_auth = {'Authorization': 'Bearer ' + login.json()['token']}
+                self.assertEqual(client.get('/api/admin/users', headers={**headers, **admin_auth}).status_code, 200)
+        self.assertEqual(len(rows), 7)
+        self.assertEqual([(row['path'], row['status'], row['user_id']) for row in rows], [
+            ('/api/login', 401, None), ('/api/admin/users', 401, None),
+            ('/api/admin/users', 403, 'alice'), ('/api/profile', 200, 'alice'),
+            ('/api/login', 401, None),
+            ('/api/login', 200, 'log-admin'), ('/api/admin/users', 200, 'log-admin'),
+        ])
+        for row in rows:
+            self.assertEqual(row['ip'], '203.0.113.7')
+            self.assertEqual(row['user_agent'], 'AccessAudit/1.0')
+            self.assertEqual(row['country'], 'TH')
+        self.assertNotIn('synthetic-password', json.dumps(rows))
+        self.assertNotIn('do-not-log', json.dumps(rows))
+        self.assertNotIn('wrong-password', json.dumps(rows))
+
+    def test_admin_and_private_route_dependencies(self):
+        from fastapi.routing import APIRoute
+        admins = []
+        private_prefixes = ('/api/profile', '/api/ai/settings', '/api/ai/sessions', '/api/spec-history')
+        for route in self.api.app.routes:
+            if not isinstance(route, APIRoute):
+                continue
+            dependencies = {dep.call for dep in route.dependant.dependencies}
+            is_admin = route.path.startswith('/api/admin/') or route.path == '/api/spec-history/all'
+            is_admin = is_admin or (route.path.startswith(('/api/products', '/api/promotions'))
+                                    and bool(route.methods & {'POST', 'PUT', 'DELETE'}))
+            is_admin = is_admin or (route.path == '/api/scrape' and 'POST' in route.methods)
+            if is_admin:
+                admins.append(route)
+                self.assertIn(self.api.require_admin, dependencies, route.path)
+            elif route.path.startswith(private_prefixes):
+                self.assertIn(self.api.get_current_user, dependencies, route.path)
+        self.assertTrue(admins)
+        for route in admins:
+            for method in route.methods:
+                self.assertEqual(self.client.request(method, route.path.replace('{uid}', 'alice')
+                    .replace('{product_id}', 'test').replace('{promo_id}', '1')).status_code, 401)
+                self.assertEqual(self.client.request(method, route.path.replace('{uid}', 'alice')
+                    .replace('{product_id}', 'test').replace('{promo_id}', '1'), headers=self.auth()).status_code, 403)
+
+    def test_wrong_supabase_url_does_not_break_real_api(self):
+        import httpx
+        import access_log
+        original = httpx.AsyncClient
+        async def down(req):
+            raise httpx.ConnectError('unreachable Supabase', request=req)
+        with patch.dict(os.environ, {'SUPABASE_URL': 'https://unreachable.invalid',
+                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key'}), \
+             patch.object(access_log.httpx, 'AsyncClient', side_effect=lambda **kwargs:
+                          original(transport=httpx.MockTransport(down), **kwargs)):
+            with TestClient(self.api.app) as client:
+                self.assertEqual(client.get('/api/admin/users').status_code, 401)
+                self.assertEqual(client.get('/api/profile', headers=self.auth()).status_code, 200)
 
     def test_settings_isolation_and_validation(self):
         c=self.client
@@ -72,7 +188,7 @@ class AiSessionTests(unittest.TestCase):
         self.assertEqual(c.delete(url,headers=h).status_code,200)
         self.assertEqual(c.get(url,headers=h).status_code,404)
 
-    def test_recommend_resolution_append_guest_and_failure(self):
+    def test_recommend_resolution_append_and_failure(self):
         c=self.client;h=self.auth()
         c.put('/api/ai/settings',headers=h,json={'provider':'google','model':'saved','custom_model':'custom','api_key':'alice-key'})
         with patch.object(self.rec,'recommend_with_alternatives',new_callable=AsyncMock,return_value={'summary':'ok','parts':[]}) as call:
@@ -90,10 +206,10 @@ class AiSessionTests(unittest.TestCase):
             count=call.await_count
             self.assertEqual(c.post('/api/ai/recommend',headers=self.auth('bob'),json={'prompt':'x','session_id':sid,'provider':'openai','api_key':'override-key'}).status_code,404)
             self.assertEqual(call.await_count,count)
-            self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'guest','provider':'openai','api_key':'override-key'}).json()['session_id'],None)
+            self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'guest','provider':'openai','api_key':'override-key'}).status_code,401)
             self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','session_id':sid,'api_key':'guest-key'}).status_code,401)
             with patch.dict(os.environ, {'GOOGLE_API_KEY': '', 'GEMINI_API_KEY': ''}, clear=False):
-                self.assertEqual(c.post('/api/ai/recommend',json={'prompt':'x','provider':'google'}).status_code,200)
+                self.assertEqual(c.post('/api/ai/recommend',headers=self.auth('bob'),json={'prompt':'x','provider':'google'}).status_code,200)
                 self.assertEqual(call.call_args.kwargs['api_key'], '')
 
     def test_ask_uses_latest_recommended_build_in_owned_session(self):
@@ -126,7 +242,7 @@ class AiSessionTests(unittest.TestCase):
         }).status_code, 404)
 
     def test_ask_requires_a_build_and_uses_llm_chat_directly(self):
-        self.assertEqual(self.client.post('/api/ai/recommend', json={
+        self.assertEqual(self.client.post('/api/ai/recommend', headers=self.auth(), json={
             'prompt': 'Can it game?', 'mode': 'ask', 'api_key': 'test-key',
         }).status_code, 422)
         with patch.object(self.rec, 'llm_chat', new_callable=AsyncMock,
@@ -230,7 +346,7 @@ class AiSessionTests(unittest.TestCase):
         ))
 
     def test_missing_requested_gpu_does_not_return_a_different_model(self):
-        response = self.client.post('/api/ai/recommend', json={
+        response = self.client.post('/api/ai/recommend', headers=self.auth(), json={
             'prompt': 'จัดสเปกที่ใช้ RTX 4060 มาให้หน่อย',
             'mode': 'recommend', 'provider': 'openrouter',
         })
@@ -281,7 +397,7 @@ class AiSessionTests(unittest.TestCase):
         with self.api.SessionLocal() as db:
             db.add(self.api.Product(product_id='gpu-power-test',p_name='ASUS RTX 5050',category='GPU',specs='Recommended PSU: 650 W',p_price=1))
             db.commit()
-        res=self.client.post('/api/compatibility/check-parts',json={'parts':[
+        res=self.client.post('/api/compatibility/check-parts',headers=self.auth(),json={'parts':[
             {'category':'CPU','name':'Ryzen 5 5500'},
             {'product_id':'gpu-power-test','name':'RTX 3050','category':'PSU'},
             {'category':'PSU','name':'PSU 450W'}]}).json()['data']
@@ -289,7 +405,39 @@ class AiSessionTests(unittest.TestCase):
         self.assertEqual(check['required_watt'],650)
         self.assertEqual(res['overall'],'error')
         self.assertTrue(check['sources'])
-        self.assertEqual(self.client.post('/api/compatibility/check-parts',json={'parts':[{'product_id':'missing'}]}).status_code,404)
+        self.assertEqual(self.client.post('/api/compatibility/check-parts',headers=self.auth(),json={'parts':[{'product_id':'missing'}]}).status_code,404)
+
+    def test_ai_and_compatibility_actions_require_a_valid_session(self):
+        from datetime import datetime, timedelta, timezone
+        import jwt
+
+        expired = jwt.encode({
+            'uid': 'alice', 'exp': datetime.now(timezone.utc) - timedelta(seconds=1),
+            'token_version': 0,
+        }, self.api.SECRET_KEY, algorithm=self.api.ALGORITHM)
+        revoked = self.api.create_token({'uid': 'alice', 'token_version': -1})
+        cases = [
+            ('/api/ai/recommend', {'prompt': 'test', 'mode': mode})
+            for mode in ('recommend', 'compare', 'compat', 'ask')
+        ] + [
+            ('/api/compat/check', {'parts_text': 'CPU: Ryzen'}),
+            ('/api/compatibility/check', {'parts': []}),
+            ('/api/compatibility/check-parts', {'parts': []}),
+        ]
+        with patch.object(self.rec, 'recommend_with_alternatives', new_callable=AsyncMock) as recommend, \
+             patch.object(self.rec, 'compat_check_hybrid', new_callable=AsyncMock) as compat:
+            for url, body in cases:
+                for token in (None, 'invalid', expired, revoked):
+                    with self.subTest(url=url, mode=body.get('mode'), token_type='missing' if token is None else 'unusable'):
+                        headers = {'Authorization': f'Bearer {token}'} if token else {}
+                        self.assertEqual(self.client.post(url, headers=headers, json=body).status_code, 401)
+            recommend.assert_not_awaited()
+            compat.assert_not_awaited()
+        with patch.object(self.rec, 'compat_check_hybrid', new_callable=AsyncMock, return_value={}) as compat:
+            self.assertEqual(self.client.post('/api/compat/check', headers=self.auth(), json={'parts_text': 'CPU: Ryzen'}).status_code, 200)
+            compat.assert_awaited_once()
+        for url in ('/api/compatibility/check', '/api/compatibility/check-parts'):
+            self.assertEqual(self.client.post(url, headers=self.auth(), json={'parts': []}).status_code, 200)
 
     def test_unknown_provider_rejected(self):
         for url in ('/api/ai/settings', '/api/ai/sessions', '/api/ai/recommend'):

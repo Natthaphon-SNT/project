@@ -5,6 +5,7 @@ import { AdminFilterPipe } from './admin-filter.pipe';
 import { HttpClient } from '@angular/common/http';
 import { finalize } from 'rxjs/operators';
 import { API_BASE_URL } from '../../services/api-base-url';
+import { AuthService } from '../../services/auth';
 import { stripEmojiDeep, stripEmojiText } from '../../utils/strip-emoji';
 
 // ─── Interfaces ────────────────────────────────────────────────────────────────
@@ -75,7 +76,13 @@ interface CompareResult {
 
 interface CompatCheck {
   item: string;
+  /**
+   * True only when the rule was evaluated and passed. The backend derives this
+   * from severity, so `ok === false` covers both a confirmed failure and a
+   * rule that could not be evaluated. Read `severity` to tell them apart.
+   */
   ok: boolean;
+  severity: 'PASS' | 'WARNING' | 'UNKNOWN' | 'ERROR';
   detail: string;
 }
 
@@ -365,10 +372,17 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     return Math.min(100, this.loadingElapsedSeconds / this.requestTimeoutSeconds * 100);
   }
 
-  constructor(private cdr: ChangeDetectorRef, private http: HttpClient) {}
+  constructor(private cdr: ChangeDetectorRef, private http: HttpClient, private auth: AuthService) {}
+
+  private requireSession(): boolean {
+    if (this.auth.isLoggedIn()) return true;
+    this.auth.handleUnauthorized('/ai-recommend');
+    return false;
+  }
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────────
   ngOnInit() {
+    if (!this.requireSession()) return;
     const token = localStorage.getItem('lt_token');
     if (!token) return;
     this.http.get<any>(`${API_BASE_URL}/api/profile`, {headers: {Authorization: `Bearer ${token}`}}).subscribe({
@@ -381,6 +395,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
         this.cdr.detectChanges();
       },
       error: err => {
+        if (err.status === 401) this.auth.handleUnauthorized('/ai-recommend');
         this.authError = err.status === 401 ? 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่' : 'ตรวจสอบการเข้าสู่ระบบไม่สำเร็จ กรุณาตรวจว่า Backend เปิดอยู่';
         this.cdr.detectChanges();
       }
@@ -425,6 +440,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     });
   }
   saveAiSettings() {
+    if (!this.requireSession()) return;
     this.settingsError = ''; this.settingsSaved = false;
     const token = localStorage.getItem('lt_token');
     if (!token || this.currentUser.uid === 'guest') { this.settingsSaved = true; return; }
@@ -889,6 +905,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
   }
 
   async sendAskQuestion() {
+    if (!this.requireSession()) return;
     const q = this.askQuestion.trim();
     if (!q || this.askLoading || this.step === 2) return;
     this.errorMessage = '';
@@ -913,6 +930,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
           }),
         });
         const data = await res.json();
+        if (res.status === 401) this.auth.handleUnauthorized('/ai-recommend');
         if (!res.ok || data.status !== 'success') {
           throw new Error(data.detail || data.message || 'Ask request failed');
         }
@@ -968,6 +986,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
       });
       const data = await res.json();
       if (res.status === 401) {
+        this.auth.handleUnauthorized('/ai-recommend');
         this.authError = 'การเข้าสู่ระบบหมดอายุหรือ token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่';
         throw new Error(this.authError);
       }
@@ -1049,6 +1068,7 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     await this.runPrompt(prompt);
   }
   private async runPrompt(prompt: string) {
+    if (!this.requireSession()) return;
     if (this.step === 2) return;
     this.errorMessage = ''; this.step = 2; this.startLoadingAnimation();
     try {
@@ -1063,7 +1083,43 @@ export class AiRecommendComponent implements OnInit, OnDestroy {
     finally { this.stopLoadingAnimation(); this.step = 3; this.cdr.detectChanges(); }
   }
 
-  isBadDetail(detail: string): boolean { return !detail || /unknown|not available|\?{3}/i.test(detail); }
+  /**
+   * Classify a check for display.
+   *
+   * `ok` alone cannot drive the UI: the backend sets it false both for a
+   * confirmed mismatch and for a rule it could not evaluate, and the previous
+   * version recovered that distinction by matching English words in the Thai
+   * `detail` string. UNKNOWN means "not verified", which must never be
+   * presented as either a pass or a failure. A missing or unrecognised
+   * severity is treated as UNKNOWN rather than PASS, so a malformed response
+   * cannot render as a green tick.
+   */
+  checkState(check: CompatCheck): 'pass' | 'warning' | 'unknown' | 'error' {
+    switch (String(check.severity || '').trim().toUpperCase()) {
+      case 'PASS': return 'pass';
+      case 'WARNING': return 'warning';
+      case 'ERROR': return 'error';
+      default: return 'unknown';
+    }
+  }
+
+  /** Label shown on the pill so a check is never communicated by colour alone. */
+  checkStateLabel(state: 'pass' | 'warning' | 'unknown' | 'error'): string {
+    switch (state) {
+      case 'pass': return 'ผ่าน';
+      case 'warning': return 'เตือน';
+      case 'unknown': return 'ยังไม่ยืนยัน';
+      default: return 'ไม่ผ่าน';
+    }
+  }
+
+  checkStateIcon(state: 'pass' | 'warning' | 'unknown' | 'error'): string {
+    switch (state) {
+      case 'pass': return 'check';
+      case 'error': return 'error';
+      default: return 'warning';
+    }
+  }
   breakdownList(alt: AltBuild) { return Object.entries(alt.breakdown).map(([key, value]) => ({key, label: key, value, score: value, weight: alt.weights?.[key] || 0})); }
   private animateCards(count: number) {
     for (let i = 0; i < count; i++) {

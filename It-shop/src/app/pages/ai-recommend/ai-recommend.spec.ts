@@ -2,20 +2,25 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { vi } from 'vitest';
+import { AuthService } from '../../services/auth';
 import { AiRecommendComponent } from './ai-recommend'; 
 
 describe('AiRecommendComponent', () => {
   let component: AiRecommendComponent;
   let fixture: ComponentFixture<AiRecommendComponent>;
+  const auth = { isLoggedIn: vi.fn(), handleUnauthorized: vi.fn() };
 
   beforeEach(async () => {
+    auth.isLoggedIn.mockReset().mockReturnValue(true);
+    auth.handleUnauthorized.mockReset();
     await TestBed.configureTestingModule({
       // Import the component under test.
       imports: [AiRecommendComponent], 
       // Provide HttpClient for the component.
       providers: [
         provideHttpClient(),
-        provideHttpClientTesting() 
+        provideHttpClientTesting(),
+        { provide: AuthService, useValue: auth }
       ]
     })
     .compileComponents();
@@ -46,6 +51,25 @@ describe('AiRecommendComponent', () => {
       expect(component.errorMessage).toBeTruthy();
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('redirects before sending AI requests or saving settings when the session expires', async () => {
+    auth.isLoggedIn.mockReturnValue(false);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      component.selectedUseCase = 'gaming';
+      component.selectedBudget = '30k';
+      component.askQuestion = 'Can this build play games?';
+      await component.handleRecommend();
+      await component.sendAskQuestion();
+      component.saveAiSettings();
+      expect(auth.handleUnauthorized).toHaveBeenCalledWith('/ai-recommend');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(component.askLoading).toBe(false);
+      expect(component.settingsSaving).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
     }
   });
 

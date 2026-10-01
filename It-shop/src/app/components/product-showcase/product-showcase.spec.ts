@@ -3,8 +3,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProductShowcaseComponent } from './product-showcase';
+import { AuthService } from '../../services/auth';
 
 function product(overrides: Record<string, unknown> = {}) {
   return {
@@ -20,19 +21,45 @@ function product(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function setup() {
+async function setup(loggedIn = false) {
+  const auth = { isLoggedIn: () => loggedIn, handleUnauthorized: vi.fn() };
   await TestBed.configureTestingModule({
     imports: [ProductShowcaseComponent],
-    providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+    providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+      { provide: AuthService, useValue: auth }]
   }).compileComponents();
 
   const fixture = TestBed.createComponent(ProductShowcaseComponent);
   const http = TestBed.inject(HttpTestingController);
   await fixture.whenStable();
-  return { fixture, component: fixture.componentInstance, http };
+  return { fixture, component: fixture.componentInstance, http, auth };
 }
 
 describe('ProductShowcaseComponent', () => {
+  it('redirects a guest category click to sign in before loading another category', async () => {
+    const { fixture, component, http, auth } = await setup();
+    http.expectOne((r) => r.url.includes('/api/products')).flush({ data: [product()] });
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelectorAll('.showcase-tab')[1] as HTMLButtonElement).click();
+    expect(auth.handleUnauthorized).toHaveBeenCalledWith('/category/cpu');
+    expect(component.activeCategory.slug).toBe('gpu');
+    http.expectNone((r) => r.url.includes('/api/products'));
+    http.verify();
+  });
+
+  it('lets a signed-in user select a category', async () => {
+    const { fixture, component, http, auth } = await setup(true);
+    http.expectOne((r) => r.url.includes('/api/products')).flush({ data: [product()] });
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelectorAll('.showcase-tab')[1] as HTMLButtonElement).click();
+    const req = http.expectOne((r) => r.url.includes('/api/products'));
+    expect(req.request.params.get('category')).toBe('cpu');
+    req.flush({ data: [] });
+    expect(auth.handleUnauthorized).not.toHaveBeenCalled();
+    expect(component.activeCategory.slug).toBe('cpu');
+    http.verify();
+  });
+
   it('loads real products for the default category and shows the cheapest price', async () => {
     const { fixture, component, http } = await setup();
 

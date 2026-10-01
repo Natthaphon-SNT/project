@@ -398,6 +398,12 @@ export class PcBuilderComponent implements OnInit {
       return;
     }
 
+    if (!this.auth.isLoggedIn()) {
+      this.isCheckingCompat = false;
+      this.auth.handleUnauthorized('/pc-builder');
+      return;
+    }
+
     this.isCheckingCompat = true;
     const categoryBySlot: Record<string, string> = {
       cpu: 'CPU', mb: 'Mainboard', gpu: 'GPU', ram: 'RAM',
@@ -410,7 +416,9 @@ export class PcBuilderComponent implements OnInit {
       price: this.getMinPrice(s.selected!)
     }));
 
-    this.http.post<any>(`${API}/api/compatibility/check-parts`, { parts }).subscribe({
+    this.http.post<any>(`${API}/api/compatibility/check-parts`, { parts }, {
+      headers: { Authorization: `Bearer ${this.auth.getToken()}` }
+    }).subscribe({
       next: (res) => {
         if (requestId !== this.compatRequestId) return;
         this.isCheckingCompat = false;
@@ -419,9 +427,10 @@ export class PcBuilderComponent implements OnInit {
         }
         this.cdr.detectChanges();
       },
-      error: () => {
+      error: (err) => {
         if (requestId !== this.compatRequestId) return;
         this.isCheckingCompat = false;
+        if (err.status === 401) this.auth.handleUnauthorized('/pc-builder');
         this.compatResult = {overall: 'warning', summary: 'ตรวจสอบสเปกไม่สำเร็จ กรุณาลองใหม่', checks: [], warnings: [], suggestions: []};
         this.cdr.detectChanges();
       }

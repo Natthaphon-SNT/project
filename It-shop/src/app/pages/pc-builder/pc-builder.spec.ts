@@ -2,7 +2,7 @@ import { ChangeDetectorRef } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { vi } from 'vitest';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { AuthService } from '../../services/auth';
 import { PcBuilderComponent, Product } from './pc-builder';
@@ -91,5 +91,48 @@ describe('PcBuilderComponent session recovery', () => {
     ] as unknown as Product[];
     expect(builder.filteredProducts(boards).map(product => product.product_id)).toEqual(['am4-jib']);
     expect(builder.getPickerConstraint(boards)).toContain('AM4');
+  });
+});
+
+describe('PcBuilderComponent compatibility authentication', () => {
+  function setup(loggedIn: boolean, unauthorized = false) {
+    const auth = {
+      isLoggedIn: () => loggedIn,
+      getToken: () => 'test-token',
+      handleUnauthorized: vi.fn()
+    };
+    const http = { post: vi.fn(() => unauthorized
+      ? throwError(() => ({ status: 401 }))
+      : of({ status: 'success', data: { overall: 'ok', checks: [] } })) };
+    const builder = new PcBuilderComponent(http as unknown as HttpClient,
+      auth as unknown as AuthService, {} as Router,
+      { detectChanges: vi.fn() } as unknown as ChangeDetectorRef);
+    builder.slots[0].selected = { product_id: 'cpu', p_name: 'CPU', p_price: 1000 } as Product;
+    builder.slots[1].selected = { product_id: 'board', p_name: 'Board', p_price: 1000 } as Product;
+    return { builder, http, auth };
+  }
+
+  it('sends the signed-in token when checking the selected parts', () => {
+    const { builder, http } = setup(true);
+    builder.checkCompatibility();
+    expect(http.post).toHaveBeenCalledWith(expect.stringContaining('/api/compatibility/check-parts'),
+      expect.objectContaining({ parts: expect.any(Array) }),
+      { headers: { Authorization: 'Bearer test-token' } });
+    expect(builder.compatResult?.overall).toBe('ok');
+  });
+
+  it('redirects before checking parts without a usable session', () => {
+    const { builder, http, auth } = setup(false);
+    builder.checkCompatibility();
+    expect(http.post).not.toHaveBeenCalled();
+    expect(auth.handleUnauthorized).toHaveBeenCalledWith('/pc-builder');
+    expect(builder.isCheckingCompat).toBe(false);
+  });
+
+  it('requests sign-in again when the backend rejects the token', () => {
+    const { builder, auth } = setup(true, true);
+    builder.checkCompatibility();
+    expect(auth.handleUnauthorized).toHaveBeenCalledWith('/pc-builder');
+    expect(builder.isCheckingCompat).toBe(false);
   });
 });

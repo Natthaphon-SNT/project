@@ -29,6 +29,41 @@ logger = logging.getLogger(__name__)
 FAILURE_REASON_MAX_LEN = 200
 _EMOJI_PATTERN = re.compile(r"[\U0001F000-\U0001FAFF\u2300-\u23FF\u2600-\u27BF\u20E3\uFE0F\u200D]")
 
+# Response contract for the LLM selection step.
+#
+# The two failures below are deliberately different classes because they mean
+# different things and must not be reported the same way:
+#
+#   LLMResponseParseError(RuntimeError)
+#     The reply contained no usable JSON object at all (prose only, truncated
+#     output, fences with nothing inside).  There is nothing to salvage, so it
+#     keeps the historical RuntimeError behaviour and propagates.
+#
+#   LLMResponseSchemaError(ValueError)
+#     The reply *was* valid JSON, but its shape is not the documented contract
+#     (`parts` missing, not a list, holding non-objects, or empty).  The payload
+#     is decodable yet unusable, so this degrades to the deterministic heuristic
+#     build via the generic `except Exception` fallback in recommend_build()
+#     instead of raising.  Validating the shape here is what stops a malformed
+#     `parts` value from reaching build_final_result() and failing deep inside
+#     it with an opaque AttributeError.
+
+
+class LLMResponseParseError(RuntimeError):
+    """No decodable JSON object could be found in the model reply."""
+
+
+class LLMResponseSchemaError(ValueError):
+    """The model reply was JSON but did not match the documented build shape."""
+
+
+# Raised whenever the catalogue cannot yield a complete build, whether the
+# refusal comes from recommend_with_alternatives or from the recommend_build
+# fallback path. One message for one contract, so the existing HTTP 422 mapping
+# in shop_api covers both routes and callers can match on one string.
+NO_COMPLETE_BUILD = "No complete compatible catalogue build available"
+
+
 
 def strip_emojis(text: str) -> str:
     """Keep provider-written prose and JSON free of pictographic emoji."""
@@ -61,6 +96,22 @@ def failure_reason(exc: BaseException) -> str:
 # ─────────────────────────────────────────
 PC_CATEGORIES = ["CPU", "Mainboard", "RAM", "GPU", "SSD", "PSU", "Case"]
 BASE_MANDATORY_CATEGORIES = tuple(PC_CATEGORIES)
+
+# Categories spec_parser can turn into compatibility-relevant fields. A part in
+# any other category cannot be priced into the total or checked by any rule.
+PARSED_CATEGORIES = frozenset(PC_CATEGORIES) | {"Air Cooler", "Liquid Cooler"}
+
+
+def _resolve_part_category(value) -> str:
+    """Normalize a category label from either the model or a catalogue row.
+
+    Returns an empty string for anything that is not a usable label: a missing
+    key, None, a dict or list, or an alias the parser does not recognise. The
+    caller decides whether that is a hard problem or just a weaker hint.
+    """
+    if not isinstance(value, str):
+        return ""
+    return sp.normalize_label(value.strip())
 
 # Budget allocation shares per use case (sum ≈ 1.0 over PC categories)
 ALLOCATIONS = {
@@ -691,6 +742,40 @@ def extract_json(text: str) -> Optional[dict]:
     return first_object
 
 
+def validate_build_payload(llm_result: dict) -> list:
+    """Return a list of schema problems with a decoded build payload.
+
+    Validation is shape-only: it confirms the reply can be consumed safely.
+    It deliberately does not judge the choice of parts, which is resolved
+    against the real candidate set later in build_final_result().
+    """
+    problems = []
+    if not isinstance(llm_result, dict):
+        return [f"payload must be a JSON object, got {type(llm_result).__name__}"]
+
+    # `parts` is read with an explicit key check rather than truthiness, so an
+    # empty object is reported as a missing key here instead of being mistaken
+    # for a reply that contained no JSON at all.
+    parts = llm_result.get("parts")
+    if "parts" not in llm_result:
+        problems.append("missing 'parts'")
+        return problems
+    if not isinstance(parts, list):
+        problems.append(f"'parts' must be a list, got {type(parts).__name__}")
+        return problems
+    if not parts:
+        problems.append("'parts' is empty")
+        return problems
+
+    for index, part in enumerate(parts):
+        if not isinstance(part, dict):
+            problems.append(f"parts[{index}] must be an object, got {type(part).__name__}")
+            continue
+        if not any(str(part.get(key) or "").strip() for key in ("product_id", "id", "name")):
+            problems.append(f"parts[{index}] has no product_id, id or name to match a real product")
+    return problems
+
+
 # ─────────────────────────────────────────
 # Post-validation: map LLM parts → real products
 # ─────────────────────────────────────────
@@ -718,22 +803,54 @@ def map_part_to_candidate(part: dict, candidates: list) -> Optional[dict]:
     return best if best_score >= 0.5 else None
 
 
+def _without_build_readiness_claims(text: str) -> str:
+    """Keep other prose clauses when an incomplete build cannot support readiness.
+
+    This is a narrow wording guard, not a validator of hardware/performance claims.
+    Product selection and compatibility remain the deterministic engine's job.
+    """
+    if not isinstance(text, str):
+        return ""
+    claims = r"ครบทุก(?:ชิ้น|หมวด)|ครบชุด|พร้อมใช้งาน|พร้อมใช้|\bcomplete\b|\bready(?:[- ]+to)?[- ]+(?:use|buy|build)\b"
+    clauses = re.split(r"[.!?;]\s+|\n+", text)
+    return " ".join(clause.strip() for clause in clauses
+                    if clause.strip() and not re.search(claims, clause, re.IGNORECASE))
+
+
 def build_final_result(llm_result: dict, candidates: list, budget: Optional[int], use_case: str,
                        budget_ceiling: bool = True) -> dict:
     """Attach real products/prices + run deterministic compatibility engine."""
     parts_out, parsed_parts = [], []
     proposed_parts = llm_result.get("parts", [])
     unmatched_categories = []
+    unpriced_categories = []
+    corrected_claims = []
     for part in proposed_parts:
-        label = sp.normalize_label(str(part.get("type", "")))
+        claimed = _resolve_part_category(part.get("type"))
         cand = map_part_to_candidate(part, candidates)
         if not cand:
-            category = label or str(part.get("type") or "ไม่ทราบหมวดหมู่")
+            category = claimed or "ไม่ทราบหมวดหมู่"
             unmatched_categories.append(category)
             continue
 
+        # The catalogue row is authoritative for the category. The model's claim
+        # is only a hint: it can be missing, a non-string, or a category the
+        # engine has no parser for. Trusting it here would let a part be shown
+        # with a real price while being excluded from parsed_parts, which is
+        # what the price total and every compatibility rule are computed from.
+        db_cat = _resolve_part_category(cand.get("category")) or claimed
+        claimed_is_usable = bool(claimed and claimed in PARSED_CATEGORIES)
+        if db_cat not in PARSED_CATEGORIES:
+            db_cat = None
+        elif claimed_is_usable and claimed != db_cat:
+            # The model labelled this part as something the catalogue row is not.
+            # Correcting it is what keeps the part priced and checked, but doing
+            # so silently would hide that the model was reasoning about the wrong
+            # thing, so the disagreement is reported as well.
+            corrected_claims.append((claimed, db_cat, cand["product_id"]))
+
         entry = {
-            "type": part.get("type", ""),
+            "type": db_cat or claimed or str(part.get("type") or ""),
             "name": cand["name"],
             "price": f"{cand['price']:,} ฿",
             "reason": part.get("reason", ""),
@@ -746,11 +863,16 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
         }
         parts_out.append(entry)
 
-        db_cat = label if label in PC_CATEGORIES or label in ("Air Cooler", "Liquid Cooler") else None
-        if db_cat and entry["name"]:
+        if db_cat:
             parsed = sp.parse_part(db_cat, entry["name"], specs=cand.get("specs", ""))
             parsed["price"] = cand["price"]
             parsed_parts.append(parsed)
+        else:
+            # Neither the catalogue row nor the model gives a category the
+            # engine can parse, so this product cannot be priced or checked.
+            # Recorded rather than dropped so the response cannot claim a
+            # complete total while silently excluding a real product.
+            unpriced_categories.append(str(part.get("type") or "ไม่ทราบหมวดหมู่"))
 
     total = sum(p.get("price") or 0 for p in parsed_parts)
     compat = ce.check_build(parsed_parts, budget if budget_ceiling else None)
@@ -759,24 +881,83 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
         f"ไม่พบสินค้าที่ตรงในฐานข้อมูลสำหรับ {category}"
         for category in dict.fromkeys(unmatched_categories)
     )
-    all_parts_matched = bool(proposed_parts) and not unmatched_categories
+    warnings.extend(
+        f"ข้ามการคิดราคาและตรวจ compatibility สำหรับ {category}: ไม่ทราบหมวดหมู่จากข้อมูลสินค้า"
+        for category in dict.fromkeys(unpriced_categories)
+    )
+    warnings.extend(
+        f"โมเดลระบุหมวดหมู่ {claimed} แต่สินค้า {product_id} ในฐานข้อมูลเป็น {actual} "
+        "จึงใช้หมวดหมู่จากฐานข้อมูล"
+        for claimed, actual, product_id in corrected_claims
+    )
+    all_parts_matched = bool(proposed_parts) and not unmatched_categories and not unpriced_categories
     total_label = f"{total:,} ฿"
     if all_parts_matched:
         total_label += " (ราคาจริงจากฐานข้อมูล)"
     elif parts_out:
         total_label += " (รวมเฉพาะสินค้าที่ตรงกับฐานข้อมูล)"
+    if unpriced_categories:
+        total_label += " — ไม่สามารถคิดราคาสินค้าบางรายการที่ไม่ทราบหมวดหมู่"
+
+    summary = llm_result.get("summary", "")
+    tier = llm_result.get("tier", "")
+    performance = llm_result.get("performance", {})
+    pros = llm_result.get("pros", [])
+    cons = list(llm_result.get("cons") or [])
+    build_empty = not parts_out
+    cpu = next((part for part in parsed_parts if part.get("category") == "CPU"), None)
+    # spec_parser calls SSDs "Storage" and both cooler categories "Cooler".
+    present_categories = {"SSD" if part.get("category") == "Storage"
+                          else part.get("category") for part in parsed_parts}
+    missing_categories = [category for category in mandatory_categories_for_cpu(cpu)
+                          if category not in present_categories]
+    if build_empty:
+        # Every proposed part was rejected against the real catalogue, so the
+        # model's prose is describing a set the user will never see. Keeping a
+        # summary that calls the build complete and ready, together with its
+        # tier, performance claims and pros, presents a usable machine next to
+        # parts=[] and a 0 ฿ total. The reasons survive in cons.
+        summary = ("ไม่พบสินค้าที่เลือกไว้ในฐานข้อมูล จึงยังไม่มีชุดสินค้าที่นำเสนอได้ "
+                   "กรุณาลองอีกครั้งหรือปรับงบ")
+        tier = ""
+        performance = {}
+        pros = []
+        cons.extend(
+            f"ไม่พบสินค้าที่ตรงในฐานข้อมูลสำหรับ {category}"
+            for category in dict.fromkeys(unmatched_categories)
+        )
+        cons.extend(
+            f"ข้ามการคิดราคาและตรวจ compatibility สำหรับ {category}: ไม่ทราบหมวดหมู่จากข้อมูลสินค้า"
+            for category in dict.fromkeys(unpriced_categories)
+        )
+        cons = list(dict.fromkeys(cons))
+    elif missing_categories:
+        inventory = "; ".join(f"{part['category']}: {part['name']}" for part in parsed_parts)
+        kept_summary = _without_build_readiness_claims(summary)
+        summary = (f"พบสินค้าที่ตรงกับฐานข้อมูล {len(parsed_parts)} รายการ: {inventory}. "
+                   f"ชุดยังไม่ครบ ขาด: {', '.join(missing_categories)}.")
+        if kept_summary:
+            summary += " " + kept_summary
+        # Keep useful product explanations, dropping only clauses that claim
+        # this incomplete selection is a complete or ready-to-use machine.
+        pros = [cleaned for text in pros if (cleaned := _without_build_readiness_claims(text))]
+        cons = [cleaned for text in cons if (cleaned := _without_build_readiness_claims(text))]
+        performance = {key: _without_build_readiness_claims(text)
+                       for key, text in performance.items()}
+        for entry in parts_out:
+            entry["reason"] = _without_build_readiness_claims(entry["reason"])
 
     result = {
-        "summary": llm_result.get("summary", ""),
+        "summary": summary,
         "totalBudget": total_label,
-        "tier": llm_result.get("tier", ""),
+        "tier": tier,
         "useCase": use_case,
         "budgetInput": budget,
         "parts": parts_out,
         "warnings": warnings,
-        "performance": llm_result.get("performance", {}),
-        "pros": llm_result.get("pros", []),
-        "cons": llm_result.get("cons", []),
+        "performance": performance,
+        "pros": pros,
+        "cons": cons,
         "compat": compat,
         "_meta": {
             "engine": "hybrid-rag-v1",
@@ -786,6 +967,10 @@ def build_final_result(llm_result: dict, candidates: list, budget: Optional[int]
             "candidates_offered": len(candidates),
             "parts_matched_to_db": len(parts_out),
             "parts_rejected_not_in_db": len(unmatched_categories),
+            "parts_matched_but_not_priced": len(unpriced_categories),
+            "parts_category_corrected": len(corrected_claims),
+            "build_empty": build_empty,
+            "missing_categories": missing_categories,
         },
     }
     return result
@@ -1197,6 +1382,29 @@ def assemble_build(candidates: list, budget: Optional[int], use_case: str,
             "post_downgrade_compat": post_downgrade_compat}
 
 
+def build_is_complete(built: dict) -> bool:
+    """True when assemble_build filled every category the system requires.
+
+    This is the same completeness rule top3_builds applies before ranking
+    (recommender.py:1657-1659), exposed so recommend_build's fallback path can
+    apply the identical rule instead of returning whatever was picked.
+    """
+    if not built:
+        return False
+    mandatory = built.get("mandatory_categories") or list(BASE_MANDATORY_CATEGORIES)
+    picked = built.get("picked") or {}
+    return all(cat in picked for cat in mandatory)
+
+
+def build_missing_categories(built: dict) -> list:
+    """Categories the system requires that assemble_build could not fill."""
+    if not built:
+        return list(BASE_MANDATORY_CATEGORIES)
+    mandatory = built.get("mandatory_categories") or list(BASE_MANDATORY_CATEGORIES)
+    picked = built.get("picked") or {}
+    return [cat for cat in mandatory if cat not in picked]
+
+
 def heuristic_build(candidates: list, budget: Optional[int], use_case: str,
                     budget_ceiling: bool = True) -> dict:
     built = assemble_build(candidates, budget, use_case,
@@ -1224,7 +1432,9 @@ def heuristic_build(candidates: list, budget: Optional[int], use_case: str,
                            "(โหมด offline — AI provider ไม่พร้อมใช้งาน)"
                            + (f" — {adjustment_summary}" if adjustment_summary else ""),
                 "tier": "", "performance": {}, "pros": [], "cons": [], "parts": parts}
-    return build_final_result(llm_like, candidates, budget, use_case, budget_ceiling)
+    result = build_final_result(llm_like, candidates, budget, use_case, budget_ceiling)
+    result["_meta"]["missing_categories"] = build_missing_categories(built)
+    return result
 
 
 # ─────────────────────────────────────────
@@ -1298,10 +1508,29 @@ async def recommend_build(db, prompt: str, extra: str = "", candidates: Optional
             temperature=0.4, max_tokens=8192,
         )
         llm_result = extract_json(text)
-        if not llm_result or not llm_result.get("parts"):
-            raise RuntimeError("LLM returned invalid JSON")
+        # `is None` rather than falsiness: extract_json returns None only when
+        # it decoded no JSON object at all. A decodable-but-empty object such as
+        # {} parsed successfully, so it belongs to schema validation below.
+        if llm_result is None:
+            raise LLMResponseParseError("LLM returned invalid JSON")
+
+        schema_problems = validate_build_payload(llm_result)
+        if schema_problems:
+            # Decodable but unusable: degrade to the deterministic build rather
+            # than propagating, and never let the shape reach build_final_result.
+            raise LLMResponseSchemaError(
+                "LLM response failed schema validation: " + "; ".join(schema_problems))
+
         result = build_final_result(llm_result, candidates, budget, use_case,
                                     budget_ceiling=not budget_is_lower_bound(prompt))
+        if not result.get("parts"):
+            # Well-formed JSON whose every part was rejected against the real
+            # catalogue. build_final_result has already scrubbed the prose, but
+            # returning parts=[] with a 0 ฿ total would still read as a
+            # successful recommendation of nothing. Same refusal as the
+            # fallback path and as recommend_with_alternatives.
+            raise LLMResponseSchemaError(
+                "LLM response named no product that exists in the catalogue")
         result["_meta"].update(llm_provider=provider, llm_model=model or DEFAULT_MODELS[provider])
         return result
     except RuntimeError:
@@ -1314,6 +1543,18 @@ async def recommend_build(db, prompt: str, extra: str = "", candidates: Optional
         )
         degraded = heuristic_build(candidates, budget, use_case,
                                    budget_ceiling=not budget_is_lower_bound(prompt))
+        # The deterministic fallback is only a fallback while it can build a
+        # complete set. Returning an empty or half-filled build here would
+        # report success with parts=[] and a 0 ฿ total, which
+        # recommend_with_alternatives refuses outright via
+        # _scored_recommendation_result. Same contract, same message, so the
+        # existing HTTP 422 mapping in shop_api keeps working for both routes.
+        missing = degraded.get("_meta", {}).get("missing_categories") or []
+        # Match top3_builds: UNKNOWN/WARNING remain eligible, but a confirmed
+        # incompatibility must never be returned as a complete compatible build.
+        if (not degraded.get("parts") or missing
+                or degraded.get("compat", {}).get("overall") == "error"):
+            raise RuntimeError(NO_COMPLETE_BUILD)
         degraded.setdefault("_meta", {}).update(
             provider_fallback=True, fallback_reason=failure_reason(exc),
         )
@@ -1598,7 +1839,7 @@ def _scored_recommendation_result(alternatives: list, prompt: str,
     import scoring_engine as se
 
     if not alternatives:
-        raise RuntimeError("No complete compatible catalogue build available")
+        raise RuntimeError(NO_COMPLETE_BUILD)
     safe = alternatives[0]
     budget = detect_budget_thb(prompt)
     use_case = detect_use_case(prompt)
