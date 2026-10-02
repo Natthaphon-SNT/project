@@ -86,11 +86,20 @@ class PayloadTests(unittest.TestCase):
             ("x-forwarded-for", "203.0.113.99"), ("x-real-ip", "203.0.113.98"),
             ("x-vercel-forwarded-for", "203.0.113.97"),
             ("cf-connecting-ip", "203.0.113.96"), ("x-vercel-ip-country", "TH"),
-            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+            ("x-access-log-proxy-secret", "attacker-does-not-have-the-proxy-secret"),
         ], client=("198.51.100.10", 5000))
         payload = access_log.log_payload(req, 401)
         self.assertEqual(payload["ip"], "198.51.100.10")
         self.assertIsNone(payload["country"])
+
+    def test_authenticated_vercel_proxy_survives_railway_peer_rotation(self):
+        req = request(headers=[
+            ("x-vercel-forwarded-for", "198.51.100.10"), ("x-vercel-ip-country", "TH"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+        ], client=("100.64.0.200", 5000))
+        payload = access_log.log_payload(req, 401)
+        self.assertEqual(payload["ip"], "198.51.100.10")
+        self.assertEqual(payload["country"], "TH")
 
     def test_missing_invalid_or_universal_trust_config_fails_closed(self):
         req = request(headers=[("x-forwarded-for", "203.0.113.99")],
@@ -100,6 +109,16 @@ class PayloadTests(unittest.TestCase):
                 "ACCESS_LOG_TRUSTED_PROXY_CIDRS": cidrs,
             }):
                 self.assertEqual(access_log._client_ip(req), "100.64.0.1")
+
+    def test_railway_edge_peer_rotation_with_explicit_allowlist(self):
+        with patch.dict(os.environ, {
+            "ACCESS_LOG_TRUSTED_PROXY_CIDRS": "100.64.0.1/32,100.64.0.2/32,100.64.0.3/32,100.64.0.4/32",
+        }):
+            for peer in ("100.64.0.1", "100.64.0.2", "100.64.0.3", "100.64.0.4"):
+                req = request(headers=[("x-forwarded-for", "198.51.100.10")], client=(peer, 5000))
+                self.assertEqual(access_log._client_ip(req), "198.51.100.10")
+            req = request(headers=[("x-forwarded-for", "203.0.113.99")], client=("100.64.0.5", 5000))
+            self.assertEqual(access_log._client_ip(req), "100.64.0.5")
 
     def test_validated_ipv6_and_invalid_first_entry_fallback(self):
         req = request(headers=[

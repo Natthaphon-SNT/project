@@ -54,18 +54,20 @@ def _trusted_proxy(request: Request) -> bool:
 def _vercel_proxy(request: Request) -> bool:
     secret = os.getenv("ACCESS_LOG_PROXY_SECRET", "")
     supplied = request.headers.get("x-access-log-proxy-secret", "")
-    return (_trusted_proxy(request) and len(secret) >= 32
+    # The private credential authenticates our Function across changing Railway
+    # ingress workers; a caller-supplied Vercel header alone proves nothing.
+    return (len(secret) >= 32
             and hmac.compare_digest(secret.encode(), supplied.encode()))
 
 
 def _client_ip(request: Request) -> str | None:
+    if _vercel_proxy(request):
+        # Our Vercel Function replaces this with its platform-managed XFF.
+        # An external rewrite alone does not sanitize this header (live-tested).
+        visitor = _valid_ip(request.headers.get("x-vercel-forwarded-for", "").split(",", 1)[0])
+        if visitor:
+            return visitor
     if _trusted_proxy(request):
-        if _vercel_proxy(request):
-            # Railway replaces XFF/X-Real-IP with Vercel's IP, while this
-            # Vercel-managed client header survives the external rewrite.
-            visitor = _valid_ip(request.headers.get("x-vercel-forwarded-for", "").split(",", 1)[0])
-            if visitor:
-                return visitor
         # The configured Railway edge replaces these even on direct requests.
         # Vercel/Cloudflare metadata alone never establishes proxy identity.
         for name in ("x-forwarded-for", "x-real-ip"):

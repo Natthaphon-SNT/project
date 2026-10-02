@@ -3,19 +3,22 @@
   "framework": "angular",
   "buildCommand": "npm run build",
   "outputDirectory": "dist/lt-shop/browser",
+  "functions": {
+    "api/proxy.mjs": { "maxDuration": 300 }
+  },
   "routes": [
     {
+      "src": "/api/((?:login|register|auth|admin|profile|ai|spec-history|scrape)(?:/.*)?)",
+      "dest": "/api/proxy?__proxy_path=$1"
+    },
+    {
+      "src": "/api/((?:products|promotions)(?:/.*)?)",
+      "methods": ["POST", "PUT", "PATCH", "DELETE"],
+      "dest": "/api/proxy?__proxy_path=$1"
+    },
+    {
       "src": "/api/(.*)",
-      "dest": "https://api-production-8990.up.railway.app/api/$1",
-      "transforms": [
-        {
-          "type": "request.headers",
-          "op": "set",
-          "target": { "key": "x-access-log-proxy-secret" },
-          "args": "$ACCESS_LOG_PROXY_SECRET",
-          "env": ["ACCESS_LOG_PROXY_SECRET"]
-        }
-      ]
+      "dest": "https://api-production-8990.up.railway.app/api/$1"
     },
     {
       "src": "/uploads/(.*)",

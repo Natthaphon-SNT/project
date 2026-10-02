@@ -28,7 +28,9 @@
   เพราะไม่มี Supabase connection/credentials และยังไม่มี Supabase variables บน Railway
 - ในการตรวจ IP วันที่ 2 ตุลาคม 2026 พบ Supabase variables บน Railway แล้ว และอ่านเฉพาะ
   แถว login ที่สร้างด้วย User-Agent ทดสอบได้; ไม่ได้ตรวจ RLS/anon ซ้ำในการแก้ IP ครั้งนี้
-- ชุด logging/verifier ล่าสุดผ่าน 17 tests รวมการปลอม headers และ proxy trust
+- ชุด logging/verifier ล่าสุดผ่าน 19 tests รวมการปลอม headers, proxy trust และ peer rotation
+- Server proxy ผ่าน Node tests 5 รายการ: metadata ทับค่าปลอม, JSON/auth/multipart/cookies,
+  การปฏิเสธ path traversal และ error response ที่ไม่เปิดเผยข้อมูล
 - Dashboard URL ระบุ project ได้ แต่ไม่แทนสิทธิ์เข้าถึงบัญชี
   มี Supabase plugin ให้ติดตั้ง/เชื่อม; หากเชื่อมแล้วสามารถ apply และตรวจต่อได้
 
@@ -102,33 +104,41 @@ Backend สร้าง client ใน lifespan ตอน startup ต้อง re
 ## ตรวจ IP เมื่อผ่าน Vercel
 
 Production Angular ใช้ `apiUrl=''`; AuthService POST ไป `/api/login` บนโดเมนเดียวกัน
-เส้นทางคือ browser → Vercel external rewrite → Railway edge → FastAPI ไม่มี serverless function
-`It-shop/vercel.json` ใช้ `routes` เพื่อใส่ request-header transform ก่อนส่ง `/api/*` ไป Railway;
-`/uploads/*`, static assets และ SPA fallback ยังคงทำงานตามเดิม
+เส้นทางเดิมคือ browser → Vercel external rewrite → Railway edge → FastAPI ไม่มี serverless function
+เส้นทางที่แก้คือ browser → Vercel Node Function `api/proxy.mjs` → Railway edge → FastAPI
+สำหรับ login/register/auth/admin/profile/AI/spec-history/scrape และ product/promotion writes
+`It-shop/vercel.json` ใช้ `routes` ส่ง endpoints เหล่านี้เข้า Function ก่อน generic API rewrite;
+API สาธารณะ, `/uploads/*`, static assets และ SPA fallback ยังคงใช้เส้นทางเดิม
 
 ตรวจ Railway log แบบชั่วคราวหนึ่งครั้งด้วย login สังเคราะห์แล้ว พบ:
 
 | ข้อมูล | ผลที่พบ |
 | --- | --- |
-| socket peer | `100.64.0.1` (Railway edge) |
+| socket peer | debug พบ `100.64.0.1`; การทดสอบถัดมาพบ `.2`, `.3`, `.4` ด้วย (Railway edge) |
 | `x-forwarded-for`, `x-real-ip` | เป็น IP ของ Vercel/proxy ไม่ใช่ visitor |
-| `x-vercel-forwarded-for` | มี IP ผู้เรียกจริง |
+| `x-vercel-forwarded-for` | มี IP ผู้เรียกจริงเมื่อไม่มีการปลอม แต่ external rewrite ส่งค่าที่ client ปลอมผ่านได้ |
 | `cf-connecting-ip`, `x-vercel-ip-country` | ไม่มีค่า |
 
 โค้ด debug ถูกลบออก ไม่เก็บ raw headers ลง Supabase และไม่อ่าน body/query/credentials
 Vercel อธิบาย headers ใน [request headers](https://vercel.com/docs/headers/request-headers)
-และแนะนำ secret request-header transform ใน [external rewrites](https://vercel.com/docs/routing/rewrites)
+และรองรับ [Node Function แบบ Web Request/Response](https://vercel.com/docs/functions/runtimes/node-js)
+การทดสอบ live พบว่า external rewrite + secret header อย่างเดียวไม่พอ เพราะ visitor metadata
+ที่ client ใส่เองอาจผ่านมาด้วย จึงใช้ Function อ่าน `x-forwarded-for` ที่ Vercel เขียนให้
+แล้วลบ/เขียน forwarded IP, country และ secret ใหม่ทุกครั้ง ไม่เก็บ body/query/credentials
+Function ส่ง body stream, Authorization/cookies และ query ต่อให้ API ตามเดิม ไม่เปลี่ยน auth logic
 
-ตั้ง `ACCESS_LOG_TRUSTED_PROXY_CIDRS=100.64.0.1/32` เฉพาะ Railway backend ตาม peer ที่ตรวจจริง
+ตั้ง `ACCESS_LOG_TRUSTED_PROXY_CIDRS=100.64.0.1/32,100.64.0.2/32,100.64.0.3/32,100.64.0.4/32`
+เฉพาะ Railway backend ตาม peers ที่ตรวจจริง ไม่เปิดทั้ง subnet หรือทุก IP
 และตั้ง `ACCESS_LOG_PROXY_SECRET` เป็น random secret เดียวกันอย่างน้อย 32 ตัวอักษรบน
-Railway backend กับ Vercel **server routing** ของ project นี้เท่านั้น ห้ามใส่ secret ใน Angular,
+Railway backend กับ Vercel **server Function** ของ project นี้เท่านั้น ห้ามใส่ secret ใน Angular,
 source code, Git หรือรายงาน ใช้ secret แยกจาก JWT/AI/Supabase keys
-Vercel transform ใช้ `set` เพื่อเขียน `x-access-log-proxy-secret` ทับค่าที่ผู้เรียกใส่มา
+Function เขียน `x-access-log-proxy-secret` ทับค่าที่ผู้เรียกใส่มา
 และ backend เทียบด้วย `hmac.compare_digest`; header นี้ไม่ถูกบันทึกหรือส่งกลับ
 
 Backend เลือก IP ตาม trust:
 
-1. Peer ที่เชื่อถือ + secret ถูกต้อง: ค่าแรกของ `x-vercel-forwarded-for` ก่อน
+1. Secret ถูกต้อง: ค่าแรกของ `x-vercel-forwarded-for` ที่ Function เขียนทับก่อน
+   secret ยืนยัน proxy ได้แม้ Railway เปลี่ยน ingress worker โดยไม่เปิด trust ทั้ง subnet
 2. Peer Railway ที่เชื่อถือ: ค่าแรกของ `x-forwarded-for` แล้ว `x-real-ip`
    (ทดสอบ live แล้วว่า Railway เขียนค่า IP ของผู้เรียกทับ headers ปลอม)
 3. Peer อื่นหรือไม่ได้ตั้ง CIDRs: ใช้ socket peer และไม่เชื่อ forwarded headers
@@ -138,10 +148,19 @@ Backend เลือก IP ตาม trust:
 ถ้าเริ่ม Uvicorn เองพร้อม proxy trust ต้องใส่ flag นี้ด้วย ห้ามตั้ง CIDRs เป็นทุก IP
 หาก topology/peer เปลี่ยนต้องตรวจใหม่ก่อนแก้ allowlist; env ว่าง/ผิดใช้ peer เป็น fallback
 
-รับ country จาก `x-vercel-ip-country` เฉพาะ proxy ที่ยืนยัน secret/peer แล้ว
+รับ country จาก `x-vercel-ip-country` เฉพาะ proxy ที่ยืนยัน secret แล้ว
 และต้องเป็นตัวอักษร ASCII สองตัว; ไม่มี header เก็บ null ไม่เดาประเทศหรือเชื่อ Cloudflare header
 การเรียกตรง Railway ยังใช้ได้และจะไม่เชื่อ Vercel country/IP ที่ผู้เรียกปลอมมา
 metadata นี้ใช้สำหรับ audit เท่านั้น การยืนยันบัญชียังคงใช้ JWT/role/ownership เดิม
+
+ตรวจแถวจริงใน Supabase ด้วย login สังเคราะห์ผ่าน Vercel และยิงตรง Railway จากเครือข่ายเดียวกันแล้ว:
+IP ตรงกัน; spoofed IP/country/secret ไม่ถูกเชื่อ; login/admin ที่ไม่มี token ได้ 401 และ country
+ผ่าน Function เป็น `TH` ขณะที่การเรียกตรงไม่มี country จึงเป็น null
+
+Function รักษา multipart bytes แต่ Vercel จำกัด request payload ที่ 4.5 MB ดังนั้น profile upload
+ผ่าน proxy นี้ต้องรวม multipart overhead แล้วไม่เกิน limit นั้น; proxy timeout 240 วินาที และ
+ตั้ง maxDuration 300 วินาที ดู [ข้อจำกัด Function](https://vercel.com/docs/functions/limitations)
+หากต้องรองรับไฟล์ใหญ่กว่านี้ให้วางเส้นทาง upload แยก; การแก้ครั้งนี้ไม่เปลี่ยน DB/uploads/S3
 
 ## ทดสอบจริงหลังสร้างตาราง
 
