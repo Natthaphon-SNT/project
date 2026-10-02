@@ -2,6 +2,8 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+import hmac
+from ipaddress import ip_address, ip_network
 import os
 from urllib.parse import urlsplit
 
@@ -26,18 +28,68 @@ def should_log(method: str, path: str) -> bool:
     )
 
 
+def _valid_ip(value: str | None) -> str | None:
+    try:
+        return str(ip_address(value.strip())) if value else None
+    except ValueError:
+        return None
+
+
+def _trusted_proxy(request: Request) -> bool:
+    # Preserve the socket peer with Uvicorn --no-proxy-headers, so forwarded
+    # headers cannot influence the decision to trust a proxy.
+    peer = _valid_ip(request.client.host if request.client else None)
+    if not peer:
+        return False
+    for cidr in os.getenv("ACCESS_LOG_TRUSTED_PROXY_CIDRS", "").split(","):
+        try:
+            network = ip_network(cidr.strip())
+            if network.prefixlen and ip_address(peer) in network:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _vercel_proxy(request: Request) -> bool:
+    secret = os.getenv("ACCESS_LOG_PROXY_SECRET", "")
+    supplied = request.headers.get("x-access-log-proxy-secret", "")
+    return (_trusted_proxy(request) and len(secret) >= 32
+            and hmac.compare_digest(secret.encode(), supplied.encode()))
+
+
+def _client_ip(request: Request) -> str | None:
+    if _trusted_proxy(request):
+        if _vercel_proxy(request):
+            # Railway replaces XFF/X-Real-IP with Vercel's IP, while this
+            # Vercel-managed client header survives the external rewrite.
+            visitor = _valid_ip(request.headers.get("x-vercel-forwarded-for", "").split(",", 1)[0])
+            if visitor:
+                return visitor
+        # The configured Railway edge replaces these even on direct requests.
+        # Vercel/Cloudflare metadata alone never establishes proxy identity.
+        for name in ("x-forwarded-for", "x-real-ip"):
+            candidate = _valid_ip(request.headers.get(name, "").split(",", 1)[0])
+            if candidate:
+                return candidate
+    return _valid_ip(request.client.host if request.client else None)
+
+
+def _client_country(request: Request) -> str | None:
+    if not _vercel_proxy(request):
+        return None
+    country = request.headers.get("x-vercel-ip-country", "").strip().upper()
+    return country if len(country) == 2 and country.isascii() and country.isalpha() else None
+
+
 def log_payload(request: Request, status: int) -> dict:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    ip = forwarded or request.headers.get("x-real-ip", "").strip()
-    if not ip:
-        ip = request.client.host if request.client else None
     user_id = getattr(request.state, "user_id", None)
     return {
         "method": request.method,
         "path": request.url.path[:300],
         "status": status,
-        "ip": ip,
-        "country": request.headers.get("x-vercel-ip-country") or None,
+        "ip": _client_ip(request),
+        "country": _client_country(request),
         "user_agent": request.headers.get("user-agent", "")[:300],
         "user_id": str(user_id) if user_id is not None else None,
     }

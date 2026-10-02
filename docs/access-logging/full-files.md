@@ -1,11 +1,11 @@
-# Access logging ? full source files
+# Access logging - full source files
 
 Snapshot: 2026-10-02 (Asia/Bangkok). Complete file contents, including prior edits in shared files.
 The generated snapshot itself is excluded to avoid recursive inclusion. Real .env files and credentials are excluded.
 
 ## .gitignore
 
-SHA-256 of source file: `57416c1047274182c31f8aeaebf045b62ed480814a8e002c3561c05f24cf5efd`
+SHA-256 of source file: `1971a7619fec32fc17ce485d86b91323d9dcd9134ccb0dd6fd575a343e20afce`
 
 ````text
 # Secrets
@@ -53,10 +53,11 @@ backend/snapshot_shop_db.py
 
 ## .env.example
 
-SHA-256 of source file: `d03bedd5a70bf6a41b2f315552768655845ad5957077d85f4f244d76e92954df`
+SHA-256 of source file: `a59938aa2e070047725ce769efa9b5b862e27726061f67be151e82a739419689`
 
 ````text
-# Backend only. Copy to .env locally and fill privately; never commit real values.
+# Copy to .env locally and fill privately; never commit real values.
+# All variables are backend-only except the shared server-routing proxy secret below.
 JWT_SECRET=
 AI_KEY_ENCRYPTION_KEY=
 
@@ -69,11 +70,16 @@ AI_KEY_ENCRYPTION_KEY=
 # Access logs only: configure these in the Railway backend service.
 SUPABASE_URL=
 SUPABASE_SERVICE_KEY=
+
+# Backend: trust only the verified Railway socket peer(s); empty means no trust.
+ACCESS_LOG_TRUSTED_PROXY_CIDRS=
+# Same random secret on Railway and Vercel server routing only, never Angular.
+ACCESS_LOG_PROXY_SECRET=
 ````
 
 ## README.md
 
-SHA-256 of source file: `ed8898909306fd93505942e53ae9c68c321af3acb6bb54fcc30e31a96da39fef`
+SHA-256 of source file: `7c330b3631da340a9398c09031a8670700f0061c0c0d3321c6953e1be55d3ad9`
 
 ````markdown
 ﻿# IT-RECOMMEND — ระบบแนะนำและจัดสเปกคอมพิวเตอร์
@@ -297,6 +303,8 @@ Set-Location "$projectRoot\backend"
 
 Backend รองรับ access logging ไป Supabase แยกจาก SQLite โดยตั้ง `SUPABASE_URL` และ `SUPABASE_SERVICE_KEY` เฉพาะ backend service เมื่อไม่ได้ตั้งค่า ระบบยังทำงานตามปกติ ดู migration, รายการ routes, SQL ตรวจสิทธิ์/ดู log และขั้นตอนทดสอบจริงใน [เอกสาร access logging](docs/access-logging/README.md) ห้ามนำ service key ไปไว้ใน Angular หรือ Vercel
 
+สำหรับ IP audit ผ่าน Vercel ให้ตั้ง `ACCESS_LOG_TRUSTED_PROXY_CIDRS` เฉพาะ Railway peer ที่ตรวจจริง และ `ACCESS_LOG_PROXY_SECRET` เป็น random secret แยกต่างหากอย่างน้อย 32 ตัวอักษรที่ตรงกันบน Railway backend กับ Vercel server routing เท่านั้น ห้ามใส่ใน Angular หรือ Git `It-shop/vercel.json` ใส่ secret request header ด้วย transform ก่อน rewrite API; backend เลือก `x-vercel-forwarded-for` เฉพาะเมื่อยืนยัน proxy แล้ว Railway start command ใช้ `--no-proxy-headers` เพื่อรักษา socket peer สำหรับตรวจ trust เมื่อเริ่มเองและเปิด proxy trust ต้องใช้ flag นี้ด้วย หาก env trust ไม่ครบจะใช้ peer เป็น fallback; country เป็น null หาก proxy ไม่ส่งมา
+
 ## หน้าที่มีใน Frontend
 
 | เส้นทาง | การใช้งาน | สิทธิ์ |
@@ -460,15 +468,68 @@ npm --prefix It-shop test -- --watch=false
 | เข้า `/admin/products` หรือ `/admin/users` ไม่ได้ | ตรวจ role ของบัญชีและเข้าสู่ระบบใหม่หลังเปลี่ยนสิทธิ์ |
 ````
 
+## It-shop/vercel.json
+
+SHA-256 of source file: `d66fe2e10e4eeb5cb4d96acab53d4ae2a04e0605c2f8e5d6b14eb7160b291e68`
+
+````json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "angular",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/lt-shop/browser",
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://api-production-8990.up.railway.app/api/$1",
+      "transforms": [
+        {
+          "type": "request.headers",
+          "op": "set",
+          "target": { "key": "x-access-log-proxy-secret" },
+          "args": "$ACCESS_LOG_PROXY_SECRET",
+          "env": ["ACCESS_LOG_PROXY_SECRET"]
+        }
+      ]
+    },
+    {
+      "src": "/uploads/(.*)",
+      "dest": "https://api-production-8990.up.railway.app/uploads/$1"
+    },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}
+````
+
+## backend/railway.json
+
+SHA-256 of source file: `dca8d1516dbe53a05886dd2edfd5be98182911e1cf90fc64a71bcdeb836dbd3d`
+
+````json
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK"
+  },
+  "deploy": {
+    "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT --no-proxy-headers",
+    "healthcheckPath": "/"
+  }
+}
+````
+
 ## backend/access_log.py
 
-SHA-256 of source file: `47c423777855cb3630f64a4dc9bdb85977515b1101f5780a407c83faa31b17cf`
+SHA-256 of source file: `d1f2538f37ac7991db9bbdbc123381babf44bcdfc3e846b18e4e44278b91dbc1`
 
 ````python
 """Best-effort security access logs; no SQLite writes or request content capture."""
 
 import asyncio
 from contextlib import asynccontextmanager
+import hmac
+from ipaddress import ip_address, ip_network
 import os
 from urllib.parse import urlsplit
 
@@ -493,18 +554,68 @@ def should_log(method: str, path: str) -> bool:
     )
 
 
+def _valid_ip(value: str | None) -> str | None:
+    try:
+        return str(ip_address(value.strip())) if value else None
+    except ValueError:
+        return None
+
+
+def _trusted_proxy(request: Request) -> bool:
+    # Preserve the socket peer with Uvicorn --no-proxy-headers, so forwarded
+    # headers cannot influence the decision to trust a proxy.
+    peer = _valid_ip(request.client.host if request.client else None)
+    if not peer:
+        return False
+    for cidr in os.getenv("ACCESS_LOG_TRUSTED_PROXY_CIDRS", "").split(","):
+        try:
+            network = ip_network(cidr.strip())
+            if network.prefixlen and ip_address(peer) in network:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _vercel_proxy(request: Request) -> bool:
+    secret = os.getenv("ACCESS_LOG_PROXY_SECRET", "")
+    supplied = request.headers.get("x-access-log-proxy-secret", "")
+    return (_trusted_proxy(request) and len(secret) >= 32
+            and hmac.compare_digest(secret.encode(), supplied.encode()))
+
+
+def _client_ip(request: Request) -> str | None:
+    if _trusted_proxy(request):
+        if _vercel_proxy(request):
+            # Railway replaces XFF/X-Real-IP with Vercel's IP, while this
+            # Vercel-managed client header survives the external rewrite.
+            visitor = _valid_ip(request.headers.get("x-vercel-forwarded-for", "").split(",", 1)[0])
+            if visitor:
+                return visitor
+        # The configured Railway edge replaces these even on direct requests.
+        # Vercel/Cloudflare metadata alone never establishes proxy identity.
+        for name in ("x-forwarded-for", "x-real-ip"):
+            candidate = _valid_ip(request.headers.get(name, "").split(",", 1)[0])
+            if candidate:
+                return candidate
+    return _valid_ip(request.client.host if request.client else None)
+
+
+def _client_country(request: Request) -> str | None:
+    if not _vercel_proxy(request):
+        return None
+    country = request.headers.get("x-vercel-ip-country", "").strip().upper()
+    return country if len(country) == 2 and country.isascii() and country.isalpha() else None
+
+
 def log_payload(request: Request, status: int) -> dict:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    ip = forwarded or request.headers.get("x-real-ip", "").strip()
-    if not ip:
-        ip = request.client.host if request.client else None
     user_id = getattr(request.state, "user_id", None)
     return {
         "method": request.method,
         "path": request.url.path[:300],
         "status": status,
-        "ip": ip,
-        "country": request.headers.get("x-vercel-ip-country") or None,
+        "ip": _client_ip(request),
+        "country": _client_country(request),
         "user_agent": request.headers.get("user-agent", "")[:300],
         "user_id": str(user_id) if user_id is not None else None,
     }
@@ -2733,7 +2844,7 @@ if __name__ == "__main__":
 
 ## backend/test_access_log.py
 
-SHA-256 of source file: `18d193b85e8c8f4303f8424ffb2e153544e16e11209073136e11c154e8fc19d9`
+SHA-256 of source file: `c4c368eda65c3a531bb9f4d2a1ccb5450dfffad613c651ee3a15b50eaa0013a1`
 
 ````python
 """Access logging tests with synthetic requests and mocked Supabase only."""
@@ -2765,19 +2876,29 @@ def request(path="/api/login", headers=(), client=("127.0.0.1", 5000)):
 
 
 class PayloadTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {
+            "ACCESS_LOG_TRUSTED_PROXY_CIDRS": "100.64.0.1/32",
+            "ACCESS_LOG_PROXY_SECRET": "synthetic-proxy-secret-for-testing-only",
+        })
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_ip_precedence_limits_and_allowlist(self):
         req = request("/api/admin/" + "a" * 400, headers=[
             ("x-forwarded-for", " 203.0.113.1, 192.0.2.2"),
             ("x-real-ip", "192.0.2.3"), ("user-agent", "u" * 500),
+            ("x-vercel-forwarded-for", "203.0.113.4"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
             ("x-vercel-ip-country", "TH"), ("authorization", "secret"),
             ("cookie", "secret"),
-        ])
+        ], client=("100.64.0.1", 5000))
         req.state.user_id = "alice"
         payload = access_log.log_payload(req, 403)
         self.assertEqual(set(payload), {
             "method", "path", "status", "ip", "country", "user_agent", "user_id",
         })
-        self.assertEqual(payload["ip"], "203.0.113.1")
+        self.assertEqual(payload["ip"], "203.0.113.4")
         self.assertEqual(payload["country"], "TH")
         self.assertEqual(payload["user_id"], "alice")
         self.assertEqual(len(payload["path"]), 300)
@@ -2787,13 +2908,67 @@ class PayloadTests(unittest.TestCase):
 
     def test_ip_fallbacks_and_null_values(self):
         req = request(headers=[("x-forwarded-for", " , 192.0.2.2"),
-                               ("x-real-ip", "198.51.100.2")])
+                               ("x-real-ip", "198.51.100.2")], client=("100.64.0.1", 5000))
         self.assertEqual(access_log.log_payload(req, 401)["ip"], "198.51.100.2")
         payload = access_log.log_payload(request(), 401)
         self.assertEqual(payload["ip"], "127.0.0.1")
         self.assertIsNone(payload["country"])
         self.assertIsNone(payload["user_id"])
         self.assertIsNone(access_log.log_payload(request(client=None), 401)["ip"])
+
+    def test_direct_railway_request_ignores_forged_vercel_metadata(self):
+        for supplied in ("", "wrong-secret", "s" * 31):
+            req = request(headers=[
+                ("x-forwarded-for", "198.51.100.10, 192.0.2.10"),
+                ("x-real-ip", "198.51.100.10"),
+                ("x-vercel-forwarded-for", "203.0.113.99"),
+                ("cf-connecting-ip", "203.0.113.98"),
+                ("x-vercel-ip-country", "TH"),
+                ("x-access-log-proxy-secret", supplied),
+            ], client=("100.64.0.1", 5000))
+            payload = access_log.log_payload(req, 401)
+            self.assertEqual(payload["ip"], "198.51.100.10")
+            self.assertIsNone(payload["country"])
+
+    def test_untrusted_socket_peer_cannot_supply_forwarded_metadata(self):
+        req = request(headers=[
+            ("x-forwarded-for", "203.0.113.99"), ("x-real-ip", "203.0.113.98"),
+            ("x-vercel-forwarded-for", "203.0.113.97"),
+            ("cf-connecting-ip", "203.0.113.96"), ("x-vercel-ip-country", "TH"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+        ], client=("198.51.100.10", 5000))
+        payload = access_log.log_payload(req, 401)
+        self.assertEqual(payload["ip"], "198.51.100.10")
+        self.assertIsNone(payload["country"])
+
+    def test_missing_invalid_or_universal_trust_config_fails_closed(self):
+        req = request(headers=[("x-forwarded-for", "203.0.113.99")],
+                      client=("100.64.0.1", 5000))
+        for cidrs in ("", "not-a-cidr", "0.0.0.0/0,::/0"):
+            with self.subTest(cidrs=cidrs), patch.dict(os.environ, {
+                "ACCESS_LOG_TRUSTED_PROXY_CIDRS": cidrs,
+            }):
+                self.assertEqual(access_log._client_ip(req), "100.64.0.1")
+
+    def test_validated_ipv6_and_invalid_first_entry_fallback(self):
+        req = request(headers=[
+            ("x-vercel-forwarded-for", "not-an-ip, 203.0.113.99"),
+            ("x-forwarded-for", "also-invalid, 203.0.113.98"),
+            ("x-real-ip", "2001:db8::1"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+        ], client=("100.64.0.1", 5000))
+        self.assertEqual(access_log._client_ip(req), "2001:db8::1")
+        with patch.dict(os.environ, {"ACCESS_LOG_PROXY_SECRET": ""}):
+            self.assertFalse(access_log._vercel_proxy(req))
+
+    def test_country_requires_verified_proxy_and_two_ascii_letters(self):
+        for raw, expected in (("th", "TH"), ("", None), ("Thailand", None),
+                              ("T1", None), ("\u00c9\u00c9", None)):
+            req = request(headers=[
+                ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+                ("x-vercel-ip-country", raw),
+            ], client=("100.64.0.1", 5000))
+            self.assertEqual(access_log._client_country(req), expected)
 
     def test_route_selection(self):
         for prefix in access_log.LOG_PREFIXES:
@@ -3702,7 +3877,7 @@ delete from public.access_logs where created_at < now() - interval '90 days';
 
 ## docs/access-logging/README.md
 
-SHA-256 of source file: `da8dc4f773735ae3f970c20879cb96db0f3f2e76557e6f81cdf5f6f366fcfbe5`
+SHA-256 of source file: `e92bf3c9b21fd804f47fb0b73cafec5c4199b6637f40f3e3694538531f54b10b`
 
 ````markdown
 # Access logging สำหรับ Railway backend
@@ -3731,9 +3906,11 @@ SHA-256 of source file: `da8dc4f773735ae3f970c20879cb96db0f3f2e76557e6f81cdf5f6f
 - ตรวจ Vercel project `recommend` แล้ว: root `It-shop`, Angular, Node 24.x,
   build `npm run build`, output `dist/lt-shop/browser`; production build ผ่าน
   (มี warnings เรื่องขนาด bundle/CSS) และ recommendation regressions เพิ่มอีก 100 tests ผ่าน
-- ยังไม่ได้ apply migration, ตรวจ RLS จริง, ทดสอบ anon key จริง หรือตั้ง Supabase variables
-  บน Railway เพราะยังไม่มี Supabase connection/credentials;
-  `SUPABASE_URL` และ `SUPABASE_SERVICE_KEY` ยังไม่อยู่ใน backend variables ตอนตรวจ
+- ตอนเตรียม commit แรกยังไม่ได้ apply migration, ตรวจ RLS จริง หรือทดสอบ anon key จริง
+  เพราะไม่มี Supabase connection/credentials และยังไม่มี Supabase variables บน Railway
+- ในการตรวจ IP วันที่ 2 ตุลาคม 2026 พบ Supabase variables บน Railway แล้ว และอ่านเฉพาะ
+  แถว login ที่สร้างด้วย User-Agent ทดสอบได้; ไม่ได้ตรวจ RLS/anon ซ้ำในการแก้ IP ครั้งนี้
+- ชุด logging/verifier ล่าสุดผ่าน 17 tests รวมการปลอม headers และ proxy trust
 - Dashboard URL ระบุ project ได้ แต่ไม่แทนสิทธิ์เข้าถึงบัญชี
   มี Supabase plugin ให้ติดตั้ง/เชื่อม; หากเชื่อมแล้วสามารถ apply และตรวจต่อได้
 
@@ -3806,32 +3983,47 @@ Backend สร้าง client ใน lifespan ตอน startup ต้อง re
 
 ## ตรวจ IP เมื่อผ่าน Vercel
 
-`It-shop/vercel.json` rewrite `/api/:path*` ไป Railway และ production Angular ใช้ same-origin
-Vercel ระบุว่า `x-forwarded-for`/`x-real-ip` เป็น public IP ของผู้เรียก
-และ `x-vercel-ip-country` เป็นรหัสประเทศ
-([เอกสาร request headers](https://vercel.com/docs/headers/request-headers))
-External rewrites เป็น reverse proxy
-([เอกสาร rewrites](https://vercel.com/kb/guide/vercel-reverse-proxy-rewrites-external))
+Production Angular ใช้ `apiUrl=''`; AuthService POST ไป `/api/login` บนโดเมนเดียวกัน
+เส้นทางคือ browser → Vercel external rewrite → Railway edge → FastAPI ไม่มี serverless function
+`It-shop/vercel.json` ใช้ `routes` เพื่อใส่ request-header transform ก่อนส่ง `/api/*` ไป Railway;
+`/uploads/*`, static assets และ SPA fallback ยังคงทำงานตามเดิม
 
-จากเอกสารคาดว่า IP ผู้ใช้ควรถูกส่งต่อ แต่ **ยังไม่ได้ยืนยัน header chain จริงระหว่าง
-Vercel กับ Railway ของ deployment นี้** Railway หรือ proxy อีกชั้นอาจเขียน header ทับ
-middleware ทำตามลำดับที่กำหนด: ค่าแรก X-Forwarded-For → X-Real-IP → request.client.host
-เมื่อไม่มี country header เก็บ null; ไม่เดาประเทศ
+ตรวจ Railway log แบบชั่วคราวหนึ่งครั้งด้วย login สังเคราะห์แล้ว พบ:
 
-หลัง deploy ให้เทียบ IP ในแถวที่เกิดจาก browser เรียก same-origin `/api/admin/users`
-กับ IP ของผู้ใช้ขณะนั้น แล้วเทียบการเรียก Railway โดยตรงจากเครือข่ายเดียวกัน
-ทำซ้ำจากอีกเครือข่าย ถ้าทั้งสองเครือข่ายเห็น IP คงที่ของ Vercel ให้ถือว่ายังระบุผู้ใช้ไม่ได้
+| ข้อมูล | ผลที่พบ |
+| --- | --- |
+| socket peer | `100.64.0.1` (Railway edge) |
+| `x-forwarded-for`, `x-real-ip` | เป็น IP ของ Vercel/proxy ไม่ใช่ visitor |
+| `x-vercel-forwarded-for` | มี IP ผู้เรียกจริง |
+| `cf-connecting-ip`, `x-vercel-ip-country` | ไม่มีค่า |
 
-ทางแก้ที่เลือกได้หากยืนยันว่า IP เป็นของ Vercel:
+โค้ด debug ถูกลบออก ไม่เก็บ raw headers ลง Supabase และไม่อ่าน body/query/credentials
+Vercel อธิบาย headers ใน [request headers](https://vercel.com/docs/headers/request-headers)
+และแนะนำ secret request-header transform ใน [external rewrites](https://vercel.com/docs/routing/rewrites)
 
-1. ให้ Angular เรียก Railway URL โดยตรง และตั้ง CORS_ORIGINS สำหรับโดเมน frontend
-   วิธีนี้ตัด Vercel rewrite ออกจากเส้นทาง API โดย service key ยังอยู่ backend เท่านั้น
-2. ใช้ proxy ที่อ่าน client IP ของ Vercel และส่งต่ออย่างชัดเจน พร้อมจำกัด origin backend
-   หรือยืนยัน proxy ด้วย signed header เพื่อป้องกันการปลอมค่า forwarded headers
+ตั้ง `ACCESS_LOG_TRUSTED_PROXY_CIDRS=100.64.0.1/32` เฉพาะ Railway backend ตาม peer ที่ตรวจจริง
+และตั้ง `ACCESS_LOG_PROXY_SECRET` เป็น random secret เดียวกันอย่างน้อย 32 ตัวอักษรบน
+Railway backend กับ Vercel **server routing** ของ project นี้เท่านั้น ห้ามใส่ secret ใน Angular,
+source code, Git หรือรายงาน ใช้ secret แยกจาก JWT/AI/Supabase keys
+Vercel transform ใช้ `set` เพื่อเขียน `x-access-log-proxy-secret` ทับค่าที่ผู้เรียกใส่มา
+และ backend เทียบด้วย `hmac.compare_digest`; header นี้ไม่ถูกบันทึกหรือส่งกลับ
 
-ยังไม่ได้เปลี่ยน proxy หรือค่าความปลอดภัย/DB/volume ของ production
-Forwarded IP/country เป็นข้อมูลที่ proxy อ้าง ไม่ใช่หลักฐานยืนยันตัวตน;
-ถ้าเปิด Railway origin ให้เรียกตรง ผู้เรียกอาจปลอม headers ได้
+Backend เลือก IP ตาม trust:
+
+1. Peer ที่เชื่อถือ + secret ถูกต้อง: ค่าแรกของ `x-vercel-forwarded-for` ก่อน
+2. Peer Railway ที่เชื่อถือ: ค่าแรกของ `x-forwarded-for` แล้ว `x-real-ip`
+   (ทดสอบ live แล้วว่า Railway เขียนค่า IP ของผู้เรียกทับ headers ปลอม)
+3. Peer อื่นหรือไม่ได้ตั้ง CIDRs: ใช้ socket peer และไม่เชื่อ forwarded headers
+
+ตรวจค่าเป็น IPv4/IPv6 จริงก่อนใช้; ไม่ข้ามไปใช้ IP ลำดับหลังที่ client อาจแทรกไว้
+`backend/railway.json` ใช้ `--no-proxy-headers` เพื่อรักษา socket peer สำหรับตรวจ trust
+ถ้าเริ่ม Uvicorn เองพร้อม proxy trust ต้องใส่ flag นี้ด้วย ห้ามตั้ง CIDRs เป็นทุก IP
+หาก topology/peer เปลี่ยนต้องตรวจใหม่ก่อนแก้ allowlist; env ว่าง/ผิดใช้ peer เป็น fallback
+
+รับ country จาก `x-vercel-ip-country` เฉพาะ proxy ที่ยืนยัน secret/peer แล้ว
+และต้องเป็นตัวอักษร ASCII สองตัว; ไม่มี header เก็บ null ไม่เดาประเทศหรือเชื่อ Cloudflare header
+การเรียกตรง Railway ยังใช้ได้และจะไม่เชื่อ Vercel country/IP ที่ผู้เรียกปลอมมา
+metadata นี้ใช้สำหรับ audit เท่านั้น การยืนยันบัญชียังคงใช้ JWT/role/ownership เดิม
 
 ## ทดสอบจริงหลังสร้างตาราง
 

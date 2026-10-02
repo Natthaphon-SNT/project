@@ -27,19 +27,29 @@ def request(path="/api/login", headers=(), client=("127.0.0.1", 5000)):
 
 
 class PayloadTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {
+            "ACCESS_LOG_TRUSTED_PROXY_CIDRS": "100.64.0.1/32",
+            "ACCESS_LOG_PROXY_SECRET": "synthetic-proxy-secret-for-testing-only",
+        })
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_ip_precedence_limits_and_allowlist(self):
         req = request("/api/admin/" + "a" * 400, headers=[
             ("x-forwarded-for", " 203.0.113.1, 192.0.2.2"),
             ("x-real-ip", "192.0.2.3"), ("user-agent", "u" * 500),
+            ("x-vercel-forwarded-for", "203.0.113.4"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
             ("x-vercel-ip-country", "TH"), ("authorization", "secret"),
             ("cookie", "secret"),
-        ])
+        ], client=("100.64.0.1", 5000))
         req.state.user_id = "alice"
         payload = access_log.log_payload(req, 403)
         self.assertEqual(set(payload), {
             "method", "path", "status", "ip", "country", "user_agent", "user_id",
         })
-        self.assertEqual(payload["ip"], "203.0.113.1")
+        self.assertEqual(payload["ip"], "203.0.113.4")
         self.assertEqual(payload["country"], "TH")
         self.assertEqual(payload["user_id"], "alice")
         self.assertEqual(len(payload["path"]), 300)
@@ -49,13 +59,67 @@ class PayloadTests(unittest.TestCase):
 
     def test_ip_fallbacks_and_null_values(self):
         req = request(headers=[("x-forwarded-for", " , 192.0.2.2"),
-                               ("x-real-ip", "198.51.100.2")])
+                               ("x-real-ip", "198.51.100.2")], client=("100.64.0.1", 5000))
         self.assertEqual(access_log.log_payload(req, 401)["ip"], "198.51.100.2")
         payload = access_log.log_payload(request(), 401)
         self.assertEqual(payload["ip"], "127.0.0.1")
         self.assertIsNone(payload["country"])
         self.assertIsNone(payload["user_id"])
         self.assertIsNone(access_log.log_payload(request(client=None), 401)["ip"])
+
+    def test_direct_railway_request_ignores_forged_vercel_metadata(self):
+        for supplied in ("", "wrong-secret", "s" * 31):
+            req = request(headers=[
+                ("x-forwarded-for", "198.51.100.10, 192.0.2.10"),
+                ("x-real-ip", "198.51.100.10"),
+                ("x-vercel-forwarded-for", "203.0.113.99"),
+                ("cf-connecting-ip", "203.0.113.98"),
+                ("x-vercel-ip-country", "TH"),
+                ("x-access-log-proxy-secret", supplied),
+            ], client=("100.64.0.1", 5000))
+            payload = access_log.log_payload(req, 401)
+            self.assertEqual(payload["ip"], "198.51.100.10")
+            self.assertIsNone(payload["country"])
+
+    def test_untrusted_socket_peer_cannot_supply_forwarded_metadata(self):
+        req = request(headers=[
+            ("x-forwarded-for", "203.0.113.99"), ("x-real-ip", "203.0.113.98"),
+            ("x-vercel-forwarded-for", "203.0.113.97"),
+            ("cf-connecting-ip", "203.0.113.96"), ("x-vercel-ip-country", "TH"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+        ], client=("198.51.100.10", 5000))
+        payload = access_log.log_payload(req, 401)
+        self.assertEqual(payload["ip"], "198.51.100.10")
+        self.assertIsNone(payload["country"])
+
+    def test_missing_invalid_or_universal_trust_config_fails_closed(self):
+        req = request(headers=[("x-forwarded-for", "203.0.113.99")],
+                      client=("100.64.0.1", 5000))
+        for cidrs in ("", "not-a-cidr", "0.0.0.0/0,::/0"):
+            with self.subTest(cidrs=cidrs), patch.dict(os.environ, {
+                "ACCESS_LOG_TRUSTED_PROXY_CIDRS": cidrs,
+            }):
+                self.assertEqual(access_log._client_ip(req), "100.64.0.1")
+
+    def test_validated_ipv6_and_invalid_first_entry_fallback(self):
+        req = request(headers=[
+            ("x-vercel-forwarded-for", "not-an-ip, 203.0.113.99"),
+            ("x-forwarded-for", "also-invalid, 203.0.113.98"),
+            ("x-real-ip", "2001:db8::1"),
+            ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+        ], client=("100.64.0.1", 5000))
+        self.assertEqual(access_log._client_ip(req), "2001:db8::1")
+        with patch.dict(os.environ, {"ACCESS_LOG_PROXY_SECRET": ""}):
+            self.assertFalse(access_log._vercel_proxy(req))
+
+    def test_country_requires_verified_proxy_and_two_ascii_letters(self):
+        for raw, expected in (("th", "TH"), ("", None), ("Thailand", None),
+                              ("T1", None), ("\u00c9\u00c9", None)):
+            req = request(headers=[
+                ("x-access-log-proxy-secret", "synthetic-proxy-secret-for-testing-only"),
+                ("x-vercel-ip-country", raw),
+            ], client=("100.64.0.1", 5000))
+            self.assertEqual(access_log._client_country(req), expected)
 
     def test_route_selection(self):
         for prefix in access_log.LOG_PREFIXES:

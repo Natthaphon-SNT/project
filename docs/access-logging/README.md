@@ -24,9 +24,11 @@
 - ตรวจ Vercel project `recommend` แล้ว: root `It-shop`, Angular, Node 24.x,
   build `npm run build`, output `dist/lt-shop/browser`; production build ผ่าน
   (มี warnings เรื่องขนาด bundle/CSS) และ recommendation regressions เพิ่มอีก 100 tests ผ่าน
-- ยังไม่ได้ apply migration, ตรวจ RLS จริง, ทดสอบ anon key จริง หรือตั้ง Supabase variables
-  บน Railway เพราะยังไม่มี Supabase connection/credentials;
-  `SUPABASE_URL` และ `SUPABASE_SERVICE_KEY` ยังไม่อยู่ใน backend variables ตอนตรวจ
+- ตอนเตรียม commit แรกยังไม่ได้ apply migration, ตรวจ RLS จริง หรือทดสอบ anon key จริง
+  เพราะไม่มี Supabase connection/credentials และยังไม่มี Supabase variables บน Railway
+- ในการตรวจ IP วันที่ 2 ตุลาคม 2026 พบ Supabase variables บน Railway แล้ว และอ่านเฉพาะ
+  แถว login ที่สร้างด้วย User-Agent ทดสอบได้; ไม่ได้ตรวจ RLS/anon ซ้ำในการแก้ IP ครั้งนี้
+- ชุด logging/verifier ล่าสุดผ่าน 17 tests รวมการปลอม headers และ proxy trust
 - Dashboard URL ระบุ project ได้ แต่ไม่แทนสิทธิ์เข้าถึงบัญชี
   มี Supabase plugin ให้ติดตั้ง/เชื่อม; หากเชื่อมแล้วสามารถ apply และตรวจต่อได้
 
@@ -99,32 +101,47 @@ Backend สร้าง client ใน lifespan ตอน startup ต้อง re
 
 ## ตรวจ IP เมื่อผ่าน Vercel
 
-`It-shop/vercel.json` rewrite `/api/:path*` ไป Railway และ production Angular ใช้ same-origin
-Vercel ระบุว่า `x-forwarded-for`/`x-real-ip` เป็น public IP ของผู้เรียก
-และ `x-vercel-ip-country` เป็นรหัสประเทศ
-([เอกสาร request headers](https://vercel.com/docs/headers/request-headers))
-External rewrites เป็น reverse proxy
-([เอกสาร rewrites](https://vercel.com/kb/guide/vercel-reverse-proxy-rewrites-external))
+Production Angular ใช้ `apiUrl=''`; AuthService POST ไป `/api/login` บนโดเมนเดียวกัน
+เส้นทางคือ browser → Vercel external rewrite → Railway edge → FastAPI ไม่มี serverless function
+`It-shop/vercel.json` ใช้ `routes` เพื่อใส่ request-header transform ก่อนส่ง `/api/*` ไป Railway;
+`/uploads/*`, static assets และ SPA fallback ยังคงทำงานตามเดิม
 
-จากเอกสารคาดว่า IP ผู้ใช้ควรถูกส่งต่อ แต่ **ยังไม่ได้ยืนยัน header chain จริงระหว่าง
-Vercel กับ Railway ของ deployment นี้** Railway หรือ proxy อีกชั้นอาจเขียน header ทับ
-middleware ทำตามลำดับที่กำหนด: ค่าแรก X-Forwarded-For → X-Real-IP → request.client.host
-เมื่อไม่มี country header เก็บ null; ไม่เดาประเทศ
+ตรวจ Railway log แบบชั่วคราวหนึ่งครั้งด้วย login สังเคราะห์แล้ว พบ:
 
-หลัง deploy ให้เทียบ IP ในแถวที่เกิดจาก browser เรียก same-origin `/api/admin/users`
-กับ IP ของผู้ใช้ขณะนั้น แล้วเทียบการเรียก Railway โดยตรงจากเครือข่ายเดียวกัน
-ทำซ้ำจากอีกเครือข่าย ถ้าทั้งสองเครือข่ายเห็น IP คงที่ของ Vercel ให้ถือว่ายังระบุผู้ใช้ไม่ได้
+| ข้อมูล | ผลที่พบ |
+| --- | --- |
+| socket peer | `100.64.0.1` (Railway edge) |
+| `x-forwarded-for`, `x-real-ip` | เป็น IP ของ Vercel/proxy ไม่ใช่ visitor |
+| `x-vercel-forwarded-for` | มี IP ผู้เรียกจริง |
+| `cf-connecting-ip`, `x-vercel-ip-country` | ไม่มีค่า |
 
-ทางแก้ที่เลือกได้หากยืนยันว่า IP เป็นของ Vercel:
+โค้ด debug ถูกลบออก ไม่เก็บ raw headers ลง Supabase และไม่อ่าน body/query/credentials
+Vercel อธิบาย headers ใน [request headers](https://vercel.com/docs/headers/request-headers)
+และแนะนำ secret request-header transform ใน [external rewrites](https://vercel.com/docs/routing/rewrites)
 
-1. ให้ Angular เรียก Railway URL โดยตรง และตั้ง CORS_ORIGINS สำหรับโดเมน frontend
-   วิธีนี้ตัด Vercel rewrite ออกจากเส้นทาง API โดย service key ยังอยู่ backend เท่านั้น
-2. ใช้ proxy ที่อ่าน client IP ของ Vercel และส่งต่ออย่างชัดเจน พร้อมจำกัด origin backend
-   หรือยืนยัน proxy ด้วย signed header เพื่อป้องกันการปลอมค่า forwarded headers
+ตั้ง `ACCESS_LOG_TRUSTED_PROXY_CIDRS=100.64.0.1/32` เฉพาะ Railway backend ตาม peer ที่ตรวจจริง
+และตั้ง `ACCESS_LOG_PROXY_SECRET` เป็น random secret เดียวกันอย่างน้อย 32 ตัวอักษรบน
+Railway backend กับ Vercel **server routing** ของ project นี้เท่านั้น ห้ามใส่ secret ใน Angular,
+source code, Git หรือรายงาน ใช้ secret แยกจาก JWT/AI/Supabase keys
+Vercel transform ใช้ `set` เพื่อเขียน `x-access-log-proxy-secret` ทับค่าที่ผู้เรียกใส่มา
+และ backend เทียบด้วย `hmac.compare_digest`; header นี้ไม่ถูกบันทึกหรือส่งกลับ
 
-ยังไม่ได้เปลี่ยน proxy หรือค่าความปลอดภัย/DB/volume ของ production
-Forwarded IP/country เป็นข้อมูลที่ proxy อ้าง ไม่ใช่หลักฐานยืนยันตัวตน;
-ถ้าเปิด Railway origin ให้เรียกตรง ผู้เรียกอาจปลอม headers ได้
+Backend เลือก IP ตาม trust:
+
+1. Peer ที่เชื่อถือ + secret ถูกต้อง: ค่าแรกของ `x-vercel-forwarded-for` ก่อน
+2. Peer Railway ที่เชื่อถือ: ค่าแรกของ `x-forwarded-for` แล้ว `x-real-ip`
+   (ทดสอบ live แล้วว่า Railway เขียนค่า IP ของผู้เรียกทับ headers ปลอม)
+3. Peer อื่นหรือไม่ได้ตั้ง CIDRs: ใช้ socket peer และไม่เชื่อ forwarded headers
+
+ตรวจค่าเป็น IPv4/IPv6 จริงก่อนใช้; ไม่ข้ามไปใช้ IP ลำดับหลังที่ client อาจแทรกไว้
+`backend/railway.json` ใช้ `--no-proxy-headers` เพื่อรักษา socket peer สำหรับตรวจ trust
+ถ้าเริ่ม Uvicorn เองพร้อม proxy trust ต้องใส่ flag นี้ด้วย ห้ามตั้ง CIDRs เป็นทุก IP
+หาก topology/peer เปลี่ยนต้องตรวจใหม่ก่อนแก้ allowlist; env ว่าง/ผิดใช้ peer เป็น fallback
+
+รับ country จาก `x-vercel-ip-country` เฉพาะ proxy ที่ยืนยัน secret/peer แล้ว
+และต้องเป็นตัวอักษร ASCII สองตัว; ไม่มี header เก็บ null ไม่เดาประเทศหรือเชื่อ Cloudflare header
+การเรียกตรง Railway ยังใช้ได้และจะไม่เชื่อ Vercel country/IP ที่ผู้เรียกปลอมมา
+metadata นี้ใช้สำหรับ audit เท่านั้น การยืนยันบัญชียังคงใช้ JWT/role/ownership เดิม
 
 ## ทดสอบจริงหลังสร้างตาราง
 
