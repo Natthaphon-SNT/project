@@ -83,3 +83,17 @@ test('upstream failures return a generic 502 without reflecting sensitive errors
   assert.equal(response.status, 502);
   assert.equal(await response.text(), 'Backend unavailable');
 });
+
+test('normalizes upstream 413 HTML into a frontend-readable upload error', async () => {
+  globalThis.fetch = async () => new Response('<html>Payload too large</html>', {
+    status: 413, headers: { 'content-type': 'text/html' },
+  });
+  const response = await proxy.fetch(new Request('https://test/api/proxy?__proxy_path=profile/upload-image', {
+    method: 'POST', body: 'synthetic-image',
+  }));
+  assert.equal(response.status, 413);
+  assert.match(response.headers.get('content-type'), /application\/json/);
+  assert.deepEqual(await response.json(), {
+    code: 'PAYLOAD_TOO_LARGE', detail: 'ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB',
+  });
+});

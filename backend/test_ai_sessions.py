@@ -82,9 +82,11 @@ class AiSessionTests(unittest.TestCase):
             return httpx.Response(201)
         headers = {'x-forwarded-for': '203.0.113.7, 192.0.2.5',
                    'x-real-ip': '198.51.100.8', 'user-agent': 'AccessAudit/1.0',
-                   'x-vercel-ip-country': 'TH'}
+                   'x-vercel-ip-country': 'TH', 'x-vercel-forwarded-for': '203.0.113.7',
+                   'x-access-log-proxy-secret': 'synthetic-proxy-secret-for-testing-only'}
         with patch.dict(os.environ, {'SUPABASE_URL': 'https://logs.example.test',
-                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key'}), \
+                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key',
+                                     'ACCESS_LOG_PROXY_SECRET': 'synthetic-proxy-secret-for-testing-only'}), \
              patch.object(access_log.httpx, 'AsyncClient', side_effect=lambda **kwargs:
                           original(transport=httpx.MockTransport(store), **kwargs)):
             with TestClient(self.api.app) as client:
@@ -121,6 +123,34 @@ class AiSessionTests(unittest.TestCase):
         self.assertNotIn('synthetic-password', json.dumps(rows))
         self.assertNotIn('do-not-log', json.dumps(rows))
         self.assertNotIn('wrong-password', json.dumps(rows))
+
+    def test_access_logs_identify_verified_token_and_keep_anonymous_null(self):
+        import httpx
+        import access_log
+        rows = []
+        original = httpx.AsyncClient
+        async def store(req):
+            rows.append(json.loads(req.content))
+            return httpx.Response(201)
+        token = self.api.create_token({'uid': 'alice'})
+        with patch.dict(os.environ, {'SUPABASE_URL': 'https://logs.example.test',
+                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key'}), \
+             patch.object(access_log.httpx, 'AsyncClient', side_effect=lambda **kwargs:
+                          original(transport=httpx.MockTransport(store), **kwargs)):
+            with TestClient(self.api.app) as client:
+                response = client.get('/api/profile', headers={'Authorization': 'Bearer ' + token})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()['data']['uid'], 'alice')
+                self.assertEqual(client.get('/api/profile').status_code, 401)
+                self.assertEqual(client.get('/api/profile', headers={
+                    'Authorization': 'Bearer invalid-token'}).status_code, 401)
+        self.assertEqual([(row['status'], row['user_id']) for row in rows], [
+            (200, 'alice'), (401, None), (401, None),
+        ])
+        self.assertTrue(all(row['path'] == '/api/profile' for row in rows))
+        self.assertNotIn('alice@example.com', json.dumps(rows))
+        self.assertNotIn(token, json.dumps(rows))
+        self.assertNotIn('invalid-token', json.dumps(rows))
 
     def test_admin_and_private_route_dependencies(self):
         from fastapi.routing import APIRoute

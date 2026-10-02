@@ -507,7 +507,7 @@ SHA-256 of source file: `0258394449bf387c23e69064c114a9d09be80b315c980a2566c11ba
 
 ## It-shop/api/proxy.mjs
 
-SHA-256 of source file: `dfa3da84f3b745dbc620a137c5bba8a812ba39094a834fb4fb7eeab702ba4505`
+SHA-256 of source file: `32546692ce3059b0867bb26f4bf53f36116a7ddd2bbadf56cd600d8714d4fde4`
 
 ````javascript
 import { isIP } from 'node:net';
@@ -557,6 +557,14 @@ export default {
         body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
         duplex: 'half', redirect: 'manual', signal: AbortSignal.timeout(240_000),
       });
+      if (upstream.status === 413) {
+        return Response.json({
+          code: 'PAYLOAD_TOO_LARGE',
+          detail: path === 'profile/upload-image'
+            ? 'ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB'
+            : 'ข้อมูลที่ส่งมีขนาดใหญ่เกินกำหนด',
+        }, { status: 413 });
+      }
       const responseHeaders = new Headers(upstream.headers);
       for (const name of [...HOP_HEADERS, 'content-encoding']) responseHeaders.delete(name);
       return new Response(upstream.body, {
@@ -572,7 +580,7 @@ export default {
 
 ## It-shop/tests/proxy.test.mjs
 
-SHA-256 of source file: `372989120b30f1d7905dbb933823f5660b7788cf53f432efd7ad8d0208a5fd66`
+SHA-256 of source file: `9dd964149709f5644134c9966a07fa896e4e4f744b4b052a92aa9df561850f4b`
 
 ````javascript
 import assert from 'node:assert/strict';
@@ -659,6 +667,381 @@ test('upstream failures return a generic 502 without reflecting sensitive errors
   const response = await proxy.fetch(new Request('https://test/api/proxy?__proxy_path=login'));
   assert.equal(response.status, 502);
   assert.equal(await response.text(), 'Backend unavailable');
+});
+
+test('normalizes upstream 413 HTML into a frontend-readable upload error', async () => {
+  globalThis.fetch = async () => new Response('<html>Payload too large</html>', {
+    status: 413, headers: { 'content-type': 'text/html' },
+  });
+  const response = await proxy.fetch(new Request('https://test/api/proxy?__proxy_path=profile/upload-image', {
+    method: 'POST', body: 'synthetic-image',
+  }));
+  assert.equal(response.status, 413);
+  assert.match(response.headers.get('content-type'), /application\/json/);
+  assert.deepEqual(await response.json(), {
+    code: 'PAYLOAD_TOO_LARGE', detail: 'ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB',
+  });
+});
+````
+
+## It-shop/src/app/pages/profile/profile.ts
+
+SHA-256 of source file: `8bc9f31b987dc24cf29c644860545816a920a9c7c52d878646c3738438a06524`
+
+````typescript
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { AuthService } from '../../services/auth';
+import { API_BASE_URL } from '../../services/api-base-url';
+
+@Component({
+  selector: 'app-profile',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  templateUrl: './profile.html',
+  styleUrls: ['./profile.scss']
+})
+export class ProfileComponent implements OnInit {
+  currentUser: any = null;
+  profileData: any = null;
+  isLoading = true;
+  loadError = false;
+  isEditMode = false;
+  isSaving = false;
+  isChangingPassword = false;
+  uploadingImage = false;
+
+  // ฟอร์มแก้ไขโปรไฟล์
+  editForm = {
+    u_name: '',
+    u_phone: '',
+    u_address: ''
+  };
+
+  // ฟอร์มเปลี่ยนรหัสผ่าน
+  passwordForm = {
+    current_password: '',
+    new_password: '',
+    confirm_password: ''
+  };
+
+  showPasswordForm = false;
+  message = '';
+  messageType: 'success' | 'error' | '' = '';
+
+  private readonly API = API_BASE_URL;
+  private readonly maxProfileImageBytes = 4 * 1024 * 1024;
+  private readonly oversizedImageMessage = 'ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB';
+
+  constructor(
+    private http: HttpClient,
+    private auth: AuthService,
+    private cdr: ChangeDetectorRef
+  ) {}
+
+  ngOnInit() {
+    this.currentUser = this.auth.currentUserSubject.value;
+    if (!this.auth.isLoggedIn()) {
+      this.auth.handleUnauthorized('/profile');
+      return;
+    }
+    this.loadProfile();
+  }
+
+  private getHeaders(): HttpHeaders {
+    const token = this.auth.getToken();
+    return new HttpHeaders({ Authorization: `Bearer ${token}` });
+  }
+
+  loadProfile() {
+    this.isLoading = true;
+    this.loadError = false;
+    this.http.get<any>(`${this.API}/api/profile`, { headers: this.getHeaders() }).subscribe({
+      next: (res) => {
+        if (res.status === 'success') {
+          this.profileData = res.data;
+          this.editForm = {
+            u_name:    res.data.u_name    || '',
+            u_phone:   res.data.u_phone   || '',
+            u_address: res.data.u_address || ''
+          };
+        }
+        this.isLoading = false;
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
+        this.isLoading = false;
+        this.loadError = true;
+        this.profileData = null;
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  enableEdit() {
+    this.isEditMode = true;
+    this.editForm = {
+      u_name:    this.profileData?.u_name    || '',
+      u_phone:   this.profileData?.u_phone   || '',
+      u_address: this.profileData?.u_address || ''
+    };
+  }
+
+  cancelEdit() {
+    this.isEditMode = false;
+    this.message = '';
+    this.messageType = '';
+  }
+
+  saveProfile() {
+    if (!this.editForm.u_name.trim()) {
+      this.showMessage('กรุณากรอกชื่อผู้ใช้', 'error');
+      return;
+    }
+    this.isSaving = true;
+    this.http.put<any>(`${this.API}/api/profile`, this.editForm, { headers: this.getHeaders() }).subscribe({
+      next: (res) => {
+        this.isSaving = false;
+        if (res.status === 'success') {
+          this.profileData = res.data || { ...this.profileData, ...this.editForm };
+          this.isEditMode = false;
+          // อัปเดต localStorage
+          const saved = JSON.parse(localStorage.getItem('lt_user') || '{}');
+          saved.name = res.data?.u_name || this.editForm.u_name;
+          localStorage.setItem('lt_user', JSON.stringify(saved));
+          this.auth.currentUserSubject.next(saved);
+          this.showMessage('อัปเดตโปรไฟล์สำเร็จ', 'success');
+          this.loadProfile();
+        } else {
+          this.showMessage(res.detail || res.message || 'เกิดข้อผิดพลาด', 'error');
+        }
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.isSaving = false;
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
+        this.showMessage(err.error?.detail || 'ไม่สามารถบันทึกได้', 'error');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  changePassword() {
+    if (!this.passwordForm.current_password || !this.passwordForm.new_password) {
+      this.showMessage('กรุณากรอกข้อมูลให้ครบถ้วน', 'error');
+      return;
+    }
+    if (this.passwordForm.new_password !== this.passwordForm.confirm_password) {
+      this.showMessage('รหัสผ่านใหม่ไม่ตรงกัน', 'error');
+      return;
+    }
+    if (this.passwordForm.new_password.length < 6) {
+      this.showMessage('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', 'error');
+      return;
+    }
+    this.isChangingPassword = true;
+    this.http.put<any>(`${this.API}/api/profile/password`, this.passwordForm, { headers: this.getHeaders() }).subscribe({
+      next: (res) => {
+        this.isChangingPassword = false;
+        if (res.status === 'success') {
+          if (res.token) this.auth.updateToken(res.token);
+          this.showMessage('เปลี่ยนรหัสผ่านสำเร็จ', 'success');
+          this.passwordForm = { current_password: '', new_password: '', confirm_password: '' };
+          this.showPasswordForm = false;
+        } else {
+          this.showMessage(res.detail || res.message || 'เกิดข้อผิดพลาด', 'error');
+        }
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.isChangingPassword = false;
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
+        this.showMessage(err.error?.detail || 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'error');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  onImageUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > this.maxProfileImageBytes) {
+      input.value = '';
+      this.showMessage(this.oversizedImageMessage, 'error');
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    this.uploadingImage = true;
+    this.http.post<any>(`${this.API}/api/profile/upload-image`, formData, { headers: this.getHeaders() }).subscribe({
+      next: (res) => {
+        this.uploadingImage = false;
+        if (res.status === 'success') {
+          this.profileData.u_image = res.image_url;
+          this.showMessage('อัปโหลดรูปโปรไฟล์สำเร็จ', 'success');
+        } else {
+          this.showMessage('อัปโหลดไม่สำเร็จ', 'error');
+        }
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.uploadingImage = false;
+        if (err.status === 401) {
+          this.auth.handleUnauthorized('/profile');
+          return;
+        }
+        this.showMessage(err.status === 413
+          ? this.oversizedImageMessage
+          : err.error?.detail || 'อัปโหลดไม่สำเร็จ', 'error');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  getProfileImage(): string {
+    if (this.profileData?.u_image) {
+      return `${API_BASE_URL}/${this.profileData.u_image}`;
+    }
+    return '';
+  }
+
+  getStatusClass(status: string): string {
+    const map: Record<string, string> = {
+      pending: 'status-pending',
+      shipping: 'status-shipping',
+      completed: 'status-completed',
+      cancelled: 'status-cancelled'
+    };
+    return map[status] || 'status-pending';
+  }
+
+  getStatusLabel(status: string): string {
+    const map: Record<string, string> = {
+      pending: 'รอดำเนินการ',
+      shipping: 'กำลังจัดส่ง',
+      completed: 'สำเร็จ',
+      cancelled: 'ยกเลิก'
+    };
+    return map[status] || status;
+  }
+
+  private showMessage(msg: string, type: 'success' | 'error') {
+    this.message = msg;
+    this.messageType = type;
+    setTimeout(() => {
+      this.message = '';
+      this.messageType = '';
+      this.cdr.detectChanges();
+    }, 4000);
+  }
+
+  logout() {
+    this.auth.logout();
+  }
+}
+````
+
+## It-shop/src/app/pages/profile/profile.spec.ts
+
+SHA-256 of source file: `300480f3845b6d38ef31716a7a5deed13991af01a4f969e69add2370aa915180`
+
+````typescript
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
+
+import { ProfileComponent } from './profile';
+
+describe('Profile', () => {
+  let component: ProfileComponent;
+  let fixture: ComponentFixture<ProfileComponent>;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    localStorage.setItem('lt_user', JSON.stringify({ uid: 'test-user', role: 'customer' }));
+    const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }));
+    localStorage.setItem('lt_token', `header.${payload}.signature`);
+    await TestBed.configureTestingModule({
+      imports: [ProfileComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+    })
+    .compileComponents();
+
+    fixture = TestBed.createComponent(ProfileComponent);
+    component = fixture.componentInstance;
+    http = TestBed.inject(HttpTestingController);
+    await fixture.whenStable();
+    http.expectOne(request => request.url.endsWith('/api/profile')).flush({
+      status: 'success', data: { uid: 'test-user', u_name: 'Test', u_role: 'customer' }
+    });
+  });
+
+  it('should create', () => {
+    expect(component).toBeTruthy();
+  });
+
+  function selectImage(size: number): HTMLInputElement {
+    const input = document.createElement('input');
+    input.type = 'file';
+    const file = new File([new Uint8Array(size)], 'profile.png', { type: 'image/png' });
+    Object.defineProperty(input, 'files', { value: [file] });
+    component.onImageUpload({ target: input } as unknown as Event);
+    return input;
+  }
+
+  it('rejects images larger than 4 MB before any upload request', () => {
+    const input = selectImage(4 * 1024 * 1024 + 1);
+    http.expectNone(request => request.url.endsWith('/api/profile/upload-image'));
+    expect(component.uploadingImage).toBe(false);
+    expect(component.message).toBe('ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB');
+    expect(component.messageType).toBe('error');
+    expect(input.value).toBe('');
+  });
+
+  it('accepts the 4 MB boundary and preserves the file and authorization', () => {
+    selectImage(4 * 1024 * 1024);
+    const request = http.expectOne(request => request.url.endsWith('/api/profile/upload-image'));
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Authorization')).toBe(`Bearer ${localStorage.getItem('lt_token')}`);
+    expect((request.request.body as FormData).get('file')).toBeInstanceOf(File);
+    expect(((request.request.body as FormData).get('file') as File).size).toBe(4 * 1024 * 1024);
+    request.flush({ status: 'success', image_url: 'uploads/profile/test.png' });
+    expect(component.profileData.u_image).toBe('uploads/profile/test.png');
+    expect(component.uploadingImage).toBe(false);
+  });
+
+  it('shows a Thai size error for platform 413 responses before the function runs', () => {
+    selectImage(100);
+    const request = http.expectOne(request => request.url.endsWith('/api/profile/upload-image'));
+    request.flush('<html>FUNCTION_PAYLOAD_TOO_LARGE</html>', { status: 413, statusText: 'Payload Too Large' });
+    expect(component.message).toBe('ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB');
+    expect(component.messageType).toBe('error');
+    expect(component.uploadingImage).toBe(false);
+    expect(component.profileData.u_image).toBeUndefined();
+  });
+
+  afterEach(() => {
+    http.verify();
+    localStorage.removeItem('lt_user');
+    localStorage.removeItem('lt_token');
+  });
 });
 ````
 
@@ -3344,7 +3727,7 @@ if __name__ == "__main__":
 
 ## backend/test_ai_sessions.py
 
-SHA-256 of source file: `e3d40024bf64ad6e783722fabc192c19a95bd1c39108c8e72e7bdfea32ff849b`
+SHA-256 of source file: `af94c2ccdea7db364b561529ba5ba52fe904b6fc2571f556c7bd48daba49db18`
 
 ````python
 
@@ -3431,9 +3814,11 @@ class AiSessionTests(unittest.TestCase):
             return httpx.Response(201)
         headers = {'x-forwarded-for': '203.0.113.7, 192.0.2.5',
                    'x-real-ip': '198.51.100.8', 'user-agent': 'AccessAudit/1.0',
-                   'x-vercel-ip-country': 'TH'}
+                   'x-vercel-ip-country': 'TH', 'x-vercel-forwarded-for': '203.0.113.7',
+                   'x-access-log-proxy-secret': 'synthetic-proxy-secret-for-testing-only'}
         with patch.dict(os.environ, {'SUPABASE_URL': 'https://logs.example.test',
-                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key'}), \
+                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key',
+                                     'ACCESS_LOG_PROXY_SECRET': 'synthetic-proxy-secret-for-testing-only'}), \
              patch.object(access_log.httpx, 'AsyncClient', side_effect=lambda **kwargs:
                           original(transport=httpx.MockTransport(store), **kwargs)):
             with TestClient(self.api.app) as client:
@@ -3470,6 +3855,34 @@ class AiSessionTests(unittest.TestCase):
         self.assertNotIn('synthetic-password', json.dumps(rows))
         self.assertNotIn('do-not-log', json.dumps(rows))
         self.assertNotIn('wrong-password', json.dumps(rows))
+
+    def test_access_logs_identify_verified_token_and_keep_anonymous_null(self):
+        import httpx
+        import access_log
+        rows = []
+        original = httpx.AsyncClient
+        async def store(req):
+            rows.append(json.loads(req.content))
+            return httpx.Response(201)
+        token = self.api.create_token({'uid': 'alice'})
+        with patch.dict(os.environ, {'SUPABASE_URL': 'https://logs.example.test',
+                                     'SUPABASE_SERVICE_KEY': 'synthetic-service-key'}), \
+             patch.object(access_log.httpx, 'AsyncClient', side_effect=lambda **kwargs:
+                          original(transport=httpx.MockTransport(store), **kwargs)):
+            with TestClient(self.api.app) as client:
+                response = client.get('/api/profile', headers={'Authorization': 'Bearer ' + token})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()['data']['uid'], 'alice')
+                self.assertEqual(client.get('/api/profile').status_code, 401)
+                self.assertEqual(client.get('/api/profile', headers={
+                    'Authorization': 'Bearer invalid-token'}).status_code, 401)
+        self.assertEqual([(row['status'], row['user_id']) for row in rows], [
+            (200, 'alice'), (401, None), (401, None),
+        ])
+        self.assertTrue(all(row['path'] == '/api/profile' for row in rows))
+        self.assertNotIn('alice@example.com', json.dumps(rows))
+        self.assertNotIn(token, json.dumps(rows))
+        self.assertNotIn('invalid-token', json.dumps(rows))
 
     def test_admin_and_private_route_dependencies(self):
         from fastapi.routing import APIRoute
@@ -4058,7 +4471,7 @@ delete from public.access_logs where created_at < now() - interval '90 days';
 
 ## docs/access-logging/README.md
 
-SHA-256 of source file: `81471e18faef73d316aeaaf900680f64f9f12b739d6bd7e2b6c60b61d2a2ff98`
+SHA-256 of source file: `4cfbdbebca9012618d427e2c533ce1f534bb9e7508fb92b2b2daaa9daa13cbcc`
 
 ````markdown
 # Access logging สำหรับ Railway backend
@@ -4066,6 +4479,9 @@ SHA-256 of source file: `81471e18faef73d316aeaaf900680f64f9f12b739d6bd7e2b6c60b6
 โค้ดและเอกสารอ้างอิงวันที่ 2 ตุลาคม 2026 ใช้ Supabase project
 [`uervyttvxzqsctwyogso`](https://supabase.com/dashboard/project/uervyttvxzqsctwyogso)
 เพื่อเก็บ access logs เท่านั้น ข้อมูลหลักและ schema ของ SQLite ไม่เปลี่ยน
+
+ผลปิดงานต่อจาก `3c0d718c`: [user ID, upload limit/413 และ secret audit](follow-up-audit.md)
+เทสต์อัตโนมัติรวม 394 รายการและ production build ผ่าน
 
 ## สิ่งที่ทำแล้วและสิ่งที่ยังไม่ได้ยืนยัน
 
@@ -4223,6 +4639,7 @@ IP ตรงกัน; spoofed IP/country/secret ไม่ถูกเชื่�
 Function รักษา multipart bytes แต่ Vercel จำกัด request payload ที่ 4.5 MB ดังนั้น profile upload
 ผ่าน proxy นี้ต้องรวม multipart overhead แล้วไม่เกิน limit นั้น; proxy timeout 240 วินาที และ
 ตั้ง maxDuration 300 วินาที ดู [ข้อจำกัด Function](https://vercel.com/docs/functions/limitations)
+Angular ปฏิเสธรูปเกิน 4 MB ก่อนส่ง request และแสดงข้อความไทยสำหรับ 413 แม้ถูกปฏิเสธก่อน Function
 หากต้องรองรับไฟล์ใหญ่กว่านี้ให้วางเส้นทาง upload แยก; การแก้ครั้งนี้ไม่เปลี่ยน DB/uploads/S3
 
 ## ทดสอบจริงหลังสร้างตาราง
@@ -4270,4 +4687,63 @@ Fire-and-forget ไม่รับประกันว่าเก็บคร�
 [`full-files.md`](full-files.md) เป็น snapshot เนื้อหาทุกไฟล์ที่เพิ่ม/แก้สำหรับงานนี้
 ทั้งไฟล์ รวม `shop_api.py` ฉบับเต็ม ไม่ใช่ diff (ไม่รวม snapshot ตัวมันเองเพื่อไม่ให้วนซ้ำ)
 ไฟล์ที่เปลี่ยนในงานก่อนหน้ายังคงอยู่และไม่ได้ย้อนการแก้เหล่านั้น
+````
+
+## docs/access-logging/follow-up-audit.md
+
+SHA-256 of source file: `8e8468b66034cb4b31f339f8ec5422fa8213e8ba17a2fbd730e5483140786520`
+
+````markdown
+# Access logging follow-up audit
+
+ตรวจวันที่ 2 ตุลาคม 2026 (Asia/Bangkok) ต่อจาก commit `3c0d718c`
+
+## User ID
+
+`get_current_user` ใน `backend/shop_api.py` ตั้ง `request.state.user_id = user.uid`
+หลังตรวจ token, ผู้ใช้ และ token version สำเร็จอยู่แล้ว `require_admin` ใช้ dependency นี้ต่อ
+จึงไม่ต้องแก้ logic การยืนยันตัวตนหรือ schema ของ SQLite
+
+เพิ่ม regression ใน `backend/test_ai_sessions.py` โดยใช้ JWT ที่ลงนามจริงสำหรับผู้ใช้ใน DB
+ชั่วคราว เรียก `/api/profile` ผ่าน middleware และตรวจ JSON ที่ส่งไป Supabase MockTransport:
+token ถูกต้องได้ HTTP 200 และ user ID; ไม่มี token/invalid token ได้ 401 และ user ID เป็น null
+assert ว่า log ไม่มีอีเมลหรือ token และปรับ fixture proxy ของ integration test เดิมให้ตรงระบบปัจจุบัน
+เทสต์นี้ไม่สร้างบัญชีหรือแก้ข้อมูลบน production
+
+## Profile upload
+
+Angular ตรวจ file size ก่อนสร้าง request ถ้าเกิน `4 * 1024 * 1024` bytes จะล้าง input
+และแสดง “ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB” โดยไม่ส่ง HTTP request
+ไฟล์ที่ขนาดเท่าขีดจำกัดส่งได้ และมีพื้นที่เหลือสำหรับ multipart overhead ก่อนถึง Function limit
+
+Proxy แปลง upstream 413 เป็น JSON ที่มี `code=PAYLOAD_TOO_LARGE` และข้อความไทย
+หาก Vercel ปฏิเสธก่อน Function ทำงาน proxy จะไม่ได้รับ request นั้น Angular จึงตรวจ status 413
+โดยตรงด้วย รองรับ error body แบบ JSON, text หรือ HTML โดยแสดงข้อความไทยเดียวกัน
+ตรวจ multipart/body/auth forwarding เดิมด้วย Node tests
+
+## Secret audit
+
+- ตรวจ tracked files และไฟล์ untracked ที่ไม่ถูก ignore รวม README, docs และ full source snapshot
+- ตรวจทุก unique text blob ที่เข้าถึงได้จาก history ของ `main` รวม commit `3c0d718c`
+- ใช้ pattern สำหรับชื่อตัวแปรพร้อม literal ยาว, JWT prefix และ Supabase secret prefix
+  พร้อมตรวจ exact match กับ proxy/Supabase service keys ที่อ่านจาก Railway อย่างเป็นส่วนตัว
+- การสแกนครั้งแรกตรวจ 7,509 เวอร์ชันไฟล์ข้อความ: real-key exact matches 0 และ candidates
+  ที่ต้องตรวจต่อ 0; พบเฉพาะ synthetic fixtures ที่ระบุชัด ไม่ใช่ค่าจริงของ hosting
+- ตำแหน่ง fixture ใน source: `It-shop/tests/proxy.test.mjs:14`,
+  `backend/test_access_log.py:33`, `backend/test_ai_sessions.py:89`; snapshot/history มีสำเนาของ fixtures
+- `.env` และ `backend/.env` ถูก ignore และไม่ tracked; `.env.example` มีแต่ชื่อตัวแปรกับค่าว่าง
+- ไม่พิมพ์ matched values หรือ credentials ลง terminal/report ไม่พบเหตุให้ rotate proxy secret
+  หรือ Supabase service key และไม่ต้องตั้ง environment variable เพิ่มสำหรับงานนี้
+
+## Validation
+
+- Backend automated suites ทั้ง 19 modules: 330 tests ผ่าน ด้วย DB/uploads ชั่วคราว
+- Angular ทั้ง 18 test files: 58 tests ผ่าน
+- Node proxy: 6 tests ผ่าน
+- Production build ผ่าน; มี warnings เรื่อง bundle/CSS size เดิม ไม่มี build errors
+- `git diff --check` ผ่าน
+
+ไฟล์ `test_*.py` ที่เป็นสคริปต์ตรวจเว็บ/DB แบบ manual ไม่ใช่ automated test suites
+ไม่ได้ import เพื่อรันรวมโดยสุ่ม เพราะบางไฟล์เรียกเว็บจริงหรือ DB จริง
+ไม่มีการแก้ AI recommendation logic หรือ SQLite schema ในงานนี้
 ````

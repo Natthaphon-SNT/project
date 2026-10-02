@@ -41,6 +41,8 @@ export class ProfileComponent implements OnInit {
   messageType: 'success' | 'error' | '' = '';
 
   private readonly API = API_BASE_URL;
+  private readonly maxProfileImageBytes = 4 * 1024 * 1024;
+  private readonly oversizedImageMessage = 'ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB';
 
   constructor(
     private http: HttpClient,
@@ -182,8 +184,15 @@ export class ProfileComponent implements OnInit {
   }
 
   onImageUpload(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
     if (!file) return;
+    if (file.size > this.maxProfileImageBytes) {
+      input.value = '';
+      this.showMessage(this.oversizedImageMessage, 'error');
+      this.cdr.detectChanges();
+      return;
+    }
 
     const formData = new FormData();
     formData.append('file', file);
@@ -206,7 +215,9 @@ export class ProfileComponent implements OnInit {
           this.auth.handleUnauthorized('/profile');
           return;
         }
-        this.showMessage(err.error?.detail || 'อัปโหลดไม่สำเร็จ', 'error');
+        this.showMessage(err.status === 413
+          ? this.oversizedImageMessage
+          : err.error?.detail || 'อัปโหลดไม่สำเร็จ', 'error');
         this.cdr.detectChanges();
       }
     });

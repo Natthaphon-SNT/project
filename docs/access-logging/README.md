@@ -4,6 +4,9 @@
 [`uervyttvxzqsctwyogso`](https://supabase.com/dashboard/project/uervyttvxzqsctwyogso)
 เพื่อเก็บ access logs เท่านั้น ข้อมูลหลักและ schema ของ SQLite ไม่เปลี่ยน
 
+ผลปิดงานต่อจาก `3c0d718c`: [user ID, upload limit/413 และ secret audit](follow-up-audit.md)
+เทสต์อัตโนมัติรวม 394 รายการและ production build ผ่าน
+
 ## สิ่งที่ทำแล้วและสิ่งที่ยังไม่ได้ยืนยัน
 
 - เพิ่ม `backend/access_log.py` และติดตั้ง middleware หลัง CORS/slowapi ใน `shop_api.py`
@@ -160,6 +163,7 @@ IP ตรงกัน; spoofed IP/country/secret ไม่ถูกเชื่�
 Function รักษา multipart bytes แต่ Vercel จำกัด request payload ที่ 4.5 MB ดังนั้น profile upload
 ผ่าน proxy นี้ต้องรวม multipart overhead แล้วไม่เกิน limit นั้น; proxy timeout 240 วินาที และ
 ตั้ง maxDuration 300 วินาที ดู [ข้อจำกัด Function](https://vercel.com/docs/functions/limitations)
+Angular ปฏิเสธรูปเกิน 4 MB ก่อนส่ง request และแสดงข้อความไทยสำหรับ 413 แม้ถูกปฏิเสธก่อน Function
 หากต้องรองรับไฟล์ใหญ่กว่านี้ให้วางเส้นทาง upload แยก; การแก้ครั้งนี้ไม่เปลี่ยน DB/uploads/S3
 
 ## ทดสอบจริงหลังสร้างตาราง

@@ -45,6 +45,14 @@ export default {
         body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
         duplex: 'half', redirect: 'manual', signal: AbortSignal.timeout(240_000),
       });
+      if (upstream.status === 413) {
+        return Response.json({
+          code: 'PAYLOAD_TOO_LARGE',
+          detail: path === 'profile/upload-image'
+            ? 'ไฟล์ใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 4 MB'
+            : 'ข้อมูลที่ส่งมีขนาดใหญ่เกินกำหนด',
+        }, { status: 413 });
+      }
       const responseHeaders = new Headers(upstream.headers);
       for (const name of [...HOP_HEADERS, 'content-encoding']) responseHeaders.delete(name);
       return new Response(upstream.body, {
